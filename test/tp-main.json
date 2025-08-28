@@ -1,0 +1,18 @@
+{
+    "asset": {
+        "format": "tempor",
+        "version": "1.0.0"
+    },
+    "scenes": [],
+    "descriptors": [
+        {
+            "rel-path": "scenes/1load.tp_scene",
+            "format": "tp-scene"
+        },
+        {
+            "rel-path": "1load.glb",
+            "format": "gltf-binary"
+        }
+    ],
+    "gui-schema": "tp-gui-schema.json"
+}

@@ -8,25 +8,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(TEMPOR_VULKAN_BACKEND "Enable vulkan backend support" ON)
 option(TEMPOR_SANITIZER "Enable sanitizer" ON)
 
-find_package(SDL2 REQUIRED)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/gpu_backends)
 
 add_executable(
     tempor
     src/main.cpp
-    src/tempor.cpp
-    src/window_manager.cpp
+    src/tempor_engine/tempor.cpp
 )
 
-# tmp macros
-add_compile_definitions(LSAN_BUIT_IN_OPTIONS TEMPOR_VK_DEBUG_UTILS_MESSENGER)
+add_subdirectory(src/utils)
+target_link_libraries(tempor PRIVATE window_manager)
+target_link_libraries(tempor PRIVATE gui_processor)
 
-# link vulkan backend
+# including vulkan gpu backend if needed
 if (TEMPOR_VULKAN_BACKEND)
-    add_subdirectory(src/vulkan)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/gpu_backends/vulkan_backend)
     target_link_libraries(tempor PRIVATE vulkan_backend)
 endif()
 
-# add sanitizer
+# including sanitizer if needed
 if (TEMPOR_SANITIZER)
     add_link_options(-fsanitize=address)
     add_compile_options(-fsanitize=address)
@@ -34,7 +34,7 @@ endif()
 
 add_compile_options(-O0)
 
-target_link_libraries(tempor PRIVATE SDL2::SDL2)
+target_include_directories(tempor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/tempor_engine)  # for main.cpp to see tempor.hpp
 
 
 # fastgltf

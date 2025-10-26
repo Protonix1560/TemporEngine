@@ -1,6 +1,5 @@
 #pragma once
 
-#include <string>
 #include <exception>
 #include <ostream>
 
@@ -55,5 +54,35 @@ struct Exception : public std::exception {
 
 enum class BackendRealization {
     VULKAN,
+};
+
+
+
+struct Settings {
+    bool vulkanBackend_debug_useKhronosValidationLayer;
+};
+
+
+
+class GlobalServiceLocator {
+    public:
+        template<typename T>
+        static void provide(T* service) {
+            getSlot<T>() = service;
+        }
+
+        template<typename T>
+        static T& get() {
+            auto* s = getSlot<T>();
+            if (!s) throw Exception(ErrCode::InternalError, "Internal service is not provided");
+            return *s;
+        }
+
+    private:
+        template<typename T>
+        static T*& getSlot() {
+            static T* instance = nullptr;
+            return instance;
+        }
 };
 

@@ -14,5 +14,6 @@
             "format": "gltf-binary"
         }
     ],
-    "gui-schema": "tp-gui-schema.json"
+    "gui-schema": "tp-gui-schema.json",
+    "settings": "tp-settings.json"
 }

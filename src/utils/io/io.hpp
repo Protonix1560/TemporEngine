@@ -1,9 +1,8 @@
+#pragma once
 
 #include "core.hpp"
 
-#include <cstddef>
 #include <fstream>
-#include <memory>
 #include <vector>
 #include <filesystem>
 

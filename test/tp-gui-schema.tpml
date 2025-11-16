@@ -1,8 +1,0 @@
-<tpml>
-    <body type="array" orientation="horizontal" bg-colour="#000000" inner-padding=2cm>
-        <struct bg-colour="#00aa77"/>
-        <struct bg-colour="#00aa77"/>
-        <struct bg-colour="#00aa77"/>
-        <struct bg-colour="#00aa77"/>
-    </body>
-</tpml>

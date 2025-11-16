@@ -1,4 +1,10 @@
-#pragma once
+
+
+#ifndef UTILS_LOGGER_LOGGER_HPP_
+#define UTILS_LOGGER_LOGGER_HPP_
+
+
+#include "plugin.h"
 
 #include <iostream>
 #include <mutex>
@@ -14,11 +20,11 @@ inline std::string currTime() {
     auto in_time_t = system_clock::to_time_t(now);
     
     std::tm buf;
-#if defined(_WIN32)
-    localtime_s(&buf, &in_time_t);
-#else
-    localtime_r(&in_time_t, &buf);
-#endif
+    #if defined(_WIN32)
+        localtime_s(&buf, &in_time_t);
+    #else
+        localtime_r(&in_time_t, &buf);
+    #endif
 
     auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
 
@@ -28,18 +34,6 @@ inline std::string currTime() {
 
     return oss.str();
 }
-
-
-
-enum class LogLevel {
-    Quiet = 0, Error = 1, Warning = 2, Info = 3, Debug = 4, Trace = 5
-};
-
-
-
-enum class LogStyle {
-    Normal, Timestamp1, Error1
-};
 
 
 
@@ -75,14 +69,14 @@ struct LogEntry {
         }
 
     private:
-        LogLevel mLogLevel;
-        LogStyle mLogStyle;
+        TprLogLevel mLogLevel;
+        TprLogStyle mLogStyle;
         std::ostringstream mBuffer;
         std::mutex mMutex;
         Logger& mrLogger;
         bool mAlways = false;
 
-        LogEntry(Logger& rLogger, LogLevel logLevel = LogLevel::Info, LogStyle logStyle = LogStyle::Normal)
+        LogEntry(Logger& rLogger, TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_IDENT)
             : mrLogger(rLogger), mLogLevel(logLevel), mLogStyle(logStyle) {}
 
         friend class Logger;
@@ -98,23 +92,32 @@ class Logger {
         std::atomic<int> verboseLevel{0};
 
         void write(LogEntry& logEntry) {
+
+            if (logEntry.mBuffer.str().empty()) return;
+
             if (logEntry.mAlways || static_cast<int>(logEntry.mLogLevel) <= verboseLevel.load()) {
                 std::lock_guard<std::mutex> lock(mMutex);
-                auto& stream = (logEntry.mLogLevel == LogLevel::Error) ? std::cerr : std::cout;
+                
+                auto& stream = (logEntry.mLogLevel == TPR_LOG_LEVEL_ERROR) ? std::cerr : std::cout;
 
                 switch (logEntry.mLogStyle) {
-                    case LogStyle::Normal:
+                    case TPR_LOG_STYLE_IDENT:
                         stream << "  ";
                         break;
                     
-                    case LogStyle::Timestamp1:
+                    case TPR_LOG_STYLE_TIMESTAMP1:
                         stream << "==> [" << currTime() << "]: ";
                         break;
 
-                    case LogStyle::Error1:
+                    case TPR_LOG_STYLE_ERROR1:
                         stream << "\033[91m  ";
                         break;
 
+                    case TPR_LOG_STYLE_WARN1:
+                        stream << "\033[93m  ";
+                        break;
+
+                    default: break;
                 }
 
                 stream << logEntry.mBuffer.str() << "\033[0m";
@@ -137,35 +140,35 @@ class Logger {
             return logEntry;
         }
 
-        LogEntry operator()(LogLevel logLevel = LogLevel::Info, LogStyle logStyle = LogStyle::Normal) {
+        LogEntry operator()(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
             return LogEntry(*this, logLevel, logStyle);
         }
 
-        LogEntry log(LogLevel logLevel = LogLevel::Info, LogStyle logStyle = LogStyle::Normal) {
+        LogEntry log(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
             return LogEntry(*this, logLevel, logStyle);
         }
 
-        LogEntry error(LogStyle logStyle = LogStyle::Normal) {
-            return LogEntry(*this, LogLevel::Error, logStyle);
+        LogEntry error(TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
+            return LogEntry(*this, TPR_LOG_LEVEL_ERROR, logStyle);
         }
 
-        LogEntry warn( LogStyle logStyle = LogStyle::Normal) {
-            return LogEntry(*this, LogLevel::Warning, logStyle);
+        LogEntry warn( TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
+            return LogEntry(*this, TPR_LOG_LEVEL_WARN, logStyle);
         }
 
-        LogEntry info(LogStyle logStyle = LogStyle::Normal) {
-            return LogEntry(*this, LogLevel::Info, logStyle);
+        LogEntry info(TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
+            return LogEntry(*this, TPR_LOG_LEVEL_INFO, logStyle);
         }
 
-        LogEntry debug(LogStyle logStyle = LogStyle::Normal) {
-            return LogEntry(*this, LogLevel::Debug, logStyle);
+        LogEntry debug(TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
+            return LogEntry(*this, TPR_LOG_LEVEL_DEBUG, logStyle);
         }
 
-        LogEntry trace(LogStyle logStyle = LogStyle::Normal) {
-            return LogEntry(*this, LogLevel::Trace, logStyle);
+        LogEntry trace(TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
+            return LogEntry(*this, TPR_LOG_LEVEL_TRACE, logStyle);
         }
 
-        LogEntry always(LogLevel logLevel = LogLevel::Info, LogStyle logStyle = LogStyle::Normal) {
+        LogEntry always(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_IDENT) {
             LogEntry logEntry = LogEntry(*this, logLevel, logStyle);
             logEntry.mAlways = true;
             return logEntry;
@@ -181,3 +184,8 @@ inline void LogEntry::flush()  {
     mBuffer.str("");
     mBuffer.clear();
 }
+
+
+
+
+#endif  // UTILS_LOGGER_LOGGER_HPP_

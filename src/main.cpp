@@ -1,13 +1,12 @@
 
 
-#include "tempor.hpp"
-
-
-#ifdef LSAN_BUILT_IN_OPTIONS
-extern "C" const char* __lsan_default_options() {
-    return "suppressions=../leaks.txt";
-}
+#if !defined(__linux__)
+    #error "Unsupported OS type"
 #endif
+
+
+
+#include "tempor.hpp"
 
 
 int main(int argc, char* argv[]) {

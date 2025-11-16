@@ -1,16 +1,24 @@
-#pragma once
 
+
+#ifndef TEMPOR_ENGINE_TEMPOR_HPP_
+#define TEMPOR_ENGINE_TEMPOR_HPP_
+
+
+#include "core.hpp"
+#include "plugin.h"
 #include "window_manager.hpp"
 #include "io.hpp"
 #include "logger.hpp"
 #include "gui_processor.hpp"
-#include "gpu_backend.hpp"
+#include "renderer.hpp"
+#include "plugin_launcher.hpp"
 
 #include <chrono>
-#include <deque>
+#include <ctime>
 #include <algorithm>
 #include <cstring>
 #include <charconv>
+#include <immintrin.h>
 #include <thread>
 
 #include <vulkan/vulkan_core.h>
@@ -21,78 +29,137 @@
 class WaitClock {
 
     public:
-        double fps;
-        double epsilon;
-        size_t fpsSamplesCount;
 
-        WaitClock(double fps = 60, double epsilon = -0.000054, size_t fpsSamplesCount = 10)
-            : fps(fps), epsilon(epsilon), fpsSamplesCount(fpsSamplesCount) {}
+        WaitClock(
+            double fps = 60.0, size_t timeSampleCount = 20, double errorGain = 0.08,
+            double correctionMin = 0.0002, double correctionMax = 1.0, double epsilon = 0.0000026
+        ) : mErrorGain(errorGain), mCorrectionMin(correctionMin), mCorrectionMax(correctionMax) {
+                if (timeSampleCount == 0) throw Exception(ErrCode::InternalError, "timeSampleCount must be greater or equal to 1");
+                setFps(fps);
+                setTimeSampleCount(timeSampleCount);
+                setEpsilon(epsilon);
+                setCorrectionMin(correctionMin);
+                setCorrectionMax(correctionMax);
+                mPrevTime = std::chrono::steady_clock::now();
+            }
 
-    private:
-        double prevTime;
-        double time;
-        
-        std::deque<double> fpsHistory;
-        double fpsSampleSum = 0.0;
 
-        double deltaTime = 0.0;
 
-        bool firstTick = true;
+        void setFps(double fps) {
+            mFps = fps;
+            mDesiredDeltaTime = std::chrono::duration<double>((mFps != 0) ? 1.0 / mFps : 0.0);
+            mTimeSamples.clear();
+        }
 
-    
-    public:
+        void setErrorGain(double errorGain) {
+            mErrorGain = errorGain;
+        }
 
-        double getDeltaTime() {
-            return deltaTime;
-        };
+        void setTimeSampleCount(size_t timeSampleCount) {
+            mTimeSampleCount = timeSampleCount;
+            mRecordedTimeSampleCount = 0;
+            mTimeSampleWalker = 0;
+            mTimeSampleSum = std::chrono::duration<double>(0.0);
+            mTimeSamples.assign(mTimeSampleCount, std::chrono::duration<double>(0.0));
+        }
 
-        double estimateFps() {
-            if (fpsHistory.empty()) return fps;
-            return fpsSampleSum / (double)fpsHistory.size();
+        void setEpsilon(double epsilon) {
+            mEpsilon = std::chrono::duration<double>(epsilon);
+        }
+
+        void setCorrectionMin(double correctionMin) {
+            mCorrectionMin = std::chrono::duration<double>(correctionMin);
+        }
+
+        void setCorrectionMax(double correctionMax) {
+            mCorrectionMax = std::chrono::duration<double>(correctionMax);
+        }
+
+
+
+        void begin() {
+            mPrevTime = std::chrono::steady_clock::now();
+            mTickedTime = std::chrono::steady_clock::now();
         }
 
         void tick() {
+            using namespace std::chrono;
 
-            prevTime = time;
+            mCurrTime = steady_clock::now();
+            mDeltaTime = mCurrTime - mPrevTime;
+            duration<double> sleepTime = mDesiredDeltaTime - mDeltaTime - mEpsilon;
+            
+            std::this_thread::sleep_for(sleepTime - mSleepCorrection);
 
-            time = std::chrono::duration_cast<std::chrono::duration<double>>(
-                std::chrono::high_resolution_clock::now().time_since_epoch()
-                ).count();
-
-            double inversedFps = (fps > 0) ? 1.0 / fps : 0.0;
-            double waitTime = inversedFps - time + prevTime + epsilon;
-
-            auto start = std::chrono::high_resolution_clock::now();
-
-            while (waitTime > 0.0) {
-                std::this_thread::sleep_for(std::chrono::duration<double>(waitTime));
-                auto now = std::chrono::high_resolution_clock::now();
-                double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - start).count();
-                waitTime -= elapsed;
-                start = now;
+            // correcting sleep_for
+            auto wake = mCurrTime + sleepTime;
+            while (steady_clock::now() < wake) {
+                std::this_thread::yield();
             }
 
-            time = std::chrono::duration_cast<std::chrono::duration<double>>(
-                std::chrono::high_resolution_clock::now().time_since_epoch()
-                ).count();
+            duration<double> totalTime = steady_clock::now() - mPrevTime;
 
-            if (firstTick) {
-                deltaTime = inversedFps;
-                firstTick = false;
-            } else {
-                deltaTime = time - prevTime;
+            mPrevTime = steady_clock::now();
+
+            mTimeSampleSum += totalTime;
+            mTimeSampleSum -= mTimeSamples[mTimeSampleWalker];
+            mTimeSamples[mTimeSampleWalker] = totalTime;
+
+            mTimeSampleWalker++;
+            if (mTimeSampleWalker == mTimeSampleCount) {
+                mTimeSampleWalker = 0;
+            }
+            if (mRecordedTimeSampleCount < mTimeSampleCount) {
+                mRecordedTimeSampleCount++;
             }
 
-            double inversedDeltaTime = (deltaTime != 0.0) ? 1.0 / deltaTime : 0.0;
-
-            fpsSampleSum += inversedDeltaTime;
-            fpsHistory.push_back(inversedDeltaTime);
-
-            while (fpsHistory.size() > fpsSamplesCount) {
-                fpsSampleSum -= fpsHistory.front();
-                fpsHistory.erase(fpsHistory.begin());
-            }
+            duration<double> error = duration<double>(estimateDeltaTime()) - mDesiredDeltaTime;
+            mSleepCorrection += error * mErrorGain;
+            mSleepCorrection = std::clamp(mSleepCorrection, mCorrectionMin, mCorrectionMax);
         }
+
+        double estimateFps() {
+            if (mRecordedTimeSampleCount == 0) return mFps;
+            return 1.0 / (mTimeSampleSum / mRecordedTimeSampleCount).count();
+        }
+
+        double estimateDeltaTime() {
+            if (mRecordedTimeSampleCount == 0) return mDesiredDeltaTime.count();
+            return (mTimeSampleSum / mRecordedTimeSampleCount).count();
+        }
+
+        size_t ticked() {
+            using namespace std::chrono;
+
+            auto currTime = steady_clock::now();
+            size_t ticks = static_cast<size_t>((currTime - mTickedTime) / mDesiredDeltaTime);
+            if (ticks > 0) mTickedTime = steady_clock::now();
+
+            return ticks;
+        }
+
+
+    private:
+        double mFps;
+        std::chrono::duration<double> mDesiredDeltaTime;
+
+        std::chrono::time_point<std::chrono::steady_clock> mPrevTime;
+        std::chrono::time_point<std::chrono::steady_clock> mCurrTime;
+        std::chrono::duration<double> mDeltaTime;
+        std::chrono::time_point<std::chrono::steady_clock> mTickedTime;
+
+        size_t mTimeSampleCount;
+        size_t mTimeSampleWalker;
+        size_t mRecordedTimeSampleCount;
+        std::vector<std::chrono::duration<double>> mTimeSamples;
+        std::chrono::duration<double> mTimeSampleSum{0.0};
+
+        double mErrorGain;
+        std::chrono::duration<double> mSleepCorrection{0.0};
+        std::chrono::duration<double> mCorrectionMin;
+        std::chrono::duration<double> mCorrectionMax;
+        std::chrono::duration<double> mEpsilon;
+
 };
 
 
@@ -481,16 +548,19 @@ class TemporEngine {
         int run(int argc, char* argv[]) noexcept;
 
     private:
-        std::unique_ptr<WindowManager> mWindowManager;
-        std::unique_ptr<Backend> mBackend;
-        WaitClock mClock{6000000};
+        std::unique_ptr<WindowManager> mpWindowManager;
+        std::unique_ptr<Renderer> mpRenderer;
+        WaitClock mMainClock;
+        WaitClock mTitleUpdateClock{5};
         IOManager mIO;
         GlobalServiceLocator mServiceLocator;
         Logger mLogger;
         GUIProcessor mGUIProcessor;
+        PluginLauncher mPluginLauncher;
         Settings mSettings;
+        TprEngineAPI mApi{};
 
-        inline void initialize(int verboseLevel);
+        inline void init(int verboseLevel);
         inline void mainloop();
         inline void shutdown() noexcept;
 
@@ -498,3 +568,23 @@ class TemporEngine {
 
 
 
+namespace tprapi {
+    
+    void log(TprLogLevel logLevel, const char* message) noexcept;
+    void logInfo(const char* message) noexcept;
+    void logWarn(const char* message) noexcept;
+    void logError(const char* message) noexcept;
+    void logDebug(const char* message) noexcept;
+    void logTrace(const char* message) noexcept;
+    void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept;
+    void logInfoStyled(TprLogStyle logStyle, const char* message) noexcept;
+    void logWarnStyled(TprLogStyle logStyle, const char* message) noexcept;
+    void logErrorStyled(TprLogStyle logStyle, const char* message) noexcept;
+    void logDebugStyled(TprLogStyle logStyle, const char* message) noexcept;
+    void logTraceStyled(TprLogStyle logStyle, const char* message) noexcept;
+
+}
+
+
+
+#endif  // TEMPOR_ENGINE_TEMPOR_HPP_

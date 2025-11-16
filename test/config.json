@@ -1,0 +1,8 @@
+{
+    "asset": {
+        "format": "tempor",
+        "version": "1.0.0"
+    },
+    "settings": "settings.json",
+    "plugins-folders": ["plugins"]
+}

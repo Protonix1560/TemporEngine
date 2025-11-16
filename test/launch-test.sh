@@ -1,0 +1,2 @@
+
+./tempor --verbose=6

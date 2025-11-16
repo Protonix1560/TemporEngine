@@ -1,4 +1,9 @@
-#pragma once
+
+
+#ifndef CORE_HPP_
+#define CORE_HPP_
+
+
 
 #include <exception>
 #include <ostream>
@@ -11,7 +16,8 @@ enum class ErrCode {
     NoSupportError = -1,
     InternalError = -2,
     IOError = -3,
-    FormatError = -4
+    FormatError = -4,
+    PluginError = -5
 };
 
 inline std::ostream& operator<<(std::ostream& os, ErrCode code) {
@@ -85,4 +91,16 @@ class GlobalServiceLocator {
             return instance;
         }
 };
+
+
+
+inline const GlobalServiceLocator* swapServiceLocator(const GlobalServiceLocator* pServiceLocator = nullptr) {
+    static const GlobalServiceLocator* sl = nullptr;
+    if (pServiceLocator) sl = pServiceLocator;
+    return sl;
+}
+
+
+
+#endif  // CORE_HPP_
 

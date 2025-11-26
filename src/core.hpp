@@ -12,6 +12,11 @@ using namespace std::string_literals;
 
 
 
+
+#define THREAD_SAFE
+
+
+
 enum class ErrCode {
     NoSupportError = -1,
     InternalError = -2,

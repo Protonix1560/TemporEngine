@@ -44,6 +44,10 @@ target_link_libraries(tempor PRIVATE renderer)
 add_subdirectory(src/gui)
 target_link_libraries(tempor PRIVATE gui)
 
+# adding scene manager
+add_subdirectory(src/scene_manager)
+target_link_libraries(tempor PRIVATE scene_manager)
+
 # adding sanitizers
 function(add_sanitizer sanitizer supported_compilers want_flag)
     if(${want_flag})

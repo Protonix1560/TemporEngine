@@ -77,24 +77,41 @@ void TemporEngine::init(int verboseLevel) {
     mLogger.setVerbosityLevel(verboseLevel);
     mIO.init(&mServiceLocator);
 
-    mApi.log = &tprapi::log;
-    mApi.logInfo = &tprapi::logInfo;
-    mApi.logWarn = &tprapi::logWarn;
-    mApi.logError = &tprapi::logError;
-    mApi.logDebug = &tprapi::logDebug;
-    mApi.logTrace = &tprapi::logTrace;
-    mApi.logStyled = &tprapi::logStyled;
-    mApi.logInfoStyled = &tprapi::logInfoStyled;
-    mApi.logWarnStyled = &tprapi::logWarnStyled;
-    mApi.logErrorStyled = &tprapi::logErrorStyled;
-    mApi.logDebugStyled = &tprapi::logDebugStyled;
-    mApi.logTraceStyled = &tprapi::logTraceStyled;
+    mApi.log = &tpr_api::log;
+    mApi.logInfo = &tpr_api::logInfo;
+    mApi.logWarn = &tpr_api::logWarn;
+    mApi.logError = &tpr_api::logError;
+    mApi.logDebug = &tpr_api::logDebug;
+    mApi.logTrace = &tpr_api::logTrace;
+    mApi.logStyled = &tpr_api::logStyled;
+    mApi.logInfoStyled = &tpr_api::logInfoStyled;
+    mApi.logWarnStyled = &tpr_api::logWarnStyled;
+    mApi.logErrorStyled = &tpr_api::logErrorStyled;
+    mApi.logDebugStyled = &tpr_api::logDebugStyled;
+    mApi.logTraceStyled = &tpr_api::logTraceStyled;
+
+    mApi.declareComponent = &tpr_api::declareComponent;
+    mApi.acquireComponent = &tpr_api::acquireComponent;
+    mApi.createEntity = &tpr_api::createEntity;
+    mApi.destroyEntity = &tpr_api::destroyEntity;
+    mApi.modifyEntityComponentSet = &tpr_api::modifyEntityComponentSet;
+    mApi.copyEntityComponentData = &tpr_api::copyEntityComponentData;
+    mApi.readEntityComponent8bit = &tpr_api::readEntityComponent8bit;
+    mApi.readEntityComponent16bit = &tpr_api::readEntityComponent16bit;
+    mApi.readEntityComponent32bit = &tpr_api::readEntityComponent32bit;
+    mApi.readEntityComponent64bit = &tpr_api::readEntityComponent64bit;
+    mApi.writeEntityComponentData = &tpr_api::writeEntityComponentData;
+    mApi.writeEntityComponent8bit = &tpr_api::writeEntityComponent8bit;
+    mApi.writeEntityComponent16bit = &tpr_api::writeEntityComponent16bit;
+    mApi.writeEntityComponent32bit = &tpr_api::writeEntityComponent32bit;
+    mApi.writeEntityComponent64bit = &tpr_api::writeEntityComponent64bit;
 
     // registring global services
     mServiceLocator.provide(&mIO);
     mServiceLocator.provide(&mLogger);
     mServiceLocator.provide(&mSettings);
     mServiceLocator.provide(&mApi);
+    mServiceLocator.provide(&mSceneManager);
 
     swapServiceLocator(&mServiceLocator);
 
@@ -248,10 +265,9 @@ void TemporEngine::init(int verboseLevel) {
 
     mPluginLauncher.init(&mServiceLocator, &mApi);
 
-    try {
-        mPluginLauncher.load("plugins/libtest_plugin.so");
-    } catch (...) {
-    }
+    mSceneManager.init(&mServiceLocator);
+
+    mPluginLauncher.load("plugins/libtest_plugin.so");
     
 }
 

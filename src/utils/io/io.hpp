@@ -100,7 +100,6 @@ bool operator!=(const AlignedAllocator<T>& a, const AlignedAllocator<U>& b) noex
 
 
 
-
 struct Iterator {
 
     public:

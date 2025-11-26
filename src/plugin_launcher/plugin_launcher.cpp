@@ -102,7 +102,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
         log.trace() << "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_SHUTDOWN] << "\n";
 
         log.trace() << "Calling " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "...\n";
-        int initErr = hookInit(&plugin->pluginContext, mpApi);
+        int32_t initErr = hookInit(&plugin->pluginContext, mpApi);
         if (initErr < 0) {
             throw Exception(
                 ErrCode::InternalError, 
@@ -234,7 +234,7 @@ void PluginLauncher::triggerHook(TprHook hookType) {
             case TPR_HOOK_UPDATE_PER_FRAME:
             {
                 pStdHook hook = reinterpret_cast<pStdHook>(hookPtr);
-                int result = hook(plugin->pluginContext);
+                int32_t result = hook(plugin->pluginContext);
                 if (result < 0) {
                     mpServiceLocator->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
                         << plugin->name() << "." << kHookNames[hookType] << " returned exit code "

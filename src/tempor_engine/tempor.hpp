@@ -12,25 +12,23 @@
 #include "gui_processor.hpp"
 #include "renderer.hpp"
 #include "plugin_launcher.hpp"
+#include "scene_manager.hpp"
 
 #include <chrono>
 #include <ctime>
 #include <algorithm>
 #include <cstring>
 #include <charconv>
-#include <immintrin.h>
 #include <thread>
 
-#include <vulkan/vulkan_core.h>
 
 
 
-
-class WaitClock {
+class SleepClock {
 
     public:
 
-        WaitClock(
+        SleepClock(
             double fps = 60.0, size_t timeSampleCount = 20, double errorGain = 0.08,
             double correctionMin = 0.0002, double correctionMax = 1.0, double epsilon = 0.0000026
         ) : mErrorGain(errorGain), mCorrectionMin(correctionMin), mCorrectionMax(correctionMax) {
@@ -550,8 +548,8 @@ class TemporEngine {
     private:
         std::unique_ptr<WindowManager> mpWindowManager;
         std::unique_ptr<Renderer> mpRenderer;
-        WaitClock mMainClock;
-        WaitClock mTitleUpdateClock{5};
+        SleepClock mMainClock;
+        SleepClock mTitleUpdateClock{5};
         IOManager mIO;
         GlobalServiceLocator mServiceLocator;
         Logger mLogger;
@@ -559,6 +557,7 @@ class TemporEngine {
         PluginLauncher mPluginLauncher;
         Settings mSettings;
         TprEngineAPI mApi{};
+        SceneManager mSceneManager;
 
         inline void init(int verboseLevel);
         inline void mainloop();
@@ -568,7 +567,7 @@ class TemporEngine {
 
 
 
-namespace tprapi {
+namespace tpr_api {
     
     void log(TprLogLevel logLevel, const char* message) noexcept;
     void logInfo(const char* message) noexcept;
@@ -582,6 +581,22 @@ namespace tprapi {
     void logErrorStyled(TprLogStyle logStyle, const char* message) noexcept;
     void logDebugStyled(TprLogStyle logStyle, const char* message) noexcept;
     void logTraceStyled(TprLogStyle logStyle, const char* message) noexcept;
+
+    TprResult declareComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept;
+    TprResult acquireComponent(const char* componentName, uint32_t* pComponentId) noexcept;
+    TprResult createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, uint32_t* pEntityId) noexcept;
+    TprResult destroyEntity(uint32_t entityId) noexcept;
+    TprResult modifyEntityComponentSet(uint32_t entityId, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) noexcept;
+    TprResult copyEntityComponentData(uint32_t entityId, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept;
+    TprResult readEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept;
+    TprResult readEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept;
+    TprResult readEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept;
+    TprResult readEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept;
+    TprResult writeEntityComponentData(uint32_t entityId, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept;
+    TprResult writeEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint8_t data, uint32_t offset) noexcept;
+    TprResult writeEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint16_t data, uint32_t offset) noexcept;
+    TprResult writeEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t data, uint32_t offset) noexcept;
+    TprResult writeEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint64_t data, uint32_t offset) noexcept;
 
 }
 

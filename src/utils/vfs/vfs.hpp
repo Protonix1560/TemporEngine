@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <mio/mmap.hpp>
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 
@@ -126,7 +127,7 @@ struct Iterator {
 
         size_t index;
 
-        friend struct ROPacket;
+        friend struct ROFile;
 };
 
 
@@ -146,10 +147,10 @@ struct ROSpan {
         size_t mSize;
         const std::byte* mpData;
 
-        friend struct ROPacket;
+        friend struct ROFile;
 };
 
-struct ROPacket {
+struct ROFile {
 
     public:
         ROSpan read(const Iterator& start, const Iterator& end, size_t align = 0) const;
@@ -158,22 +159,31 @@ struct ROPacket {
         std::byte operator[](const Iterator& it) const;
         size_t size() const;
         std::filesystem::path getVirtualPath() const;
+        std::filesystem::path getRealPath() const;
 
-        ~ROPacket() noexcept;
+        ~ROFile() noexcept;
 
-    private:
-        ROPacket(std::filesystem::path path, const GlobalServiceLocator* pServiceLocator)
-            : mMmap(path), mPath(path), mpServiceLocator(pServiceLocator) {
+        ROFile(ROFile&& other)
+            : mMmap(other.mPath), mPath(other.mPath) {
 
             mpData = reinterpret_cast<const std::byte*>(mMmap.data());
             mSize = static_cast<size_t>(mMmap.size());
         }
 
-        ROPacket(ROPacket&& other)
-            : mMmap(other.mPath), mPath(other.mPath), mpServiceLocator(other.mpServiceLocator) {
+        ROFile(const ROFile& other) = delete;
 
-            mpData = reinterpret_cast<const std::byte*>(mMmap.data());
-            mSize = static_cast<size_t>(mMmap.size());
+    private:
+        ROFile(std::filesystem::path path)
+            : mPath(path) {
+
+            if (!std::filesystem::exists(path)) throw Exception(ErrCode::WrongValueError, "IOManager: file "s + path.string() + " doesn't exist"s);
+            if (std::filesystem::file_size(path) != 0) {
+                mMmap = mio::mmap_source(path);
+                mpData = reinterpret_cast<const std::byte*>(mMmap.data());
+                mSize = static_cast<size_t>(mMmap.size());
+            } else {
+                mSize = 0;
+            }
         }
 
         struct View {
@@ -191,7 +201,6 @@ struct ROPacket {
         const std::byte* mpData;
         size_t mSize;
         std::filesystem::path mPath;
-        const GlobalServiceLocator* mpServiceLocator;
 
         #if defined(__linux__)
             mutable int mVfd = -1;
@@ -200,21 +209,46 @@ struct ROPacket {
         mutable std::map<View, std::vector<std::byte, AlignedAllocator<std::byte>>> mAlignedData;
         mutable std::filesystem::path mVirtualPath;
 
-        friend class IOManager;
+        friend class VFSManager;
 
 };
 
 
 
-class IOManager {
+enum EnumDirIncludeBits : FlagType {
+    ENUM_DIR_INCLUDE_ALL = 0,
+    ENUM_DIR_INCLUDE_DIRS = 0x1,
+    ENUM_DIR_INCLUDE_EXECS = 0x2,
+    ENUM_DIR_INCLUDE_LIBS = 0x4,
+    ENUM_DIR_INCLUDE_OTHER = 0x8,
+    ENUM_DIR_INCLUDE_RECURSIVE = 0x10
+};
+
+using EnumDirInclude = FlagType;
+
+
+
+class VFSManager {
 
     public:
-        void init(const GlobalServiceLocator* pServiceLocator);
-        ROPacket openRO(std::filesystem::path path);
+        void init();
+        void update();
         void shutdown() noexcept;
-    
-        private:
-            const GlobalServiceLocator* mpServiceLocator;
+
+        ROFile openRO(std::filesystem::path path);
+        std::vector<std::filesystem::path> enumDir(std::filesystem::path dirPath, EnumDirInclude incl = ENUM_DIR_INCLUDE_ALL);
+
+    private:
+
+        bool mPeriodicScan = false;
+
+        std::filesystem::path mCWDPath;
+
+        #if defined(__linux__)
+            int mInotifyFd = 0;
+            std::unordered_map<int, std::filesystem::path> mInotifyWdToPath;
+            
+        #endif
 
 };
 

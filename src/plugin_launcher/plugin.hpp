@@ -4,6 +4,7 @@
 
 
 #include "plugin.h"
+#include "plugin_core.h"
 
 
 
@@ -15,6 +16,8 @@ using pHookShutdown = void(*)(void* ctx);
 using pHookGetNeededHooks = unsigned int(*)(void* ctx, TprHook* hooks);
 
 using pHookUpdatePerFrame = pStdHook;
+using pHookRenderBegin = pStdHook;
+using pHookGetEntityDrawArray = void(*)(void* ctx, TprOArrayEntityDrawDesc oarray);
 
 
 

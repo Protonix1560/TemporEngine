@@ -5,6 +5,7 @@
 
 
 #include "core.hpp"
+#include "logger.hpp"  // IWYU pragma: keep
 
 #include <algorithm>
 #include <vector>
@@ -88,18 +89,21 @@ class Archetype {
 
             mComponentsData.resize(components.size());
 
-            uint32_t maxComponentId = std::max_element(
-                components.begin(), components.end(),
-                [](const ComponentDeclare& a, const ComponentDeclare& b) -> bool {
-                    return a.size < b.size;
+            if (components.size()) {
+                uint32_t maxComponentId = std::max_element(
+                    components.begin(), components.end(),
+                    [](const ComponentDeclare& a, const ComponentDeclare& b) -> bool {
+                        return a.size < b.size;
+                    }
+                )->id;
+                if (maxComponentId == UINT32_MAX) {
+                    throw Exception(ErrCode::InternalError, "Archetype::create: max allowed component id is 2^32-2");
                 }
-            )->id;
+                mComponentsSparse.assign(maxComponentId + 1, UINT32_MAX);
 
-            if (maxComponentId == UINT32_MAX) {
-                throw Exception(ErrCode::InternalError, "Archetype::create: max allowed component id is 2^32-2");
+            } else {
+                mComponentsSparse.assign(0, UINT32_MAX);
             }
-
-            mComponentsSparse.assign(maxComponentId + 1, UINT32_MAX);
 
             for (size_t i = 0; i < components.size(); i++) {
                 const ComponentDeclare& component = components[i];

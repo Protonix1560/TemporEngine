@@ -1,21 +1,48 @@
 
 
 #include "tempor.hpp"
+#include "common_types.hpp"
 #include "core.hpp"
-#include "io.hpp"
-#include "plugin.h"
-#include "renderer.hpp"
+#include "data_bridge/data_bridge.hpp"
+#include "vfs.hpp"
 #include "logger.hpp"
-#include "renderer_vulkan.hpp"
+#include "plugin_core.h"
+#include "tempor_api.hpp"
+#include "window_manager.hpp"
 
+#include <chrono>
+#include <csignal>
+#include <exception>
 #include <memory>
 
 #include <glm/packing.hpp>
 #include <nlohmann/json.hpp>
+#include <ratio>
 
 using njson = nlohmann::json;
 
 
+
+
+void sigint_handler(int) noexcept {
+    gGetServiceLocator()->get<TemporEngine>().sigint();
+}
+
+void sigterm_handler(int) noexcept {
+    gGetServiceLocator()->get<TemporEngine>().sigterm();
+}
+
+
+
+
+void TemporEngine::sigint() noexcept {
+    mSigInt = 1;
+}
+
+
+void TemporEngine::sigterm() noexcept {
+    mSigTerm = 1;
+}
 
 
 
@@ -23,7 +50,15 @@ int TemporEngine::run(int argc, char* argv[]) noexcept {
 
     try {
 
+        gGetServiceLocator()->provide(this);
+        std::signal(SIGINT, sigint_handler);
+        std::signal(SIGTERM, sigterm_handler);
+
+        gGetServiceLocator()->provide(&mLogger);
+
         mLogger.setVerbosityLevel(6);
+
+        mLogger.info(TPR_LOG_STYLE_STANDART) << "\033[0m";
 
         ArgParser argParser("tempor");
 
@@ -50,7 +85,7 @@ int TemporEngine::run(int argc, char* argv[]) noexcept {
             return argParseErr;
         }
 
-        int verboseLevel;
+        int verboseLevel = 0;
         if (vrFlag.present()) verboseLevel = vrFlag.value<int>();
         else if (vFlag.count() >= 3) verboseLevel = 5;
         else if (vFlag.count() >= 2) verboseLevel = 4;
@@ -60,9 +95,11 @@ int TemporEngine::run(int argc, char* argv[]) noexcept {
         mainloop();
 
     } catch (const Exception& e) {
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Shutdown after an expected exception [" << e.code() << "]: " << e.what() << "\n";
+        auto l = mLogger.error(TPR_LOG_STYLE_ERROR1);
+        l << "Shutdown after an expected exception [" << e.code() << "]: " << e.what() << "\n";
     } catch (const std::exception& e) {
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Shutdown after an unexpected exception: " << e.what() << "\n";
+        auto l = mLogger.error(TPR_LOG_STYLE_ERROR1);
+        l << "Shutdown after an unexpected exception: " << e.what() << "\n";
     } catch (...) {
         mLogger.error(TPR_LOG_STYLE_ERROR1) << "Shutdown after an unknown exception\n";
     }
@@ -74,59 +111,22 @@ int TemporEngine::run(int argc, char* argv[]) noexcept {
 
 void TemporEngine::init(int verboseLevel) {
 
+    auto initStartTimepoint = std::chrono::steady_clock::now();
+
+    auto serviceLocator = gGetServiceLocator();
+
     mLogger.setVerbosityLevel(verboseLevel);
-    mIO.init(&mServiceLocator);
 
-    mApi.log = &tpr_api::log;
-    mApi.logInfo = &tpr_api::logInfo;
-    mApi.logWarn = &tpr_api::logWarn;
-    mApi.logError = &tpr_api::logError;
-    mApi.logDebug = &tpr_api::logDebug;
-    mApi.logTrace = &tpr_api::logTrace;
-    mApi.logStyled = &tpr_api::logStyled;
-    mApi.logInfoStyled = &tpr_api::logInfoStyled;
-    mApi.logWarnStyled = &tpr_api::logWarnStyled;
-    mApi.logErrorStyled = &tpr_api::logErrorStyled;
-    mApi.logDebugStyled = &tpr_api::logDebugStyled;
-    mApi.logTraceStyled = &tpr_api::logTraceStyled;
+    mLogger.info(TPR_LOG_STYLE_STANDART) << "Tempor Engine v0.0.0 (build datetime: " << BUILD_DATETIME << ")\033[0m\n\n";
 
-    mApi.declareComponent = &tpr_api::declareComponent;
-    mApi.acquireComponent = &tpr_api::acquireComponent;
-    mApi.createEntity = &tpr_api::createEntity;
-    mApi.destroyEntity = &tpr_api::destroyEntity;
-    mApi.modifyEntityComponentSet = &tpr_api::modifyEntityComponentSet;
-    mApi.copyEntityComponentData = &tpr_api::copyEntityComponentData;
-    mApi.readEntityComponent8bit = &tpr_api::readEntityComponent8bit;
-    mApi.readEntityComponent16bit = &tpr_api::readEntityComponent16bit;
-    mApi.readEntityComponent32bit = &tpr_api::readEntityComponent32bit;
-    mApi.readEntityComponent64bit = &tpr_api::readEntityComponent64bit;
-    mApi.writeEntityComponentData = &tpr_api::writeEntityComponentData;
-    mApi.writeEntityComponent8bit = &tpr_api::writeEntityComponent8bit;
-    mApi.writeEntityComponent16bit = &tpr_api::writeEntityComponent16bit;
-    mApi.writeEntityComponent32bit = &tpr_api::writeEntityComponent32bit;
-    mApi.writeEntityComponent64bit = &tpr_api::writeEntityComponent64bit;
-
-    // registring global services
-    mServiceLocator.provide(&mIO);
-    mServiceLocator.provide(&mLogger);
-    mServiceLocator.provide(&mSettings);
-    mServiceLocator.provide(&mApi);
-    mServiceLocator.provide(&mSceneManager);
-
-    swapServiceLocator(&mServiceLocator);
-
-
+    mVFSManager.init();
+    serviceLocator->provide(&mVFSManager);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service VFSManager is ready\n";
 
     // loading main config
-    std::filesystem::path confPath;
-    if (auto path = std::getenv("TEMPOR_CONF_PATH")) confPath = path;
-    else confPath = "config.json";
-    if (!std::filesystem::is_regular_file(confPath)) {
-        throw Exception(ErrCode::IOError, "Failed to locate config");
-    }
-
-    ROPacket confPacket = mIO.openRO(confPath);
-    ROSpan confSpan = confPacket.read();
+    ROFile confFile = mVFSManager.openRO("config.json");
+    ROSpan confSpan = confFile.read();
+    std::filesystem::path confPath = confFile.getRealPath();
 
     mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Located config \"" << confPath.string() << "\"\n";
 
@@ -163,7 +163,7 @@ void TemporEngine::init(int verboseLevel) {
     // loading settings
     njson settingsJson;
     if (mainJson.contains("settings")) {
-        ROPacket settingsPacket = mIO.openRO(mainJson["settings"].get<std::string>());
+        ROFile settingsPacket = mVFSManager.openRO(mainJson["settings"].get<std::string>());
         ROSpan settingsSpan = settingsPacket.read();
         try {
             settingsJson = njson::parse(settingsSpan.begin(), settingsSpan.end());
@@ -172,37 +172,50 @@ void TemporEngine::init(int verboseLevel) {
         }
     }
 
-    // reading settings
+    // reading known settings
     {
-        mSettings.vulkanBackend_debug_useKhronosValidationLayer = settingsJson["settings"].value("vulkanBackend.debug.useKhronosValidationLayer", false);
+        mSettings.vulkanBackendDebugUseKhronosValidationLayer = settingsJson["settings"].value("vulkanBackend.debug.useKhronosValidationLayer", false);
     }
 
+    serviceLocator->provide(&mSettings);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service Settings is ready\n";
 
-    mpWindowManager = std::make_unique<WindowManager>();
     
     // finding sufficient renderer
-    BackendRealization renderers[] = {BackendRealization::VULKAN};
-    for (const auto& renderer : renderers) {
+    auto& rendererFactories = serviceLocator->getListFactories<IRenderer>();
+    for (const auto& rendererFactory : rendererFactories) {
         try {
-            mpWindowManager->init(1300, 800, "Tempor Testing Initiative", renderer);
-
-            switch (renderer) {
-                case BackendRealization::VULKAN:
-                    mpRenderer = std::make_unique<RendererVk>();
-                    mpRenderer->init(mpWindowManager.get(), &mServiceLocator);
-            }
+            mpRenderer = std::move(rendererFactory());
+            mWindowManager.init(mpRenderer->getGraphicsBackend());
+            serviceLocator->provide(&mWindowManager);
+            mpRenderer->init();
 
         } catch (const Exception& e) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Exception [" << e.code() << "]: " << e.what() << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
             mpRenderer.reset();
-            mpWindowManager->shutdown();
+            mWindowManager.shutdown();
+            serviceLocator->provide<WindowManager>(nullptr);
+        } catch (const std::exception& e) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Unexpected exception: " << e.what() << "\n";
+            mpRenderer.reset();
+            mWindowManager.shutdown();
+            serviceLocator->provide<WindowManager>(nullptr);
+        } catch (...) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
+            mpRenderer.reset();
+            mWindowManager.shutdown();
+            serviceLocator->provide<WindowManager>(nullptr);
         }
     }
     if (!mpRenderer) throw Exception(ErrCode::NoSupportError, "No supported renderer on this machine");
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service WindowManager is ready\n";
+    serviceLocator->provide(mpRenderer.get());
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service Renderer is ready\n";
 
-    mpWindowManager->showWindow();
+    auto readyOpeningWindowTimepoint = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> readyOpeningWindowTime = readyOpeningWindowTimepoint - initStartTimepoint;
 
-    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Ready to open a window\n";
+    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Ready to open a window in " << readyOpeningWindowTime.count() << " ms\n";
 
     /*
         TODO:
@@ -210,64 +223,137 @@ void TemporEngine::init(int verboseLevel) {
         everything past this comment should be moved to another threads
     */
 
+
     // TPMLParser TPMLparser(&mServiceLocator);
     // TPMLparser.parse("tp-gui-schema.tpml");
-    {
-        GUISystem gui;
+    // {
+    //     GUISystem gui;
         
-        gui.blocks.emplace_back();
-        gui.blocks.back().text = "SOME TEXT\n SOME\nOTHER\n TEXT\n";
-        gui.blocks.back().bgColour = 0xAA1122FF;
+    //     gui.blocks.emplace_back();
+    //     gui.blocks.back().text = "SOME TEXT\n SOME\nOTHER\n TEXT\n";
+    //     gui.blocks.back().bgColour = 0xAA1122FF;
         
-        gui.blocks.emplace_back();
-        gui.blocks.back().text = "SOME TEXT\n SOME\nOTHER\n TEXT\n";
-        gui.blocks.back().bgColour = 0xAA1122FF;
+    //     gui.blocks.emplace_back();
+    //     gui.blocks.back().text = "SOME TEXT\n SOME\nOTHER\n TEXT\n";
+    //     gui.blocks.back().bgColour = 0xAA1122FF;
         
-        gui.blocks.emplace_back();
-        gui.blocks.back().text = "SOME TEXT\n SOME\nOTHER\n TEXT\n";
-        gui.blocks.back().bgColour = 0xAA1122FF;
-        gui.blocks.back().type = GUIBlock::BlockType::Array;
-        gui.blocks.back().setWidth = 6.0f;
-        gui.blocks.back().widthType = GUIBlock::DType::Absolute;
-        gui.blocks.back().heightType = GUIBlock::DType::Expand;
+    //     gui.blocks.emplace_back();
+    //     gui.blocks.back().text = "SOME TEXT\n SOME\nOTHER\n TEXT\n";
+    //     gui.blocks.back().bgColour = 0xAA1122FF;
+    //     gui.blocks.back().type = GUIBlock::BlockType::Array;
+    //     gui.blocks.back().setWidth = 6.0f;
+    //     gui.blocks.back().widthType = GUIBlock::DType::Absolute;
+    //     gui.blocks.back().heightType = GUIBlock::DType::Expand;
 
-        gui.blocks.emplace_back();
-        gui.blocks.back().type = GUIBlock::BlockType::Array;
-        gui.blocks.back().innerPadding = 1.0f;
-        gui.blocks.back().elementsPadding = 1.0f;
-        gui.blocks.back().childrenIndices = {0};
-        gui.blocks.back().typeData.array.alignX = GUIBlock::ArrayAlign::End;
-        gui.blocks.back().typeData.array.alignY = GUIBlock::ArrayAlign::Centre;
-        gui.blocks.back().typeData.array.orientation = GUIBlock::Orientation::Vertical;
-        gui.blocks.back().widthType = GUIBlock::DType::ScreenRelative;
-        gui.blocks.back().setWidth = -24.0f;
-        gui.blocks.back().heightType = GUIBlock::DType::Expand;
-        gui.blocks.back().bgColour = 0xDD11EEFF;
+    //     gui.blocks.emplace_back();
+    //     gui.blocks.back().type = GUIBlock::BlockType::Array;
+    //     gui.blocks.back().innerPadding = 1.0f;
+    //     gui.blocks.back().elementsPadding = 1.0f;
+    //     gui.blocks.back().childrenIndices = {0};
+    //     gui.blocks.back().typeData.array.alignX = GUIBlock::ArrayAlign::End;
+    //     gui.blocks.back().typeData.array.alignY = GUIBlock::ArrayAlign::Centre;
+    //     gui.blocks.back().typeData.array.orientation = GUIBlock::Orientation::Vertical;
+    //     gui.blocks.back().widthType = GUIBlock::DType::ScreenRelative;
+    //     gui.blocks.back().setWidth = -24.0f;
+    //     gui.blocks.back().heightType = GUIBlock::DType::Expand;
+    //     gui.blocks.back().bgColour = 0xDD11EEFF;
 
-        gui.blocks.emplace_back();
-        GUIBlock& body = gui.blocks.back();
-        body.type = GUIBlock::BlockType::Array;
-        body.typeData.array.orientation = GUIBlock::Orientation::Horizontal;
-        body.innerPadding = 2.0f;
-        body.elementsPadding = 2.0f;
-        body.childrenIndices = {1, 3, 2};
-        body.widthType = GUIBlock::DType::ScreenRelative;
-        body.setWidth = -4.0f;
-        body.heightType = GUIBlock::DType::ScreenRelative;
-        body.setHeight = -4.0f;
-        body.typeData.array.alignX = GUIBlock::ArrayAlign::SpaceBetween;
-        body.typeData.array.alignY = GUIBlock::ArrayAlign::Start;
-        gui.blocks.back().bgColour = 0x050501FF;
+    //     gui.blocks.emplace_back();
+    //     GUIBlock& body = gui.blocks.back();
+    //     body.type = GUIBlock::BlockType::Array;
+    //     body.typeData.array.orientation = GUIBlock::Orientation::Horizontal;
+    //     body.innerPadding = 2.0f;
+    //     body.elementsPadding = 2.0f;
+    //     body.childrenIndices = {1, 3, 2};
+    //     body.widthType = GUIBlock::DType::ScreenRelative;
+    //     body.setWidth = -4.0f;
+    //     body.heightType = GUIBlock::DType::ScreenRelative;
+    //     body.setHeight = -4.0f;
+    //     body.typeData.array.alignX = GUIBlock::ArrayAlign::SpaceBetween;
+    //     body.typeData.array.alignY = GUIBlock::ArrayAlign::Start;
+    //     gui.blocks.back().bgColour = 0x050501FF;
 
-        mGUIProcessor.init(&mServiceLocator, gui);
+    //     mGUIProcessor.init(gui);
+    //     serviceLocator->provide(&mGUIProcessor);
+    //     mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service GUIProcessor ready\n";
+    // }
+
+    mApi.log = &tpr_api::log::log;
+    mApi.logInfo = &tpr_api::log::logInfo;
+    mApi.logWarn = &tpr_api::log::logWarn;
+    mApi.logError = &tpr_api::log::logError;
+    mApi.logDebug = &tpr_api::log::logDebug;
+    mApi.logTrace = &tpr_api::log::logTrace;
+    mApi.logStyled = &tpr_api::log::logStyled;
+    mApi.logInfoStyled = &tpr_api::log::logInfoStyled;
+    mApi.logWarnStyled = &tpr_api::log::logWarnStyled;
+    mApi.logErrorStyled = &tpr_api::log::logErrorStyled;
+    mApi.logDebugStyled = &tpr_api::log::logDebugStyled;
+    mApi.logTraceStyled = &tpr_api::log::logTraceStyled;
+
+    mApi.scene.registerComponent = &tpr_api::scene::registerComponent;
+    mApi.scene.acquireComponent = &tpr_api::scene::acquireComponent;
+    mApi.scene.createEntity = &tpr_api::scene::createEntity;
+    mApi.scene.destroyEntity = &tpr_api::scene::destroyEntity;
+    mApi.scene.modifyEntityComponentSet = &tpr_api::scene::modifyEntityComponentSet;
+    mApi.scene.copyEntityComponentData = &tpr_api::scene::copyEntityComponentData;
+    mApi.scene.readEntityComponent8bit = &tpr_api::scene::readEntityComponent8bit;
+    mApi.scene.readEntityComponent16bit = &tpr_api::scene::readEntityComponent16bit;
+    mApi.scene.readEntityComponent32bit = &tpr_api::scene::readEntityComponent32bit;
+    mApi.scene.readEntityComponent64bit = &tpr_api::scene::readEntityComponent64bit;
+    mApi.scene.writeEntityComponentData = &tpr_api::scene::writeEntityComponentData;
+    mApi.scene.writeEntityComponent8bit = &tpr_api::scene::writeEntityComponent8bit;
+    mApi.scene.writeEntityComponent16bit = &tpr_api::scene::writeEntityComponent16bit;
+    mApi.scene.writeEntityComponent32bit = &tpr_api::scene::writeEntityComponent32bit;
+    mApi.scene.writeEntityComponent64bit = &tpr_api::scene::writeEntityComponent64bit;
+
+    mApi.render.growEntityDrawOArray = &tpr_api::render::growEntityDrawOArray;
+    mApi.render.endEntityDrawOArray = &tpr_api::render::endEntityDrawOArray;
+    mApi.render.sizeofEntityDrawOArray = &tpr_api::render::sizeofEntityDrawOArray;
+
+    mApi.wm.openWindow = &tpr_api::wm::openWindow;
+    mApi.wm.closeWindow = &tpr_api::wm::closeWindow;
+
+    mApi.vfs.openResouceByPath = &tpr_api::vfs::openResouceByPath;
+    mApi.vfs.openResourceByBuffer = &tpr_api::vfs::openResourceByBuffer;
+    mApi.vfs.openResourceZeroed = &tpr_api::vfs::openResourceZeroed;
+    mApi.vfs.openResourceEmpty = &tpr_api::vfs::openResourceEmpty;
+    mApi.vfs.openResouceByPathLifetimed = &tpr_api::vfs::openResouceByPathLifetimed;
+    mApi.vfs.openResourceByBufferLifetimed = &tpr_api::vfs::openResourceByBufferLifetimed;
+    mApi.vfs.openResourceZeroedLifetimed = &tpr_api::vfs::openResourceZeroedLifetimed;
+    mApi.vfs.openResourceEmptyLifetimed = &tpr_api::vfs::openResourceEmptyLifetimed;
+    mApi.vfs.resetResourceLifetime = &tpr_api::vfs::resetResourceLifetime;
+    mApi.vfs.resizeResource = &tpr_api::vfs::resizeResource;
+    mApi.vfs.sizeofResource = &tpr_api::vfs::sizeofResource;
+    mApi.vfs.getResourceRawDataPointer = &tpr_api::vfs::getResourceRawDataPointer;
+    mApi.vfs.closeResource = &tpr_api::vfs::closeResource;
+
+    serviceLocator->provide(&mApi);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service API is ready\n";
+
+    mSceneManager.init();
+    serviceLocator->provide(&mSceneManager);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service SceneManager is ready\n";
+
+    mDataBridge.init();
+    serviceLocator->provide(&mDataBridge);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service DataBridge is ready\n";
+
+    mPluginLauncher.init(&mApi);
+    serviceLocator->provide(&mPluginLauncher);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service PluginLauncher is ready\n";
+
+    auto plugins = mVFSManager.enumDir("plugins", ENUM_DIR_INCLUDE_LIBS | ENUM_DIR_INCLUDE_RECURSIVE);
+    for (const auto& plugin : plugins) {
+        try {
+            mPluginLauncher.load(plugin);
+        } catch (...) {}
     }
 
+    auto initEndTimepoint = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> initTime = initEndTimepoint - initStartTimepoint;
 
-    mPluginLauncher.init(&mServiceLocator, &mApi);
-
-    mSceneManager.init(&mServiceLocator);
-
-    mPluginLauncher.load("plugins/libtest_plugin.so");
+    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Initialization done in " << initTime.count() << " ms\n";
     
 }
 
@@ -275,45 +361,81 @@ void TemporEngine::init(int verboseLevel) {
 
 void TemporEngine::mainloop() {
 
-    // static auto lastTitleUpdateTime = std::chrono::high_resolution_clock::now();
-
     mMainClock.begin();
     mTitleUpdateClock.begin();
 
-    while (!mpWindowManager->shouldClose()) {
+    while (!mWindowManager.lost() && !shouldStop) {
 
-        mPluginLauncher.triggerHook(TPR_HOOK_UPDATE_PER_FRAME);
+        mPluginLauncher.triggerHook<TPR_HOOK_UPDATE_PER_FRAME>();
 
+        mVFSManager.update();
         mPluginLauncher.update();
-        mpWindowManager->update();
-        mGUIProcessor.update(mpWindowManager->getWidth(), mpWindowManager->getHeight());
+        mDataBridge.update();
+        mSceneManager.update();
+        mWindowManager.update();
         mpRenderer->update();
 
-        mpRenderer->beginRenderPass();
+        // mGUIProcessor.update(mWindowManager.getWidth(), mWindowManager.getHeight());
 
-        mpRenderer->nextSubpass();
-
-        mpRenderer->renderGUI(mGUIProcessor.getDrawDesc());
-
-        std::vector<DebugLineVertex> lines;
-        {
-            auto guiLines = mGUIProcessor.getDebugViewLines();
-            lines.insert(
-                lines.end(),
-                std::make_move_iterator(guiLines.begin()),
-                std::make_move_iterator(guiLines.end())
-            );
-        }
+        // mpRenderer->beginRenderPass();
+        // mpRenderer->nextSubpass();
+        // mpRenderer->renderGUI(mGUIProcessor.getDrawDesc());
+        // std::vector<DebugLineVertex> lines;
+        // {
+        //     auto guiLines = mGUIProcessor.getDebugViewLines();
+        //     lines.insert(
+        //         lines.end(),
+        //         std::make_move_iterator(guiLines.begin()),
+        //         std::make_move_iterator(guiLines.end())
+        //     );
+        // }
         // mBackend->renderDebugLines(lines);
+        // mpRenderer->endRenderPass();
 
-        mpRenderer->endRenderPass();
+        // render
+        {
+            RenderGraph graph;
+            
+            for (auto& handle : mWindowManager.getWindows()) {
+                RenderGraph::WindowConfig& conf = graph.windows.emplace_back(handle, RenderGraph::WindowConfig{}).second;
+                conf.scissor = Scissor{0, 0, mpRenderer->getFrameWidth(handle), mpRenderer->getFrameHeight(handle)};
+                conf.viewport = Viewport{
+                    0.0f, 0.0f, static_cast<float>(mpRenderer->getFrameWidth(handle)), 
+                    static_cast<float>(mpRenderer->getFrameHeight(handle)), 0.0f, 1.0f
+                };
+
+            }
+
+            auto drawEntityOArray = mDataBridge.registerOArray<TprOArrayEntityDrawDesc>(
+                [&graph]() -> void* { return graph.entites.data(); },
+                [&graph](size_t newSize) { graph.entites.resize(newSize); }, 0
+            );
+            mPluginLauncher.triggerHook<TPR_HOOK_GET_ENTITY_DRAW_ARRAY>(drawEntityOArray);
+
+            mpRenderer->render(graph);
+        }
 
         mMainClock.tick();
 
         // setting window name with fps count
         if (mTitleUpdateClock.ticked()) {
             std::string title = "Tempor Testing Initiative | fps: "s + std::to_string(mMainClock.estimateFps());
-            mpWindowManager->setTitle(title.c_str());
+            // mWindowManager.setTitle(title.c_str());
+        }
+
+        if (mSigInt || mSigTerm) {
+            if (mSigInt) {
+                mLogger << "\n";
+            }
+            auto l = mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1);
+            l << "Received ";
+            if (mSigInt) {
+                l << "SIG_INT";
+            } else if (mSigTerm) {
+                l << "SIG_TERM";
+            }
+            l << " signal\n";
+            shouldStop = true;
         }
     }
 
@@ -323,17 +445,25 @@ void TemporEngine::mainloop() {
 
 void TemporEngine::shutdown() noexcept {
 
-    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Shutting down...\n";
+    mLogger.info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down...\n";
+
+    mPluginLauncher.triggerHook<TPR_HOOK_SHUTDOWN>();
 
     mPluginLauncher.shutdown();
 
-    mGUIProcessor.shutdown();
+    mDataBridge.shutdown();
+
+    mSceneManager.shutdown();
+
+    // mGUIProcessor.shutdown();
 
     if (mpRenderer) mpRenderer->shutdown();
 
-    if (mpWindowManager) mpWindowManager->shutdown();
+    mWindowManager.shutdown();
 
-    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Shutdown finished\n";
+    mVFSManager.shutdown();
+
+    mLogger.info(TPR_LOG_STYLE_ENDSTAMP1) << "Shutdown finished\n";
 
 }
 

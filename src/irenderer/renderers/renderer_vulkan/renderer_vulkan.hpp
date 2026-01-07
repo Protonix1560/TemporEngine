@@ -1,18 +1,18 @@
 
 
-#ifndef RENDERER_RENDERER_VULKAN_RENDERER_VULKAN_HPP_
-#define RENDERER_RENDERER_VULKAN_RENDERER_VULKAN_HPP_
+#ifndef IRENDERER_RENDERERS_RENDERER_VULKAN_RENDERER_VULKAN_HPP_
+#define IRENDERER_RENDERERS_RENDERER_VULKAN_RENDERER_VULKAN_HPP_
 
 
 
 #include "core.hpp"
-#include "window_manager.hpp"
-#include "renderer.hpp"
+#include "plugin_core.h"
+#include "irenderer.hpp"
 
+#include <SDL2/SDL_vulkan.h>
 #include <array>
+#include <unordered_map>
 #include <vector>
-
-#include <SDL2/SDL_messagebox.h>
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -28,30 +28,29 @@
 
 
 
-class Swapchain {
+struct Swapchain {
 
     public:
-        void construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, const WindowManager* windowManager, const GlobalServiceLocator* pServiceLocator);
+        void construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, TprWindow window);
         void destroy() noexcept;
 
-        inline const VkSwapchainKHR& swapchain() const noexcept { return mSwapchain; }
-        inline const VkSemaphore& getSemaphore(uint32_t index) const { return mSemaphores[index]; }
-        inline const VkExtent2D& extent() const { return mExtent; }
-        inline const uint32_t& imageCount() const { return mImageCount; }
+        const VkSwapchainKHR& swapchain() const noexcept { return mSwapchain; }
+        const VkSemaphore& getSemaphore(uint32_t index) const { return mSemaphores[index]; }
+        const VkExtent2D& extent() const { return mExtent; }
+        const uint32_t& imageCount() const { return mImageCount; }
 
-        inline const VkImageView& getChainImageView(uint32_t index) const { return mChainImageViews[index]; }
-        inline const VkImage& getChainImage(uint32_t index) const { return mChainImages[index]; }
-        inline const VkFormat& chainFormat() const noexcept { return mChainImageFormat; }
+        const VkImageView& getChainImageView(uint32_t index) const { return mChainImageViews[index]; }
+        const VkImage& getChainImage(uint32_t index) const { return mChainImages[index]; }
+        const VkFormat& chainFormat() const noexcept { return mChainImageFormat; }
 
-        inline const VkImageView& getDepthImageView(uint32_t index) const { return mDepthImageViews[index]; }
-        inline const VkImage& getDepthImage(uint32_t index) const { return mDepthImages[index]; }
-        inline const VkFormat& depthFormat() const noexcept { return mDepthImageFormat; }
+        const VkImageView& getDepthImageView(uint32_t index) const { return mDepthImageViews[index]; }
+        const VkImage& getDepthImage(uint32_t index) const { return mDepthImages[index]; }
+        const VkFormat& depthFormat() const noexcept { return mDepthImageFormat; }
 
     private:
         VkDevice mDevice;
         VkSurfaceKHR mSurface;
-        const WindowManager* mpWindowManager;
-        const GlobalServiceLocator* mpServiceLocator;
+        TprWindow mWindow;
 
         bool mConstructed = false;
 
@@ -82,28 +81,13 @@ struct Frame {
         inline VkCommandBuffer& renderCommandBuffer() noexcept { return mCommandBuffers[0]; }
         inline VkCommandBuffer& presentCommandBuffer() noexcept { return mCommandBuffers[1]; }
 
+        VkCommandPool commandPool = VK_NULL_HANDLE;
         VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
         VkFence inFlightFence = VK_NULL_HANDLE;
-        VkCommandPool commandPool = VK_NULL_HANDLE;
 
     private:
         VkDevice mDevice;
         VkCommandBuffer mCommandBuffers[2] = {};
-};
-
-
-class FramebuffersHolder {
-
-    public:
-        void construct(Swapchain& swapchain, VkDevice device, VkRenderPass renderPass);
-        void destroy() noexcept;
-
-        inline const VkFramebuffer& getFramebuffer(uint32_t index) const { return mFramebuffers[index]; };
-
-    private:
-        std::vector<VkFramebuffer> mFramebuffers;
-        VkDevice mDevice;
-
 };
 
 
@@ -285,53 +269,82 @@ struct Buffer {
 };
 
 
-class RendererVk : public Renderer {
+class FramebuffersHolder {
+    public:
+        void construct(Swapchain& swapchain, VkDevice device, VkRenderPass renderPass);
+        void destroy() noexcept;
+        const VkFramebuffer& getFramebuffer(uint32_t index) const { return mFramebuffers[index]; };
+    private:
+        std::vector<VkFramebuffer> mFramebuffers;
+        VkDevice mDevice;
+};
+
+
+struct RenderPass {
+    VkRenderPass mRenderPass = VK_NULL_HANDLE;
+    VkPipelineLayout mDebugLinesPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline mDebugLinesPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout mGUIPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline mGUIPipeline = VK_NULL_HANDLE;
+    VkDevice mDevice = VK_NULL_HANDLE;
+    void construct(VkDevice device, Swapchain& swapchain);
+    void destroy() noexcept;
+};
+
+
+struct WindowContext {
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    Swapchain swapchain;
+    FramebuffersHolder framebuffers;
+    std::shared_ptr<RenderPass> renderPass;
+    std::vector<Frame> frames;
+    TprWindow handle;
+};
+
+
+class RendererVulkan : public IRenderer {
 
     public:
-        void init(const WindowManager *windowManager, const GlobalServiceLocator* serviceLocator) override;
+        void init() override;
         void shutdown() noexcept override;
         void update() override;
-        void beginRenderPass(const Scissor* pScissor = nullptr, const Viewport* pViewport = nullptr) override;
-        void renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject = CameraProject::Ortho) override;
-        void renderGUI(const GUIDrawDesc& desc) override;
-        void endRenderPass() override;
-        void nextSubpass() override { if (mSubpassIndex != UINT32_MAX) mSubpassIndex++; };
+        
+        GraphicsBackend getGraphicsBackend() const override { return GraphicsBackend::Vulkan; }
+        uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(getBasicHandleIndex(handle)).swapchain.extent().width; }
+        uint32_t getFrameHeight(TprWindow handle) const override { return mWindowContexts.at(getBasicHandleIndex(handle)).swapchain.extent().height; }
+        
+        TprResult registerWindow(TprWindow handle) noexcept override;
+
+        void unregisterWindow(TprWindow handle) noexcept override;
+
+        void render(const RenderGraph& renderGraph) override;
+
+        [[deprecated]] void renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject = CameraProject::Ortho);
+        [[deprecated]] void renderGUI(const GUIDrawDesc& desc);
+
     private:
         VkInstance mInstance = VK_NULL_HANDLE;
         uint32_t mApiVer;
-        VkSurfaceKHR mSurface = VK_NULL_HANDLE;
         VkDevice mDevice = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT mDebugMessenger = VK_NULL_HANDLE;
-        VkRenderPass mMainRenderPass = VK_NULL_HANDLE;
+
+        std::vector<const char*> mInstanceExtensions;
 
         Buffer mDebugLinesBuffer;
-        VkPipelineLayout mDebugLinesPipelineLayout = VK_NULL_HANDLE;
-        VkPipeline mDebugLinesPipeline = VK_NULL_HANDLE;
-
         Buffer mGUIVertexBuffer;
         Buffer mGUIIndexBuffer;
-        VkPipelineLayout mGUIPipelineLayout = VK_NULL_HANDLE;
-        VkPipeline mGUIPipeline = VK_NULL_HANDLE;
         
         VkPhysicalDevice mPhysicalDevice;
         VkQueue mRenderQueue;
 
-        const WindowManager* mpWindowManager;
-        const GlobalServiceLocator* mpServiceLocator;
-
-        Swapchain mSwapchain;
-        FramebuffersHolder mFramebuffers;
-        std::vector<Frame> mFrames;
+        std::unordered_map<uint32_t, WindowContext> mWindowContexts;
         uint32_t mFrameCounter = 0;
-        uint32_t mCurrentSwapchainImage;
         uint32_t mMaxFramesInFlight;
-
-        uint32_t mSubpassIndex = UINT32_MAX;
 
 };
 
 
 
 
-#endif  // RENDERER_RENDERER_VULKAN_RENDERER_VULKAN_HPP_
+#endif  // IRENDERER_RENDERERS_RENDERER_VULKAN_RENDERER_VULKAN_HPP_
 

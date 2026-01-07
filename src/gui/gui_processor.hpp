@@ -5,7 +5,6 @@
 
 
 
-#include "core.hpp"
 #include "common_types.hpp"
 
 #include <vector>
@@ -101,14 +100,13 @@ struct GUISystem {
 class GUIProcessor {
 
     public:
-        void init(const GlobalServiceLocator* serviceLocator, const GUISystem& system);
+        void init(const GUISystem& system);
         void shutdown() noexcept;
         void update(uint32_t windowWidth, uint32_t windowHeight);
         std::vector<DebugLineVertex> getDebugViewLines() const;
         GUIDrawDesc getDrawDesc() const;
 
     private:
-        const GlobalServiceLocator* mpServiceLocator;
         GUISystem mSystem;
         std::vector<uint32_t> mLeavesIndices;
         uint32_t mRootIndex = UINT32_MAX;

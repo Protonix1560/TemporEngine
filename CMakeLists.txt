@@ -1,6 +1,6 @@
 
 cmake_minimum_required(VERSION 3.25)
-project(tempor LANGUAGES CXX)
+project(tempor LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,42 +11,42 @@ option(WANT_DEBUG_TSAN "Enable TSan" OFF)
 option(WANT_DEBUG_MSAN "Enable MSan" OFF)
 option(WANT_DEBUG_LSAN "Enable UBSan" OFF)
 
-include_directories(
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    message(FATAL_ERROR "CMAKE_INSTALL_PREFIX is not set")
+endif()
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# common things
+add_library(common INTERFACE)
+target_include_directories(
+    common INTERFACE
     ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/3rd_party
+    ${CMAKE_SOURCE_DIR}/3rd_party
     ${CMAKE_SOURCE_DIR}/include
 )
+target_compile_options(common INTERFACE -O0)
+string(TIMESTAMP BUILD_DATETIME "%Y-%m-%dT%H:%M:%SZ" UTC)
+target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}")
 
+# main executable
 add_executable(tempor src/main.cpp)
-add_compile_options(-O0)
+target_link_libraries(tempor PRIVATE common)
+set_target_properties(tempor PROPERTIES
+    INSTALL_RPATH "$ORIGIN/lib"
+)
 
-# adding main class
+# adding services
+add_subdirectory(src/irenderer)
 add_subdirectory(src/tempor_engine)
-target_link_libraries(tempor PRIVATE tempor_class)
-
-# adding utils
 add_subdirectory(src/utils)
-target_link_libraries(tempor PRIVATE utils)
-
-# adding plugin laucher
+add_subdirectory(src/data_bridge)
 add_subdirectory(src/plugin_launcher)
-target_link_libraries(tempor PRIVATE plugin_launcher)
-
-# adding window manager
 add_subdirectory(src/window_manager)
-target_link_libraries(tempor PRIVATE window_manager)
-
-# adding graphics API
-add_subdirectory(src/renderer)
-target_link_libraries(tempor PRIVATE renderer)
-
-# adding gui
 add_subdirectory(src/gui)
-target_link_libraries(tempor PRIVATE gui)
-
-# adding scene manager
 add_subdirectory(src/scene_manager)
-target_link_libraries(tempor PRIVATE scene_manager)
+
+target_link_libraries(tempor PRIVATE tempor_class tempor_api utils plugin_launcher window_manager irenderer gui scene_manager data_bridge)
 
 # adding sanitizers
 function(add_sanitizer sanitizer supported_compilers want_flag)
@@ -78,7 +78,17 @@ add_sanitizer(memory "Clang" WANT_DEBUG_MSAN -fno-omit-frame-pointer)
 add_sanitizer(undefined "GNU|Clang" WANT_DEBUG_UBSAN -fno-sanitize=vptr)
 add_sanitizer(leak "GNU|Clang" WANT_DEBUG_LSAN -g)
 
-# adding test plugin
-add_subdirectory(test_plugin)
+# installment
+install(TARGETS tempor RUNTIME DESTINATION .)
 
+# test template
+install(
+    DIRECTORY test_template/ DESTINATION .
+    FILES_MATCHING PATTERN "*.sh"
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+)
+install(
+    DIRECTORY test_template/ DESTINATION .
+    PATTERN "*.sh" EXCLUDE
+)
 

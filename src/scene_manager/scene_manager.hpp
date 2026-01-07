@@ -6,8 +6,7 @@
 
 
 #include "archetype.hpp"
-#include "core.hpp"
-#include "plugin.h"
+#include "plugin_core.h"
 
 #include <stdint.h>
 #include <deque>
@@ -22,35 +21,34 @@
 class SceneManager {
 
     public:
-        void init(const GlobalServiceLocator* pServiceLocator);
+        void init();
         void shutdown() noexcept;
         void update();
 
-        TprResult declareComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept;
+        TprResult registerComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept;
         TprResult acquireComponent(const char* componentName, uint32_t* pComponentId) noexcept;
-        TprResult createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, uint32_t* pEntityId) noexcept;
-        TprResult destroyEntity(uint32_t entityId) noexcept;
-        TprResult copyEntityComponentData(uint32_t entityId, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept;
-        TprResult readEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept;
-        TprResult readEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept;
-        TprResult readEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept;
-        TprResult readEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept;
-        TprResult writeEntityComponentData(uint32_t entityId, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept;
-        TprResult writeEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint8_t data, uint32_t offset) noexcept;
-        TprResult writeEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint16_t data, uint32_t offset) noexcept;
-        TprResult writeEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t data, uint32_t offset) noexcept;
-        TprResult writeEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint64_t data, uint32_t offset) noexcept;
+        TprResult createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntityHandle* pEntityHandle) noexcept;
+        void destroyEntity(const TprEntityHandle* entityHandle) noexcept;
+        TprResult copyEntityComponentData(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept;
+        TprResult readEntityComponent8bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept;
+        TprResult readEntityComponent16bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept;
+        TprResult readEntityComponent32bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept;
+        TprResult readEntityComponent64bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept;
+        TprResult writeEntityComponentData(const TprEntityHandle* entityHandle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept;
+        TprResult writeEntityComponent8bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint8_t data, uint32_t offset) noexcept;
+        TprResult writeEntityComponent16bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint16_t data, uint32_t offset) noexcept;
+        TprResult writeEntityComponent32bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t data, uint32_t offset) noexcept;
+        TprResult writeEntityComponent64bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint64_t data, uint32_t offset) noexcept;
 
     private:
 
         struct EntityEntry {
             size_t archetype;
             uint32_t id;
+            uint32_t gen = 0;
         };
 
         size_t getArchetype(uint32_t componentCount, const uint32_t* components);
-
-        const GlobalServiceLocator* mpServiceLocator;
 
         std::shared_mutex mArchetypeArraysMutex;
         std::deque<Archetype> mArchetypes;

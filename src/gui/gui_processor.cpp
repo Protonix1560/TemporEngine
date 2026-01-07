@@ -1,4 +1,5 @@
 
+#include "core.hpp"
 #include "gui_processor.hpp"
 #include "logger.hpp"
 
@@ -8,10 +9,9 @@
 
 
 
-void GUIProcessor::init(const GlobalServiceLocator* serviceLocator, const GUISystem& system) {
+void GUIProcessor::init(const GUISystem& system) {
 
-    mpServiceLocator = serviceLocator;
-    auto& log = mpServiceLocator->get<Logger>();
+    auto& log = gGetServiceLocator()->get<Logger>();
 
     mSystem = system;
 

@@ -1,11 +1,21 @@
 
 
-#ifndef RENDERER_RENDERER_HPP_
-#define RENDERER_RENDERER_HPP_
+#ifndef IRENDERER_RENDERER_HPP_
+#define IRENDERER_RENDERER_HPP_
 
 
 
+#include "plugin_core.h"
 #include <glm/glm.hpp>
+
+
+
+enum class GraphicsBackend {
+    None = 0,
+    Unknown = 1,
+    Vulkan = 2
+};
+
 
 
 struct DebugLineVertex {
@@ -55,4 +65,15 @@ struct GUIDrawDesc {
 
 
 
-#endif  // RENDERER_RENDERER_HPP_
+struct RenderGraph {
+    struct WindowConfig {
+        Scissor scissor;
+        Viewport viewport;
+    };
+    std::vector<std::pair<TprWindow, WindowConfig>> windows;
+    std::vector<TprEntityDrawDesc> entites;
+};
+
+
+
+#endif  // IRENDERER_RENDERER_HPP_

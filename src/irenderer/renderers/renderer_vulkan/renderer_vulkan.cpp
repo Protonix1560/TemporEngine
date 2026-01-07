@@ -2,15 +2,26 @@
 #include "renderer_vulkan.hpp"
 #include "core.hpp"
 #include "logger.hpp"
-#include "io.hpp"
-#include "plugin.h"
+#include "plugin_core.h"
+#include "vfs.hpp"
+#include "window_manager.hpp"
 
 #include <cstring>
+#include <string>
 #include <vector>
+#include <memory>
 
 #include <vulkan/vulkan_core.h>
 
 #include <glm/gtc/matrix_transform.hpp>
+
+
+
+// registring renderer
+std::unique_ptr<IRenderer> registerRendererVk() {
+    return std::make_unique<RendererVulkan>();
+}
+FactoryListRegistrar<IRenderer> registrar(registerRendererVk);
 
 
 
@@ -27,15 +38,13 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 
-void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLocator* serviceLocator) {
+void RendererVulkan::init() {
 
-    mpServiceLocator = serviceLocator;
-    mpWindowManager = windowManager;
-    Settings& settings = serviceLocator->get<Settings>();
-    Logger& log = mpServiceLocator->get<Logger>();
+    Settings& settings = gGetServiceLocator()->get<Settings>();
+    Logger& log = gGetServiceLocator()->get<Logger>();
     mMaxFramesInFlight = 3;
 
-    log.info(TPR_LOG_STYLE_TIMESTAMP1) << "Trying Vulkan backend...\n";
+    log.info(TPR_LOG_STYLE_STARTSTAMP1) << "Trying RendererVulkan...\n";
 
     // max api version
     {
@@ -60,7 +69,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         // layers
         std::vector<const char*> layers;
 
-        if (settings.vulkanBackend_debug_useKhronosValidationLayer) {
+        if (settings.vulkanBackendDebugUseKhronosValidationLayer) {
             layers.push_back("VK_LAYER_KHRONOS_validation");
         }
 
@@ -79,9 +88,27 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
             if (!supported) throw Exception(ErrCode::NoSupportError, "No support for crucial vulkan instance layer: "s + layer);
         }
 
+        TprWindow tmpHandle;
+        TprWindowCreateInfo tmpWindowCreateInfo{};
+        tmpWindowCreateInfo.name = "tmp tempor window";
+        tmpWindowCreateInfo.prefferedWidth = 0;
+        tmpWindowCreateInfo.prefferedHeight = 0;
+        tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
+        log.debug() << LOG_RENDERER_NAME ": Opening a hidden temporary window\n";
+        if (gGetServiceLocator()->get<WindowManager>().openWindow(&tmpHandle, &tmpWindowCreateInfo) < 0) {
+            throw Exception(ErrCode::InternalError, LOG_RENDERER_NAME ": Failed to open tmp window");
+        }
+
+        log.trace() << LOG_RENDERER_NAME ": Getting Vulkan Instance extension list\n";
         // extensions
-        std::vector<const char*> extensions = windowManager->getExtensionsVk();
-        extensions.push_back("VK_EXT_debug_utils");
+        std::vector<const char*> extensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(tmpHandle);
+        mInstanceExtensions.clear();
+        mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
+        if (settings.vulkanBackendDebugUseKhronosValidationLayer) {
+            extensions.push_back("VK_EXT_debug_utils");
+        }
+
+        gGetServiceLocator()->get<WindowManager>().closeWindow(tmpHandle);
 
         uint32_t extCount;
         TOF(vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr));
@@ -95,24 +122,24 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
                     break;
                 }
             }
-            if (!supported) throw Exception(ErrCode::NoSupportError, "No support for crucial vulkan instance extension: "s + ext);
+            if (!supported) throw Exception(ErrCode::NoSupportError, LOG_RENDERER_NAME ": No support for crucial vulkan instance extension: "s + ext);
         }
 
-        VkInstanceCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        createInfo.pApplicationInfo = &appInfo;
-        createInfo.enabledExtensionCount = extensions.size();
-        createInfo.ppEnabledExtensionNames = extensions.data();
-        createInfo.enabledLayerCount = layers.size();
-        createInfo.ppEnabledLayerNames = layers.data();
+        VkInstanceCreateInfo instanceCreateInfo{};
+        instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        instanceCreateInfo.pApplicationInfo = &appInfo;
+        instanceCreateInfo.enabledExtensionCount = extensions.size();
+        instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
+        instanceCreateInfo.enabledLayerCount = layers.size();
+        instanceCreateInfo.ppEnabledLayerNames = layers.data();
 
-        TOF(vkCreateInstance(&createInfo, nullptr, &mInstance));
+        TOF(vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance));
 
-        log.debug() << "Created instance\n";
+        log.debug() << LOG_RENDERER_NAME ": Created instance\n";
     }
 
     // debug utils messenger
-    if (settings.vulkanBackend_debug_useKhronosValidationLayer) {
+    if (settings.vulkanBackendDebugUseKhronosValidationLayer) {
         auto vkCreateDebugUtilsMessengerEXT = LOAD_PFN(vkCreateDebugUtilsMessengerEXT, mInstance);
         if (vkCreateDebugUtilsMessengerEXT) {
 
@@ -130,14 +157,14 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
                 const VkDebugUtilsMessengerCallbackDataEXT* callback, void* userData
             ) -> VkBool32 {
 
-                RendererVk* This = reinterpret_cast<RendererVk*>(userData);
+                RendererVulkan* This = reinterpret_cast<RendererVulkan*>(userData);
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-                    This->mpServiceLocator->get<Logger>().warn(TPR_LOG_STYLE_WARN1) << callback->pMessage << "\n";
+                    gGetServiceLocator()->get<Logger>().warn(TPR_LOG_STYLE_WARN1) << callback->pMessage << "\n";
                 } else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                    This->mpServiceLocator->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << callback->pMessage << "\n";
+                    gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << callback->pMessage << "\n";
                 } else {
-                    This->mpServiceLocator->get<Logger>() << callback->pMessage << "\n";
+                    gGetServiceLocator()->get<Logger>() << callback->pMessage << "\n";
                 }
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
@@ -149,7 +176,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
 
             vkCreateDebugUtilsMessengerEXT(mInstance, &createInfo, nullptr, &mDebugMessenger);
         }
-        log.debug() << "Created debug utils messenger\n";
+        log.debug() << LOG_RENDERER_NAME ": Created debug utils messenger\n";
     }
 
     // physical device
@@ -166,7 +193,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(mPhysicalDevice, &props);
 
-        log.debug() << "Picked physical device: " << props.deviceName << "\n";
+        log.debug() << LOG_RENDERER_NAME ": Picked physical device: " << props.deviceName << "\n";
     }
 
     // device
@@ -198,22 +225,44 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
 
         vkGetDeviceQueue(mDevice, 0, 0, &mRenderQueue);
 
-        log.debug() << "Created device\n";
+        log.debug() << LOG_RENDERER_NAME ": Created device\n";
     }
 
-    // surface related
+    // buffers
     {
-        mSurface = windowManager->createSurfaceVk(mInstance);
+        mDebugLinesBuffer.allocate(
+            mDevice, mPhysicalDevice, sizeof(DebugLineVertexVk) * 200,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        mDebugLinesBuffer.mapMemory();
+        log.debug() << LOG_RENDERER_NAME ": Created debug lines buffer\n";
 
-        mSwapchain.construct(mPhysicalDevice, mDevice, mSurface, windowManager, mpServiceLocator);
+        mGUIVertexBuffer.allocate(
+            mDevice, mPhysicalDevice, 64,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        mGUIVertexBuffer.mapMemory();
+        log.debug() << LOG_RENDERER_NAME ": Created gui vertex buffer\n";
 
-        mFrames.resize(mMaxFramesInFlight);
-        for (auto& frame : mFrames) {
-            frame.construct(mDevice, 0);
-        }
-
-        log.debug() << "Created surface\n";
+        mGUIIndexBuffer.allocate(
+            mDevice, mPhysicalDevice, 64,
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        mGUIIndexBuffer.mapMemory();
+        log.debug() << LOG_RENDERER_NAME ": Created gui index buffer\n";
     }
+
+    log.info(TPR_LOG_STYLE_ENDSTAMP1) << LOG_RENDERER_NAME ": Vulkan backend initialization finished\n";
+
+}
+
+
+
+void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
+
+    auto& logger = gGetServiceLocator()->get<Logger>();
+
+    mDevice = device;
 
     // render pass
     {
@@ -225,7 +274,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         swapchainAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         swapchainAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         swapchainAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        swapchainAttachment.format = mSwapchain.chainFormat();
+        swapchainAttachment.format = swapchain.chainFormat();
 
         VkAttachmentDescription& depthAttachment = attachments[1];
         depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -233,7 +282,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthAttachment.format = mSwapchain.depthFormat();
+        depthAttachment.format = swapchain.depthFormat();
 
         VkSubpassDescription subpasses[1] = {};
         VkSubpassDescription& subpass = subpasses[0];
@@ -262,11 +311,10 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         renderPassCreateInfo.dependencyCount = std::size(dependencies);
         renderPassCreateInfo.pDependencies = dependencies;
 
-        TOF(vkCreateRenderPass(mDevice, &renderPassCreateInfo, nullptr, &mMainRenderPass));
+        TOF(vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &mRenderPass));
 
-        mFramebuffers.construct(mSwapchain, mDevice, mMainRenderPass);
+        logger.debug() << LOG_RENDERER_NAME ": Created render pass\n";
 
-        log.debug() << "Created render pass\n";
     }
 
     // debug lines pipeline
@@ -320,7 +368,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         VkPipelineShaderStageCreateInfo stages[2] = {};
 
         VkShaderModule fragShader;
-        ROPacket packetFrag = serviceLocator->get<IOManager>().openRO("../build/shaders/vulkan/debug_lines.frag.spv");
+        ROFile packetFrag = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/debug_lines.frag.spv");
         ROSpan spanFrag = packetFrag.read(4);
         if (spanFrag.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo fragModuleCreateInfo{};
@@ -336,7 +384,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         fragStage.pName = "main";
 
         VkShaderModule vertShader;
-        ROPacket packetVert = serviceLocator->get<IOManager>().openRO("../build/shaders/vulkan/debug_lines.vert.spv");
+        ROFile packetVert = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/debug_lines.vert.spv");
         ROSpan spanVert = packetVert.read(4);
         if (spanVert.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo vertModuleCreateInfo{};
@@ -386,7 +434,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         pipelineCreateInfo.pMultisampleState = &multisampling;
         pipelineCreateInfo.pDynamicState = &dynamicState;
         pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
-        pipelineCreateInfo.renderPass = mMainRenderPass;
+        pipelineCreateInfo.renderPass = mRenderPass;
         pipelineCreateInfo.subpass = 0;
         pipelineCreateInfo.pStages = stages;
         pipelineCreateInfo.stageCount = std::size(stages);
@@ -399,14 +447,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         vkDestroyShaderModule(mDevice, fragShader, nullptr);
         vkDestroyShaderModule(mDevice, vertShader, nullptr);
 
-
-        mDebugLinesBuffer.allocate(
-            mDevice, mPhysicalDevice, sizeof(DebugLineVertexVk) * 200,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mDebugLinesBuffer.mapMemory();
-
-        log.debug() << "Created debug lines pipeline\n";
+        logger.debug() << LOG_RENDERER_NAME ": Created debug lines pipeline\n";
     }
 
     // gui pipeline
@@ -466,7 +507,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         VkPipelineShaderStageCreateInfo stages[2] = {};
 
         VkShaderModule fragShader;
-        ROPacket packetFrag = serviceLocator->get<IOManager>().openRO("../build/shaders/vulkan/gui.frag.spv");
+        ROFile packetFrag = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/gui.frag.spv");
         ROSpan spanFrag = packetFrag.read(4);
         if (spanFrag.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo fragModuleCreateInfo{};
@@ -482,7 +523,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         fragStage.pName = "main";
 
         VkShaderModule vertShader;
-        ROPacket packetVert = serviceLocator->get<IOManager>().openRO("../build/shaders/vulkan/gui.vert.spv");
+        ROFile packetVert = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/gui.vert.spv");
         ROSpan spanVert = packetVert.read(4);
         if (spanVert.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo vertModuleCreateInfo{};
@@ -532,7 +573,7 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         pipelineCreateInfo.pMultisampleState = &multisampling;
         pipelineCreateInfo.pDynamicState = &dynamicState;
         pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
-        pipelineCreateInfo.renderPass = mMainRenderPass;
+        pipelineCreateInfo.renderPass = mRenderPass;
         pipelineCreateInfo.subpass = 0;
         pipelineCreateInfo.pStages = stages;
         pipelineCreateInfo.stageCount = std::size(stages);
@@ -545,52 +586,128 @@ void RendererVk::init(const WindowManager* windowManager, const GlobalServiceLoc
         vkDestroyShaderModule(mDevice, fragShader, nullptr);
         vkDestroyShaderModule(mDevice, vertShader, nullptr);
 
-
-        mGUIVertexBuffer.allocate(
-            mDevice, mPhysicalDevice, 64,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mGUIVertexBuffer.mapMemory();
-
-        mGUIIndexBuffer.allocate(
-            mDevice, mPhysicalDevice, 64,
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mGUIIndexBuffer.mapMemory();
-
-        log.debug() << "Created GUI pipeline\n";
+        logger.debug() << LOG_RENDERER_NAME ": Created GUI pipeline\n";
     }
-
-    log.info(TPR_LOG_STYLE_TIMESTAMP1) << "Vulkan backend initialization finished\n";
 
 }
 
 
 
-void RendererVk::shutdown() noexcept {
+void RenderPass::destroy() noexcept {
+    if (mGUIPipeline) {
+        vkDestroyPipeline(mDevice, mGUIPipeline, nullptr);
+        mGUIPipeline = VK_NULL_HANDLE;
+    }
+    if (mGUIPipelineLayout) {
+        vkDestroyPipelineLayout(mDevice, mGUIPipelineLayout, nullptr);
+        mGUIPipelineLayout = VK_NULL_HANDLE;
+    }
+    if (mDebugLinesPipeline) {
+        vkDestroyPipeline(mDevice, mDebugLinesPipeline, nullptr);
+        mDebugLinesPipeline = VK_NULL_HANDLE;
+    }
+    if (mDebugLinesPipelineLayout) {
+        vkDestroyPipelineLayout(mDevice, mDebugLinesPipelineLayout, nullptr);
+        mDebugLinesPipelineLayout = VK_NULL_HANDLE;
+    }
+    if (mRenderPass) {
+        vkDestroyRenderPass(mDevice, mRenderPass, nullptr);
+        mRenderPass = VK_NULL_HANDLE;
+    }
+}
+
+
+
+TprResult RendererVulkan::registerWindow(TprWindow handle) noexcept {
+    try {
+
+        WindowContext& ctx = mWindowContexts.emplace(getBasicHandleIndex(handle), WindowContext{}).first->second;
+
+        // checking if instance has all required extensions
+        std::vector<const char*> requiredExtensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(handle);
+        for (const auto& reqExt : requiredExtensions) {
+            for (const auto& preExt : mInstanceExtensions) {
+                if (std::strcmp(reqExt, preExt) == 0) goto found_match;
+            }
+            // loop ended, didn't find a matching name
+            return TPR_INSUFFICIENT_INIT;
+            found_match: ;
+        }
+
+        ctx.surface = gGetServiceLocator()->get<WindowManager>().createSurfaceVk(handle, mInstance);
+        ctx.frames.resize(mMaxFramesInFlight);
+        for (auto& frame : ctx.frames) {
+            frame.construct(mDevice, 0);
+        }
+        ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+        for (const auto& [otherWindow, otherCtx] : mWindowContexts) {
+            if (
+                &otherCtx != &ctx && 
+                otherCtx.swapchain.chainFormat() == ctx.swapchain.chainFormat() &&
+                otherCtx.swapchain.depthFormat() == ctx.swapchain.depthFormat()
+            ) {
+                // can borrow the render pass from already existing window
+                gGetServiceLocator()->get<Logger>().debug() << LOG_RENDERER_NAME ": Sharing already existing render pass\n";
+                ctx.renderPass = otherCtx.renderPass;
+                goto have_valid_render_pass;
+            }
+        }
+
+        // need to create it's own
+        // because no existing windows have the exact same formats choosed
+        gGetServiceLocator()->get<Logger>().debug() << LOG_RENDERER_NAME ": Creating a new render pass\n";
+        ctx.renderPass = std::make_shared<RenderPass>();
+        ctx.renderPass->construct(mDevice, ctx.swapchain);
+
+        have_valid_render_pass: ;
+
+        ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+        ctx.handle = handle;
+
+    } catch (const Exception& e) {
+        gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << LOG_RENDERER_NAME ": Expected exception [" << e.code() << "]: " << e.what() << "\n";
+        return TPR_UNKNOWN_ERROR;
+    } catch (...) {
+        return TPR_UNKNOWN_ERROR;
+    }
+    return TPR_SUCCESS;
+}
+
+
+void RendererVulkan::unregisterWindow(TprWindow handle) noexcept {
+    try {
+
+        TOF(vkDeviceWaitIdle(mDevice));
+        auto& ctx = mWindowContexts[getBasicHandleIndex(handle)];
+        for (auto& frame : ctx.frames) {
+            frame.destroy();
+        }
+        ctx.framebuffers.destroy();
+        if (ctx.renderPass) {
+            ctx.renderPass->destroy();
+            ctx.renderPass.reset();
+        }
+        ctx.swapchain.destroy();
+        if (ctx.surface) {
+            vkDestroySurfaceKHR(mInstance, ctx.surface, nullptr);
+            ctx.surface = VK_NULL_HANDLE;
+        }
+
+    } catch (...) {}
+}
+
+
+void RendererVulkan::shutdown() noexcept {
 
     vkDeviceWaitIdle(mDevice);
 
     mGUIIndexBuffer.free();
     mGUIVertexBuffer.free();
-    if (mGUIPipeline) vkDestroyPipeline(mDevice, mGUIPipeline, nullptr);
-    if (mGUIPipelineLayout) vkDestroyPipelineLayout(mDevice, mGUIPipelineLayout, nullptr);
-
     mDebugLinesBuffer.free();
-    if (mDebugLinesPipeline) vkDestroyPipeline(mDevice, mDebugLinesPipeline, nullptr);
-    if (mDebugLinesPipelineLayout) vkDestroyPipelineLayout(mDevice, mDebugLinesPipelineLayout, nullptr);
 
-    mFramebuffers.destroy();
-
-    if (mMainRenderPass) vkDestroyRenderPass(mDevice, mMainRenderPass, nullptr);
-
-    for (auto& frame : mFrames) {
-        frame.destroy();
+    for (auto& [index, ctx] : mWindowContexts) {
+        unregisterWindow(ctx.handle);
     }
-
-    mSwapchain.destroy();
-
-    if (mSurface) vkDestroySurfaceKHR(mInstance, mSurface, nullptr);
 
     if (mDevice) vkDestroyDevice(mDevice, nullptr);
 
@@ -606,244 +723,272 @@ void RendererVk::shutdown() noexcept {
 }
 
 
+void FramebuffersHolder::construct(Swapchain& swapchain, VkDevice device, VkRenderPass renderPass) {
 
-void RendererVk::beginRenderPass(const Scissor* pScissor, const Viewport* pViewport) {
+    mDevice = device;
+    auto& logger = gGetServiceLocator()->get<Logger>();
+
+    mFramebuffers.assign(swapchain.imageCount(), VK_NULL_HANDLE);
+
+    for (uint32_t i = 0; i < swapchain.imageCount(); i++) {
+
+        VkImageView attachments[] = {
+            swapchain.getChainImageView(i),
+            swapchain.getDepthImageView(i)
+        };
+
+        VkFramebufferCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        createInfo.width = swapchain.extent().width;
+        createInfo.height = swapchain.extent().height;
+        createInfo.attachmentCount = std::size(attachments);
+        createInfo.pAttachments = attachments;
+        createInfo.layers = 1;
+        createInfo.renderPass = renderPass;
+
+        TOF(vkCreateFramebuffer(device, &createInfo, nullptr, &mFramebuffers[i]));
+    
+    }
+
+}
+
+
+void FramebuffersHolder::destroy() noexcept {
+    for (auto& framebuffer : mFramebuffers) {
+        if (framebuffer) {
+            vkDestroyFramebuffer(mDevice, framebuffer, nullptr);
+            framebuffer = VK_NULL_HANDLE;
+        }
+    }
+}
+
+
+
+// void RendererVulkan::renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject) {
+
+//     if (debugLinesVertices.empty()) return;
+
+//     Frame& frame = mFrames[mFrameCounter];
+
+//     // debug lines
+//     mDebugLinesBuffer.resize(debugLinesVertices.size() * sizeof(DebugLineVertex));
+//     std::memcpy(mDebugLinesBuffer.map, debugLinesVertices.data(), debugLinesVertices.size() * sizeof(DebugLineVertex));
+
+//     vkCmdBindPipeline(frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mDebugLinesPipeline);
+
+//     VkDeviceSize debugLinesBufferOffset = 0;
+//     vkCmdBindVertexBuffers(frame.renderCommandBuffer(), 0, 1, &mDebugLinesBuffer.buffer, &debugLinesBufferOffset);
+
+//     glm::mat4 proj;
+//     float screenAspect = static_cast<float>(mSwapchain.extent().width) / static_cast<float>(mSwapchain.extent().height);
+//     if (cameraProject == CameraProject::Ortho) {
+//         float scale = 1.0f;
+//         // changing zNear and zFar order to make camera look in +Z direction
+//         proj = glm::ortho(-screenAspect * scale, screenAspect * scale, -scale, scale, 10000.0f, 0.01f);
+//     } else {
+//         proj = glm::perspective(glm::radians(45.0f), screenAspect, 0.01f, 10000.0f);
+//     }
+//     glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+//     DebugLinesPushConst push{};
+//     push.mvp = proj * view;
+//     vkCmdPushConstants(frame.renderCommandBuffer(), mDebugLinesPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DebugLinesPushConst), &push);
+
+//     vkCmdDraw(frame.renderCommandBuffer(), debugLinesVertices.size(), 1, 0, 0);
+
+// }
+
+
+
+// void RendererVulkan::renderGUI(const GUIDrawDesc& desc) {
+
+//     Frame& frame = mFrames[mFrameCounter];
+
+//     if (!desc.rects.empty()) {
+//         mGUIVertexBuffer.resize(desc.rects.size() * sizeof(GUIRectVertex) * 4);
+//         mGUIIndexBuffer.resize(desc.rects.size() * sizeof(uint32_t) * 6);
+        
+//         for (uint32_t i = 0; i < desc.rects.size(); i++) {
+//             const GUIDrawDesc::Rect& rect = desc.rects[i];
+//             GUIRectVertex v[4];
+//             v[0].pos = glm::vec3(rect.x, rect.y, i + 1.0f);
+//             v[0].colour = rect.bgColour;
+//             v[1].pos = glm::vec3(rect.x + rect.w, rect.y, i + 1.0f);
+//             v[1].colour = rect.bgColour;
+//             v[2].pos = glm::vec3(rect.x + rect.w, rect.y + rect.h, i + 1.0f);
+//             v[2].colour = rect.bgColour;
+//             v[3].pos = glm::vec3(rect.x, rect.y + rect.h, i + 1.0f);
+//             v[3].colour = rect.bgColour;
+//             std::memcpy( static_cast<char*>(mGUIVertexBuffer.map) + i * sizeof(v), v, sizeof(v));
+
+//             uint32_t indices[6] = {i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3};
+//             std::memcpy(static_cast<char*>(mGUIIndexBuffer.map) + i * sizeof(indices), indices, sizeof(indices));
+//         }
+//     }
+
+//     vkCmdBindPipeline(frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mGUIPipeline);
+
+//     VkDeviceSize vertexOffset = 0;
+//     vkCmdBindVertexBuffers(frame.renderCommandBuffer(), 0, 1, &mGUIVertexBuffer.buffer, &vertexOffset);
+
+//     vkCmdBindIndexBuffer(frame.renderCommandBuffer(), mGUIIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+//     glm::mat4 proj;
+//     float screenAspect = static_cast<float>(mSwapchain.extent().width) / static_cast<float>(mSwapchain.extent().height);
+//     proj = glm::ortho(-screenAspect, screenAspect, -1.0f, 1.0f, 1000.0f, 0.01f);
+//     glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+//     DebugLinesPushConst push{};
+//     push.mvp = proj * view;
+//     vkCmdPushConstants(frame.renderCommandBuffer(), mDebugLinesPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DebugLinesPushConst), &push);
+
+//     vkCmdDrawIndexed(frame.renderCommandBuffer(), desc.rects.size() * 6, 1, 0, 0, 0);
+
+// }
+
+
+
+void RendererVulkan::render(const RenderGraph& graph) {
 
     mFrameCounter = (mFrameCounter + 1) % mMaxFramesInFlight;
-
-    Frame& frame = mFrames[mFrameCounter];
-
-    mSubpassIndex = 0;
-
-    TOF(vkWaitForFences(mDevice, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX));
-
-    TOF(vkResetCommandPool(mDevice, frame.commandPool, 0));
-
     VkResult result;
+    auto& logger = gGetServiceLocator()->get<Logger>();
+    auto& windowManager = gGetServiceLocator()->get<WindowManager>();
 
-    if (mpWindowManager->getWidth() != mSwapchain.extent().width || mpWindowManager->getHeight() != mSwapchain.extent().height) {
-        auto l = mpServiceLocator->get<Logger>().debug();
-        l << "Resizing the swapchain from: " << mSwapchain.extent().width << "," << mSwapchain.extent().height;
-        TOF(vkDeviceWaitIdle(mDevice));
-        mSwapchain.construct(mPhysicalDevice, mDevice, mSurface, mpWindowManager, mpServiceLocator);
-        mFramebuffers.destroy();
-        mFramebuffers.construct(mSwapchain, mDevice, mMainRenderPass);
-        l << " to: " << mSwapchain.extent().width << "," << mSwapchain.extent().height
-          << " (window: " << mpWindowManager->getWidth() << "," << mpWindowManager->getHeight() << ")\n";
-    }
+    for (auto& [handle, conf] : graph.windows) {
 
-    result = vkAcquireNextImageKHR(mDevice, mSwapchain.swapchain(), UINT64_MAX, frame.imageAvailableSemaphore, VK_NULL_HANDLE, &mCurrentSwapchainImage);
-    switch (result) {
-        case VK_ERROR_OUT_OF_DATE_KHR:
-        case VK_SUBOPTIMAL_KHR:
-            TOF(vkDeviceWaitIdle(mDevice));
-            mSwapchain.construct(mPhysicalDevice, mDevice, mSurface, mpWindowManager, mpServiceLocator);
-            mFramebuffers.destroy();
-            mFramebuffers.construct(mSwapchain, mDevice, mMainRenderPass);
-            return;
-        case VK_SUCCESS: break;
-        default: throw Exception(ErrCode::InternalError, "Failed to acquire swapchain image");
-    }
+        auto& ctx = mWindowContexts[getBasicHandleIndex(handle)];
+        Frame& frame = ctx.frames[mFrameCounter];
 
-    VkImage swapchainImage = mSwapchain.getChainImage(mCurrentSwapchainImage);
+        uint32_t swapchainImageIndex;
+        VkImage swapchainImage;
 
-    VkCommandBufferBeginInfo commandBeginInfo{};
-    commandBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    commandBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        // render pass begin
+        {
 
-    TOF(vkBeginCommandBuffer(frame.renderCommandBuffer(), &commandBeginInfo));
+            TOF(vkWaitForFences(mDevice, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX));
 
-    VkClearValue chainClearValues[2];
-    chainClearValues[0].color = {{0.21f, 0.205f, 0.22f, 1.0f}};
-    chainClearValues[1].depthStencil = {1.0f, 0};
+            TOF(vkResetCommandPool(mDevice, frame.commandPool, 0));
 
-    VkRenderPassBeginInfo renderBeginInfo{};
-    renderBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderBeginInfo.renderArea.extent.width = mSwapchain.extent().width;
-    renderBeginInfo.renderArea.extent.height = mSwapchain.extent().height;
-    renderBeginInfo.renderArea.offset.x = 0;
-    renderBeginInfo.renderArea.offset.y = 0;
-    renderBeginInfo.renderPass = mMainRenderPass;
-    renderBeginInfo.clearValueCount = std::size(chainClearValues);
-    renderBeginInfo.pClearValues = chainClearValues;
-    renderBeginInfo.framebuffer = mFramebuffers.getFramebuffer(mCurrentSwapchainImage);
+            // auto resizing the swapchain if size changed
+            // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
+            TprBool8 resized;
+            if (auto r = windowManager.hasWindowResized(handle, &resized) < 0) {
+                throw Exception(ErrCode::InternalError, LOG_RENDERER_NAME ": WindowManager::hasWindowResized returned error code "s + std::to_string(r));
+            }
+            // if (resized) {
+            //     TOF(vkDeviceWaitIdle(mDevice));
+            //     ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+            //     ctx.renderPass->mFramebuffers.destroy();
+            //     ctx.renderPass->mFramebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+            // }
 
-    vkCmdBeginRenderPass(frame.renderCommandBuffer(), &renderBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+            // acquiring swapchain image
+            result = vkAcquireNextImageKHR(mDevice, ctx.swapchain.swapchain(), UINT64_MAX, frame.imageAvailableSemaphore, VK_NULL_HANDLE, &swapchainImageIndex);
+            switch (result) {
+                case VK_ERROR_OUT_OF_DATE_KHR:
+                case VK_SUBOPTIMAL_KHR:
+                    TOF(vkDeviceWaitIdle(mDevice));
+                    ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+                    ctx.framebuffers.destroy();
+                    ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+                    return;
+                case VK_SUCCESS: break;
+                default: throw Exception(ErrCode::InternalError, "Failed to acquire swapchain image");
+            }
+            swapchainImage = ctx.swapchain.getChainImage(swapchainImageIndex);
 
+            // render command buffer begin
+            VkCommandBufferBeginInfo commandBeginInfo{};
+            commandBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            commandBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            TOF(vkBeginCommandBuffer(frame.renderCommandBuffer(), &commandBeginInfo));
 
-    // scissor and viewport
-    VkRect2D scissor;
-    if (pScissor) {
-        scissor.offset.x = pScissor->x;
-        scissor.offset.y = pScissor->y;
-        scissor.extent.width = pScissor->width;
-        scissor.extent.height = pScissor->height;
-    } else {
-        scissor.offset.x = 0;
-        scissor.offset.y = 0;
-        scissor.extent.width = mSwapchain.extent().width;
-        scissor.extent.height = mSwapchain.extent().height;
-    }
-    vkCmdSetScissor(frame.renderCommandBuffer(), 0, 1, &scissor);
-    
-    VkViewport viewport;
-    if (pScissor) {
-        viewport.x = pViewport->x;
-        viewport.y = pViewport->y;
-        viewport.width = pViewport->width;
-        viewport.height = pViewport->height;
-        viewport.minDepth = pViewport->minDepth;
-        viewport.maxDepth = pViewport->maxDepth;
-    } else {
-        viewport.x = 0;
-        viewport.y = 0;
-        viewport.width = mSwapchain.extent().width;
-        viewport.height = mSwapchain.extent().height;
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-    }
-    vkCmdSetViewport(frame.renderCommandBuffer(), 0, 1, &viewport);
+            // render pass begin
+            VkClearValue chainClearValues[2];
+            chainClearValues[0].color = {{0.21f, 0.205f, 0.22f, 1.0f}};
+            chainClearValues[1].depthStencil = {1.0f, 0};
+            VkRenderPassBeginInfo renderPassBeginInfo{};
+            renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassBeginInfo.renderArea.extent.width = ctx.swapchain.extent().width;
+            renderPassBeginInfo.renderArea.extent.height = ctx.swapchain.extent().height;
+            renderPassBeginInfo.renderArea.offset.x = 0;
+            renderPassBeginInfo.renderArea.offset.y = 0;
+            renderPassBeginInfo.renderPass = ctx.renderPass->mRenderPass;
+            renderPassBeginInfo.clearValueCount = std::size(chainClearValues);
+            renderPassBeginInfo.pClearValues = chainClearValues;
+            renderPassBeginInfo.framebuffer = ctx.framebuffers.getFramebuffer(swapchainImageIndex);
+            vkCmdBeginRenderPass(frame.renderCommandBuffer(), &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-}
+            // scissor
+            VkRect2D scissor;
+            scissor.offset.x = conf.scissor.x;
+            scissor.offset.y = conf.scissor.y;
+            scissor.extent.width = conf.scissor.width;
+            scissor.extent.height = conf.scissor.height;
+            vkCmdSetScissor(frame.renderCommandBuffer(), 0, 1, &scissor);
 
+            // viewport
+            VkViewport viewport;
+            viewport.x = conf.viewport.x;
+            viewport.y = conf.viewport.y;
+            viewport.width = conf.viewport.width;
+            viewport.height = conf.viewport.height;
+            viewport.minDepth = conf.viewport.minDepth;
+            viewport.maxDepth = conf.viewport.maxDepth;
+            vkCmdSetViewport(frame.renderCommandBuffer(), 0, 1, &viewport);
 
-void RendererVk::renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject) {
-
-    if (debugLinesVertices.empty()) return;
-
-    Frame& frame = mFrames[mFrameCounter];
-
-    // debug lines
-    mDebugLinesBuffer.resize(debugLinesVertices.size() * sizeof(DebugLineVertex));
-    std::memcpy(mDebugLinesBuffer.map, debugLinesVertices.data(), debugLinesVertices.size() * sizeof(DebugLineVertex));
-
-    vkCmdBindPipeline(frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mDebugLinesPipeline);
-
-    VkDeviceSize debugLinesBufferOffset = 0;
-    vkCmdBindVertexBuffers(frame.renderCommandBuffer(), 0, 1, &mDebugLinesBuffer.buffer, &debugLinesBufferOffset);
-
-    glm::mat4 proj;
-    float screenAspect = static_cast<float>(mSwapchain.extent().width) / static_cast<float>(mSwapchain.extent().height);
-    if (cameraProject == CameraProject::Ortho) {
-        float scale = 1.0f;
-        // changing zNear and zFar order to make camera look in +Z direction
-        proj = glm::ortho(-screenAspect * scale, screenAspect * scale, -scale, scale, 10000.0f, 0.01f);
-    } else {
-        proj = glm::perspective(glm::radians(45.0f), screenAspect, 0.01f, 10000.0f);
-    }
-    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    DebugLinesPushConst push{};
-    push.mvp = proj * view;
-    vkCmdPushConstants(frame.renderCommandBuffer(), mDebugLinesPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DebugLinesPushConst), &push);
-
-    vkCmdDraw(frame.renderCommandBuffer(), debugLinesVertices.size(), 1, 0, 0);
-
-}
+        }
 
 
+        // render pass end
+        {
 
-void RendererVk::renderGUI(const GUIDrawDesc& desc) {
+            vkCmdEndRenderPass(frame.renderCommandBuffer());
 
-    if (mSubpassIndex != 1) throw Exception(ErrCode::InternalError, "nextSubpass() must be called exactly once after beginRenderPass() to use renderGUI()");
+            TOF(vkEndCommandBuffer(frame.renderCommandBuffer()));
 
-    Frame& frame = mFrames[mFrameCounter];
+            TOF(vkResetFences(mDevice, 1, &frame.inFlightFence));
 
-    if (!desc.rects.empty()) {
-        mGUIVertexBuffer.resize(desc.rects.size() * sizeof(GUIRectVertex) * 4);
-        mGUIIndexBuffer.resize(desc.rects.size() * sizeof(uint32_t) * 6);
-        
-        for (uint32_t i = 0; i < desc.rects.size(); i++) {
-            const GUIDrawDesc::Rect& rect = desc.rects[i];
-            GUIRectVertex v[4];
-            v[0].pos = glm::vec3(rect.x, rect.y, i + 1.0f);
-            v[0].colour = rect.bgColour;
-            v[1].pos = glm::vec3(rect.x + rect.w, rect.y, i + 1.0f);
-            v[1].colour = rect.bgColour;
-            v[2].pos = glm::vec3(rect.x + rect.w, rect.y + rect.h, i + 1.0f);
-            v[2].colour = rect.bgColour;
-            v[3].pos = glm::vec3(rect.x, rect.y + rect.h, i + 1.0f);
-            v[3].colour = rect.bgColour;
-            std::memcpy( static_cast<char*>(mGUIVertexBuffer.map) + i * sizeof(v), v, sizeof(v));
+            // submitting render queue
+            VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSubmitInfo submitInfo{};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &frame.renderCommandBuffer();
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &frame.imageAvailableSemaphore;
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = &ctx.swapchain.getSemaphore(swapchainImageIndex);
+            submitInfo.pWaitDstStageMask = &waitStageMask;
+            TOF(vkQueueSubmit(mRenderQueue, 1, &submitInfo, frame.inFlightFence));
 
-            uint32_t indices[6] = {i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3};
-            std::memcpy(static_cast<char*>(mGUIIndexBuffer.map) + i * sizeof(indices), indices, sizeof(indices));
+            // submitting present queue
+            VkPresentInfoKHR presentInfo{};
+            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            presentInfo.pImageIndices = &swapchainImageIndex;
+            presentInfo.pSwapchains = &ctx.swapchain.swapchain();
+            presentInfo.swapchainCount = 1;
+            presentInfo.waitSemaphoreCount = 1;
+            presentInfo.pWaitSemaphores = &ctx.swapchain.getSemaphore(swapchainImageIndex);
+            result = vkQueuePresentKHR(mRenderQueue, &presentInfo);
+            switch (result) {
+                case VK_ERROR_OUT_OF_DATE_KHR:
+                case VK_SUBOPTIMAL_KHR:
+                    TOF(vkDeviceWaitIdle(mDevice));
+                    ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+                    ctx.framebuffers.destroy();
+                    ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+                    return;
+                case VK_SUCCESS: break;
+                default: throw Exception(ErrCode::InternalError, "Failed to present");
+            }
         }
     }
 
-    vkCmdBindPipeline(frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mGUIPipeline);
-
-    VkDeviceSize vertexOffset = 0;
-    vkCmdBindVertexBuffers(frame.renderCommandBuffer(), 0, 1, &mGUIVertexBuffer.buffer, &vertexOffset);
-
-    vkCmdBindIndexBuffer(frame.renderCommandBuffer(), mGUIIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-    glm::mat4 proj;
-    float screenAspect = static_cast<float>(mSwapchain.extent().width) / static_cast<float>(mSwapchain.extent().height);
-    proj = glm::ortho(-screenAspect, screenAspect, -1.0f, 1.0f, 1000.0f, 0.01f);
-    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    DebugLinesPushConst push{};
-    push.mvp = proj * view;
-    vkCmdPushConstants(frame.renderCommandBuffer(), mDebugLinesPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DebugLinesPushConst), &push);
-
-    vkCmdDrawIndexed(frame.renderCommandBuffer(), desc.rects.size() * 6, 1, 0, 0, 0);
-
 }
 
 
 
-void RendererVk::endRenderPass() {
-
-    VkResult result;
-
-    Frame& frame = mFrames[mFrameCounter];
-
-    vkCmdEndRenderPass(frame.renderCommandBuffer());
-
-    TOF(vkEndCommandBuffer(frame.renderCommandBuffer()));
-
-    TOF(vkResetFences(mDevice, 1, &frame.inFlightFence));
-
-    VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &frame.renderCommandBuffer();
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &frame.imageAvailableSemaphore;
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &mSwapchain.getSemaphore(mCurrentSwapchainImage);
-    submitInfo.pWaitDstStageMask = &waitStageMask;
-
-    TOF(vkQueueSubmit(mRenderQueue, 1, &submitInfo, frame.inFlightFence));
-
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.pImageIndices = &mCurrentSwapchainImage;
-    presentInfo.pSwapchains = &mSwapchain.swapchain();
-    presentInfo.swapchainCount = 1;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &mSwapchain.getSemaphore(mCurrentSwapchainImage);
-    
-    result = vkQueuePresentKHR(mRenderQueue, &presentInfo);
-    switch (result) {
-        case VK_ERROR_OUT_OF_DATE_KHR:
-        case VK_SUBOPTIMAL_KHR:
-            TOF(vkDeviceWaitIdle(mDevice));
-            mSwapchain.construct(mPhysicalDevice, mDevice, mSurface, mpWindowManager, mpServiceLocator);
-            mFramebuffers.destroy();
-            mFramebuffers.construct(mSwapchain, mDevice, mMainRenderPass);
-            return;
-        case VK_SUCCESS: break;
-        default: throw Exception(ErrCode::InternalError, "Failed to present");
-    }
-
-}
-
-
-
-
-void RendererVk::update() {
+void RendererVulkan::update() {
 
 }
 
@@ -881,10 +1026,19 @@ void Frame::construct(VkDevice device, uint32_t queueFamilyIndex) {
 
 void Frame::destroy() noexcept {
 
-    if (commandPool) vkDestroyCommandPool(mDevice, commandPool, nullptr);
+    if (commandPool) {
+        vkDestroyCommandPool(mDevice, commandPool, nullptr);
+        commandPool = VK_NULL_HANDLE;
+    }
 
-    if (inFlightFence) vkDestroyFence(mDevice, inFlightFence, nullptr);
+    if (inFlightFence) {
+        vkDestroyFence(mDevice, inFlightFence, nullptr);
+        inFlightFence = VK_NULL_HANDLE;
+    }
 
-    if (imageAvailableSemaphore) vkDestroySemaphore(mDevice, imageAvailableSemaphore, nullptr);
+    if (imageAvailableSemaphore) {
+        vkDestroySemaphore(mDevice, imageAvailableSemaphore, nullptr);
+        imageAvailableSemaphore = VK_NULL_HANDLE;
+    }
 
 }

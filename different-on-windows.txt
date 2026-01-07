@@ -1,0 +1,4 @@
+
+1. Plugin (as dynamic library) loading
+
+2. Partially signal handling

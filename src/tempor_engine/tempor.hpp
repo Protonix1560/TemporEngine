@@ -5,12 +5,12 @@
 
 
 #include "core.hpp"
-#include "plugin.h"
+#include "data_bridge/data_bridge.hpp"
 #include "window_manager.hpp"
-#include "io.hpp"
+#include "vfs.hpp"
 #include "logger.hpp"
 #include "gui_processor.hpp"
-#include "renderer.hpp"
+#include "irenderer.hpp"
 #include "plugin_launcher.hpp"
 #include "scene_manager.hpp"
 
@@ -20,6 +20,7 @@
 #include <cstring>
 #include <charconv>
 #include <thread>
+#include <csignal>
 
 
 
@@ -208,6 +209,8 @@ class ArgParser {
         template<typename T>
         static T evaluate(std::string& s, ErrCode* result) {
 
+            auto& log = gGetServiceLocator()->get<Logger>();
+
             if constexpr (std::is_same_v<T, std::string>) {
                 return s;
 
@@ -219,10 +222,10 @@ class ArgParser {
 
                 auto [ptr, ec] = std::from_chars(first, last, value, 10);
                 if (ec == std::errc::invalid_argument) {
-                    std::cerr << "Invalid number: " << s << "\n";
+                    log.error(TPR_LOG_STYLE_ERROR1) << "Invalid number: " << s << "\n";
                     if (result) *result = ErrInvalidValue;
                 } else if (ec == std::errc::result_out_of_range) {
-                    std::cerr << "Too large number: " << s << "\n";
+                    log.error(TPR_LOG_STYLE_ERROR1) << "Too large number: " << s << "\n";
                     if (result) *result = ErrInvalidValue;
                 }
 
@@ -244,7 +247,7 @@ class ArgParser {
                 } else if (s == "false" || s == "f" || s == "no" || s == "n" || s == "off" || s == "0") {
                     return false;
                 } else {
-                    std::cerr << "Invalid boolean: " << s << "\n";
+                    log.error(TPR_LOG_STYLE_ERROR1) << "Invalid boolean: " << s << "\n";
                     if (result) *result = ErrInvalidValue;
                     return T{};
                 }
@@ -345,24 +348,26 @@ class ArgParser {
         }
 
         void printHelp() {
-            std::cout << "Usage: " << name;
-            if (flags.size()) std::cout << " [options]";
-            std::cout << " ";
+            auto& log = gGetServiceLocator()->get<Logger>();
+            auto l = log.info(TPR_LOG_STYLE_STANDART);
+            l << "Usage: " << name;
+            if (flags.size()) l << " [options]";
+            l << " ";
             size_t maxPosLength = 0;
             for (const auto& pos : posArgs) {
-                if (pos.params & POS_REQUIRED) std::cout << "<";
-                else std::cout << "[";
-                std::cout << pos.name;
-                if (pos.params & POS_REQUIRED) std::cout << ">";
-                else std::cout << "]";
-                if (pos.params & POS_ALL_REMAINING) std::cout << "...";
-                std::cout << " ";
+                if (pos.params & POS_REQUIRED) l << "<";
+                else l << "[";
+                l << pos.name;
+                if (pos.params & POS_REQUIRED) l << ">";
+                else l << "]";
+                if (pos.params & POS_ALL_REMAINING) l << "...";
+                l << " ";
                 size_t len = 4 + pos.name.size() + ((pos.params & POS_ALL_REMAINING) ? 3 : 0);
                 if (len > maxPosLength && len < maxHelpPadding) {
                     maxPosLength = len;
                 }
             }
-            std::cout << "\n";
+            l << "\n";
 
             size_t maxFlagLength = 0;
             for (const auto& flag : flags) {
@@ -373,57 +378,59 @@ class ArgParser {
             }
 
             if (flags.size()) {
-                std::cout << "Options:\n";
+                l << "Options:\n";
                 for (const auto& flag : flags) {
-                    if (flag.shortName != 0) std::cout << "  -" << flag.shortName;
-                    if (!flag.longName.empty()) std::cout << " --" << flag.longName;
-                    std::cout << "  ";
+                    if (flag.shortName != 0) l << "  -" << flag.shortName;
+                    if (!flag.longName.empty()) l << " --" << flag.longName;
+                    l << "  ";
                     size_t len = (flag.shortName ? 4 : 0) + (!flag.longName.empty() ? 3 : 0) + flag.longName.size() + 2;
                     if (len < maxFlagLength) {
-                        std::cout << std::string(maxFlagLength - len, ' ');
+                        l << std::string(maxFlagLength - len, ' ');
                     }
                     std::string help = flag.help;
                     size_t nlinepos = help.find('\n');
-                    std::cout << help.substr(0, nlinepos) << "\n";
+                    l << help.substr(0, nlinepos) << "\n";
                     help = help.substr(nlinepos + 1);
                     while (nlinepos != std::string::npos) {
                         nlinepos = help.find('\n');
-                        std::cout << std::string(maxFlagLength, ' ') << help.substr(0, nlinepos) << "\n";
+                        l << std::string(maxFlagLength, ' ') << help.substr(0, nlinepos) << "\n";
                         help = help.substr(nlinepos + 1);
                     }
                 }
             }
 
             if (posArgs.size()) {
-                std::cout << "\nArguments:\n";
+                l << "\nArguments:\n";
                 for (const auto& pos : posArgs) {
                     size_t len = 4 + pos.name.size() + ((pos.params & POS_ALL_REMAINING) ? 3 : 0);
-                    if (pos.params & POS_REQUIRED) std::cout << "<";
-                    else std::cout << "[";
-                    std::cout << pos.name;
-                    if (pos.params & POS_REQUIRED) std::cout << ">";
-                    else std::cout << "]";
-                    if (pos.params & POS_ALL_REMAINING) std::cout << "...";
-                    std::cout << "  ";
+                    if (pos.params & POS_REQUIRED) l << "<";
+                    else l << "[";
+                    l << pos.name;
+                    if (pos.params & POS_REQUIRED) l << ">";
+                    else l << "]";
+                    if (pos.params & POS_ALL_REMAINING) l << "...";
+                    l << "  ";
                     if (len < maxPosLength) {
-                        std::cout << std::string(maxPosLength - len, ' ');
+                        l << std::string(maxPosLength - len, ' ');
                     }
                     std::string help = pos.help;
                     size_t nlinepos = help.find('\n');
-                    std::cout << help.substr(0, nlinepos) << "\n";
+                    l << help.substr(0, nlinepos) << "\n";
                     help = help.substr(nlinepos + 1);
                     while (nlinepos != std::string::npos) {
                         nlinepos = help.find('\n');
-                        std::cout << std::string(maxPosLength, ' ') << help.substr(0, nlinepos) << "\n";
+                        l << std::string(maxPosLength, ' ') << help.substr(0, nlinepos) << "\n";
                         help = help.substr(nlinepos + 1);
                     }
                 }
             }
 
-            if (!helpPost.empty()) std::cout << "\n" << helpPost << "\n";
+            if (!helpPost.empty()) l << "\n" << helpPost << "\n";
         }
 
         ErrCode parse(int argc, char* argv[]) {
+
+            auto& log = gGetServiceLocator()->get<Logger>();
 
             bool forcePositional = false;
             int prevPos = 0;
@@ -447,7 +454,7 @@ class ArgParser {
                             } else if (argc > i + 1) {
                                 it->storage.assign(argv[i + 1]);
                             } else {
-                                std::cerr << "Flag --" << it->longName << " needs a value but nothing is specified\n";
+                                log.error(TPR_LOG_STYLE_ERROR1) << "Flag --" << it->longName << " needs a value but nothing is specified\n";
                                 return ErrValueMissing;
                             }
                         }
@@ -456,7 +463,7 @@ class ArgParser {
                             return HelpCalled;
                         }
                     } else {
-                        std::cerr << "Unknown flag " << argv[i] << "\n";
+                        log.error(TPR_LOG_STYLE_ERROR1) << "Unknown flag " << argv[i] << "\n";
                         return ErrUnknownFlag;
                     }
 
@@ -475,7 +482,7 @@ class ArgParser {
                                 } else if (argc > i + 1) {
                                     it->storage.assign(argv[i + 1]);
                                 } else {
-                                    std::cerr << "Flag -" << it->shortName << " needs a value but nothing is specified\n";
+                                    log.error(TPR_LOG_STYLE_ERROR1) << "Flag -" << it->shortName << " needs a value but nothing is specified\n";
                                     return ErrValueMissing;
                                 }
                             }
@@ -484,7 +491,7 @@ class ArgParser {
                                 return HelpCalled;
                             }
                         } else {
-                            std::cerr << "Unknown flag -" << argv[i][j] << "\n";
+                            log.error(TPR_LOG_STYLE_ERROR1) << "Unknown flag -" << argv[i][j] << "\n";
                             return ErrUnknownFlag;
                         }
                     }
@@ -501,17 +508,17 @@ class ArgParser {
 
             for (const auto& flag : flags) {
                 if (flag.count == 0 && (flag.params & FLAG_REQUIRED)) {
-                    std::cerr << "Required flag";
-                    if (!flag.longName.empty()) std::cerr << " --" << flag.longName;
-                    else if (flag.shortName != 0) std::cerr << " -" << flag.shortName;
-                    std::cerr << " is missing\n";
+                    log.error(TPR_LOG_STYLE_ERROR1) << "Required flag";
+                    if (!flag.longName.empty()) log.error(TPR_LOG_STYLE_ERROR1) << " --" << flag.longName;
+                    else if (flag.shortName != 0) log.error(TPR_LOG_STYLE_ERROR1) << " -" << flag.shortName;
+                    log.error(TPR_LOG_STYLE_ERROR1) << " is missing\n";
                     return ErrFlagMissing;
                 }
             }
 
             for (const auto& pos : posArgs) {
                 if (!pos.storage.size() && (pos.params & POS_REQUIRED)) {
-                    std::cerr << "Required positional argument <" << pos.name << "> is missing\n";
+                    log.error(TPR_LOG_STYLE_ERROR1) << "Required positional argument <" << pos.name << "> is missing\n";
                     return ErrPosMissing;
                 }
             }
@@ -544,61 +551,33 @@ class TemporEngine {
 
     public:
         int run(int argc, char* argv[]) noexcept;
+        SIG_SAFE void sigint() noexcept;
+        SIG_SAFE void sigterm() noexcept;
 
     private:
-        std::unique_ptr<WindowManager> mpWindowManager;
-        std::unique_ptr<Renderer> mpRenderer;
+        std::unique_ptr<IRenderer> mpRenderer;
+        WindowManager mWindowManager;
         SleepClock mMainClock;
         SleepClock mTitleUpdateClock{5};
-        IOManager mIO;
-        GlobalServiceLocator mServiceLocator;
+        VFSManager mVFSManager;
         Logger mLogger;
         GUIProcessor mGUIProcessor;
         PluginLauncher mPluginLauncher;
         Settings mSettings;
         TprEngineAPI mApi{};
         SceneManager mSceneManager;
+        DataBridge mDataBridge;
 
         inline void init(int verboseLevel);
         inline void mainloop();
         inline void shutdown() noexcept;
 
+        bool shouldStop = false;
+
+        volatile sig_atomic_t mSigInt = 0;
+        volatile sig_atomic_t mSigTerm = 0;
+
 };
-
-
-
-namespace tpr_api {
-    
-    void log(TprLogLevel logLevel, const char* message) noexcept;
-    void logInfo(const char* message) noexcept;
-    void logWarn(const char* message) noexcept;
-    void logError(const char* message) noexcept;
-    void logDebug(const char* message) noexcept;
-    void logTrace(const char* message) noexcept;
-    void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept;
-    void logInfoStyled(TprLogStyle logStyle, const char* message) noexcept;
-    void logWarnStyled(TprLogStyle logStyle, const char* message) noexcept;
-    void logErrorStyled(TprLogStyle logStyle, const char* message) noexcept;
-    void logDebugStyled(TprLogStyle logStyle, const char* message) noexcept;
-    void logTraceStyled(TprLogStyle logStyle, const char* message) noexcept;
-
-    TprResult declareComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept;
-    TprResult acquireComponent(const char* componentName, uint32_t* pComponentId) noexcept;
-    TprResult createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, uint32_t* pEntityId) noexcept;
-    TprResult destroyEntity(uint32_t entityId) noexcept;
-    TprResult modifyEntityComponentSet(uint32_t entityId, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) noexcept;
-    TprResult copyEntityComponentData(uint32_t entityId, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept;
-    TprResult readEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept;
-    TprResult readEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept;
-    TprResult readEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept;
-    TprResult readEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept;
-    TprResult writeEntityComponentData(uint32_t entityId, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept;
-    TprResult writeEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint8_t data, uint32_t offset) noexcept;
-    TprResult writeEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint16_t data, uint32_t offset) noexcept;
-    TprResult writeEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t data, uint32_t offset) noexcept;
-    TprResult writeEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint64_t data, uint32_t offset) noexcept;
-
-}
 
 
 

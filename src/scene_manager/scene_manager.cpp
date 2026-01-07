@@ -1,20 +1,16 @@
 
+#include "core.hpp"
 #include "scene_manager.hpp"
 #include "archetype.hpp"
 #include "logger.hpp"  // IWYU pragma: keep
-#include "plugin.h"
-
+#include "plugin_core.h"
 
 #include <cstdint>
 #include <memory>
-// #include <mutex>
-// #include <shared_mutex>
 
 
 
-
-void SceneManager::init(const GlobalServiceLocator* pServiceLocator) {
-    mpServiceLocator = pServiceLocator;
+void SceneManager::init() {
 }
 
 
@@ -57,7 +53,7 @@ size_t SceneManager::getArchetype(uint32_t componentCount, const uint32_t* compo
 
 
 
-TprResult SceneManager::declareComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept {
+TprResult SceneManager::registerComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept {
 
     try {
 
@@ -68,7 +64,7 @@ TprResult SceneManager::declareComponent(uint32_t componentSize, const char* com
         mComponentCounter++;
 
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -92,7 +88,7 @@ TprResult SceneManager::acquireComponent(const char* componentName, uint32_t* pC
         return TPR_INVALID_VALUE;
 
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -100,7 +96,7 @@ TprResult SceneManager::acquireComponent(const char* componentName, uint32_t* pC
 }
 
 
-TprResult SceneManager::createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, uint32_t* pEntityId) noexcept {
+TprResult SceneManager::createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntityHandle* pEntityHandle) noexcept {
     
     try {
 
@@ -140,13 +136,15 @@ TprResult SceneManager::createEntity(uint32_t componentIdCount, const uint32_t* 
 
         Archetype& archetype = mArchetypes[archetypeIndex];
 
-        *pEntityId = entityIndex;
+        pEntityHandle->id = entityIndex;
         EntityEntry& entry = mEntityEntries[entityIndex];
         entry.archetype = archetypeIndex;
         entry.id = archetype.createEntity(entityIndex);
+        entry.gen++;
+        pEntityHandle->gen = entry.gen;
 
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -156,28 +154,29 @@ TprResult SceneManager::createEntity(uint32_t componentIdCount, const uint32_t* 
 }
 
 
-TprResult SceneManager::destroyEntity(uint32_t id) noexcept {
+void SceneManager::destroyEntity(const TprEntityHandle* handle) noexcept {
 
-    auto& log = mpServiceLocator->get<Logger>();
+    auto& log = gGetServiceLocator()->get<Logger>();
 
     try {
 
-        if (mEntityEntries.size() <= id) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return;
 
-        EntityEntry entry = mEntityEntries[id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        EntityEntry entry = mEntityEntries[handle->id];
+        if (entry.id == UINT32_MAX) return;
+        if (entry.gen != handle->id) return;
 
         Archetype& archetype = mArchetypes[entry.archetype];
 
         Replace replace = archetype.destroyEntity(entry.id);
 
-        if (replace.id != id) {
+        if (replace.id != handle->id) {
             mEntityEntries[replace.id].id = replace.newId;
         }
-        if (mEntityEntries.size() - 1 == id) {
+        if (mEntityEntries.size() - 1 == handle->id) {
             mEntityEntries.pop_back();
         } else {
-            mFreeEntityEntries.push_back(id);
+            mFreeEntityEntries.push_back(handle->id);
         }
 
         if (archetype.entityCount() == 0) {
@@ -191,28 +190,29 @@ TprResult SceneManager::destroyEntity(uint32_t id) noexcept {
         }
 
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
+        return;
     } catch(...) {
-        return TPR_UNKNOWN_ERROR;
+        return;
     }
 
-    return TPR_SUCCESS;
+    return;
 }
 
 
 
-TprResult SceneManager::copyEntityComponentData(uint32_t entityId, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept {
+TprResult SceneManager::copyEntityComponentData(const TprEntityHandle* handle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept {
 
     try {
 
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if (end <= start && end != 0) return TPR_INVALID_VALUE;
         if ((end - start) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
 
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
 
         Archetype& archetype = mArchetypes[entry.archetype];
 
@@ -225,7 +225,7 @@ TprResult SceneManager::copyEntityComponentData(uint32_t entityId, uint32_t comp
         }
 
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -236,17 +236,18 @@ TprResult SceneManager::copyEntityComponentData(uint32_t entityId, uint32_t comp
 
 
 
-TprResult SceneManager::writeEntityComponentData(uint32_t entityId, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept {
+TprResult SceneManager::writeEntityComponentData(const TprEntityHandle* handle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept {
 
     try {
 
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if (end <= start && end != 0) return TPR_INVALID_VALUE;
         if (end > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
 
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
 
         Archetype& archetype = mArchetypes[entry.archetype];
 
@@ -259,7 +260,7 @@ TprResult SceneManager::writeEntityComponentData(uint32_t entityId, uint32_t com
         }
 
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -269,18 +270,19 @@ TprResult SceneManager::writeEntityComponentData(uint32_t entityId, uint32_t com
 }
 
 
-TprResult SceneManager::readEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept {
+TprResult SceneManager::readEntityComponent8bit(const TprEntityHandle* handle, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint8_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(data, d + offset, sizeof(uint8_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -289,18 +291,19 @@ TprResult SceneManager::readEntityComponent8bit(uint32_t entityId, uint32_t comp
 }
 
 
-TprResult SceneManager::readEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept {
+TprResult SceneManager::readEntityComponent16bit(const TprEntityHandle* handle, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint16_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(data, d + offset, sizeof(uint16_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -309,18 +312,19 @@ TprResult SceneManager::readEntityComponent16bit(uint32_t entityId, uint32_t com
 }
 
 
-TprResult SceneManager::readEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept {
+TprResult SceneManager::readEntityComponent32bit(const TprEntityHandle* handle, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint32_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(data, d + offset, sizeof(uint32_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -329,18 +333,19 @@ TprResult SceneManager::readEntityComponent32bit(uint32_t entityId, uint32_t com
 }
 
 
-TprResult SceneManager::readEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept {
+TprResult SceneManager::readEntityComponent64bit(const TprEntityHandle* handle, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint64_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(data, d + offset, sizeof(uint64_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -349,18 +354,19 @@ TprResult SceneManager::readEntityComponent64bit(uint32_t entityId, uint32_t com
 }
 
 
-TprResult SceneManager::writeEntityComponent8bit(uint32_t entityId, uint32_t componentId, uint8_t data, uint32_t offset) noexcept {
+TprResult SceneManager::writeEntityComponent8bit(const TprEntityHandle* handle, uint32_t componentId, uint8_t data, uint32_t offset) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint8_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(d + offset, &data, sizeof(uint8_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -369,18 +375,19 @@ TprResult SceneManager::writeEntityComponent8bit(uint32_t entityId, uint32_t com
 }
 
 
-TprResult SceneManager::writeEntityComponent16bit(uint32_t entityId, uint32_t componentId, uint16_t data, uint32_t offset) noexcept {
+TprResult SceneManager::writeEntityComponent16bit(const TprEntityHandle* handle, uint32_t componentId, uint16_t data, uint32_t offset) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint16_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(d + offset, &data, sizeof(uint16_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -389,18 +396,19 @@ TprResult SceneManager::writeEntityComponent16bit(uint32_t entityId, uint32_t co
 }
 
 
-TprResult SceneManager::writeEntityComponent32bit(uint32_t entityId, uint32_t componentId, uint32_t data, uint32_t offset) noexcept {
+TprResult SceneManager::writeEntityComponent32bit(const TprEntityHandle* handle, uint32_t componentId, uint32_t data, uint32_t offset) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint32_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(d + offset, &data, sizeof(uint32_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
@@ -409,18 +417,19 @@ TprResult SceneManager::writeEntityComponent32bit(uint32_t entityId, uint32_t co
 }
 
 
-TprResult SceneManager::writeEntityComponent64bit(uint32_t entityId, uint32_t componentId, uint64_t data, uint32_t offset) noexcept {
+TprResult SceneManager::writeEntityComponent64bit(const TprEntityHandle* handle, uint32_t componentId, uint64_t data, uint32_t offset) noexcept {
     try {
-        if (mEntityEntries.size() <= entityId) return TPR_INVALID_VALUE;
+        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
         if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
         if ((offset + sizeof(uint64_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[entityId];
+        EntityEntry entry = mEntityEntries[handle->id];
         if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
+        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
         Archetype& archetype = mArchetypes[entry.archetype];
         char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
         std::memcpy(d + offset, &data, sizeof(uint64_t));
     } catch (const std::exception& e) {
-        mpServiceLocator->get<Logger>() << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>() << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;

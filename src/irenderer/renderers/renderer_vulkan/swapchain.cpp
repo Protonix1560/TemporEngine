@@ -1,6 +1,9 @@
 
+#include "core.hpp"
+#include "plugin_core.h"
 #include "renderer_vulkan.hpp"
 #include "logger.hpp"
+#include "window_manager.hpp"
 
 #include <algorithm>
 
@@ -9,15 +12,7 @@
 
 
 
-void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, const WindowManager* pWindowManager, const GlobalServiceLocator* pServiceLocator) {
-
-    bool wasConstructed = mConstructed;
-
-    mConstructed = true;
-
-    mpServiceLocator = pServiceLocator;
-
-    VkDevice oldDevice = mDevice;
+void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, TprWindow handle) {
 
     mDevice = device;
     mSurface = surface;
@@ -27,7 +22,10 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
         TOF(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCaps));
 
         if (surfaceCaps.currentExtent.width == UINT32_MAX && surfaceCaps.currentExtent.height == UINT32_MAX) {
-            mExtent = {pWindowManager->getWidth(), pWindowManager->getHeight()};
+            int32_t width, height;
+            gGetServiceLocator()->get<WindowManager>().getWindowWidth(handle, &width);
+            gGetServiceLocator()->get<WindowManager>().getWindowHeight(handle, &height);
+            mExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
             mExtent.width = std::clamp(
                 mExtent.width,
                 surfaceCaps.minImageExtent.width,
@@ -136,9 +134,9 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
 
             TOF(vkCreateSwapchainKHR(device, &createInfo, nullptr, &mSwapchain));
 
-            if (!wasConstructed) {
-                auto l = mpServiceLocator->get<Logger>().debug();
-                l << "Created swapchain " << mExtent.width << "x" << mExtent.height << " with format: ";
+            if (!mConstructed) {
+                auto l = gGetServiceLocator()->get<Logger>().debug();
+                l << LOG_RENDERER_NAME ": Created swapchain " << mExtent.width << "x" << mExtent.height << " with format: ";
                 switch (mChainImageFormat) {
                     case VK_FORMAT_B8G8R8A8_UNORM: l << "VK_FORMAT_B8G8R8A8_UNORM"; break;
                         case VK_FORMAT_R8G8B8A8_UNORM: l << "VK_FORMAT_R8G8B8A8_UNORM"; break;
@@ -151,11 +149,10 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
                     default: l << mChainImageFormat;
                 }
                 l << "\n";
-                l.flush();
             }
 
             if (oldSwapchain) {
-                vkDestroySwapchainKHR(oldDevice, oldSwapchain, nullptr);
+                vkDestroySwapchainKHR(mDevice, oldSwapchain, nullptr);
             }
         }
 
@@ -168,13 +165,13 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
     // cleanup if needed
     {
         for (uint32_t i = 0; i < mChainImages.size(); i++) {
-            if (mChainImageViews[i]) vkDestroyImageView(oldDevice, mChainImageViews[i], nullptr);
+            if (mChainImageViews[i]) vkDestroyImageView(mDevice, mChainImageViews[i], nullptr);
 
             if (mDepthImageViews[i]) vkDestroyImageView(mDevice, mDepthImageViews[i], nullptr);
             if (mDepthImageMemories[i]) vkFreeMemory(mDevice, mDepthImageMemories[i], nullptr);
             if (mDepthImages[i]) vkDestroyImage(mDevice, mDepthImages[i], nullptr);
 
-            if (mSemaphores[i]) vkDestroySemaphore(oldDevice, mSemaphores[i], nullptr);
+            if (mSemaphores[i]) vkDestroySemaphore(mDevice, mSemaphores[i], nullptr);
         }
 
     }
@@ -272,6 +269,8 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
         }
     }
 
+    mConstructed = true;
+
 }
 
 
@@ -292,47 +291,6 @@ void Swapchain::destroy() noexcept {
     }
 
     if (mSwapchain) vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
-
-}
-
-
-
-
-void FramebuffersHolder::construct(Swapchain& swapchain, VkDevice device, VkRenderPass renderPass) {
-
-    mDevice = device;
-
-    mFramebuffers.assign(swapchain.imageCount(), VK_NULL_HANDLE);
-
-    for (uint32_t i = 0; i < swapchain.imageCount(); i++) {
-
-        VkImageView attachments[] = {
-            swapchain.getChainImageView(i),
-            swapchain.getDepthImageView(i)
-        };
-
-        VkFramebufferCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        createInfo.width = swapchain.extent().width;
-        createInfo.height = swapchain.extent().height;
-        createInfo.attachmentCount = std::size(attachments);
-        createInfo.pAttachments = attachments;
-        createInfo.layers = 1;
-        createInfo.renderPass = renderPass;
-
-        TOF(vkCreateFramebuffer(device, &createInfo, nullptr, &mFramebuffers[i]));
-    
-    }
-
-}
-
-
-
-void FramebuffersHolder::destroy() noexcept {
-
-    for (const auto& framebuffer : mFramebuffers) {
-        if (framebuffer) vkDestroyFramebuffer(mDevice, framebuffer, nullptr);
-    }
 
 }
 

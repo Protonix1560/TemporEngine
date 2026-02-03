@@ -5,14 +5,15 @@
 
 
 #include "core.hpp"
-#include "data_bridge/data_bridge.hpp"
+#include "data_bridge.hpp"
+#include "resource_registry.hpp"
 #include "window_manager.hpp"
-#include "vfs.hpp"
 #include "logger.hpp"
 #include "gui_processor.hpp"
 #include "irenderer.hpp"
 #include "plugin_launcher.hpp"
 #include "scene_manager.hpp"
+#include "asset_store.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -555,18 +556,23 @@ class TemporEngine {
         SIG_SAFE void sigterm() noexcept;
 
     private:
+        SleepClock mClock;
+
         std::unique_ptr<IRenderer> mpRenderer;
         WindowManager mWindowManager;
-        SleepClock mMainClock;
-        SleepClock mTitleUpdateClock{5};
-        VFSManager mVFSManager;
         Logger mLogger;
-        GUIProcessor mGUIProcessor;
         PluginLauncher mPluginLauncher;
-        Settings mSettings;
         TprEngineAPI mApi{};
         SceneManager mSceneManager;
+        ResourceRegistry mResourceRegistry;
+        AssetStore mAssetStore;
+
+        // might be obsolete soon due to ResourceRegistry being better
         DataBridge mDataBridge;
+
+        // are obsolete
+        GUIProcessor mGUIProcessor;
+        Settings mSettings;
 
         inline void init(int verboseLevel);
         inline void mainloop();

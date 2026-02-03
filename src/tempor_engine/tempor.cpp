@@ -3,8 +3,7 @@
 #include "tempor.hpp"
 #include "common_types.hpp"
 #include "core.hpp"
-#include "data_bridge/data_bridge.hpp"
-#include "vfs.hpp"
+#include "data_bridge.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
 #include "tempor_api.hpp"
@@ -12,6 +11,7 @@
 
 #include <chrono>
 #include <csignal>
+#include <cstddef>
 #include <exception>
 #include <memory>
 
@@ -117,22 +117,28 @@ void TemporEngine::init(int verboseLevel) {
 
     mLogger.setVerbosityLevel(verboseLevel);
 
-    mLogger.info(TPR_LOG_STYLE_STANDART) << "Tempor Engine v0.0.0 (build datetime: " << BUILD_DATETIME << ")\033[0m\n\n";
+    mLogger.info(TPR_LOG_STYLE_STANDART) << "Tempor Engine v0.0.0 (build datetime: " << BUILD_DATETIME << ")\033[0m\n";
+    mLogger.info(TPR_LOG_STYLE_STARTSTAMP1) << "Startup now\n";
 
-    mVFSManager.init();
-    serviceLocator->provide(&mVFSManager);
-    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service VFSManager is ready\n";
+    // mVFSManager.init();
+    // serviceLocator->provide(&mVFSManager);
+    // mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service VFSManager is ready\n";
+
+    mResourceRegistry.init();
+    serviceLocator->provide(&mResourceRegistry);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service ResourceRegistry is ready\n";
 
     // loading main config
-    ROFile confFile = mVFSManager.openRO("config.json");
-    ROSpan confSpan = confFile.read();
-    std::filesystem::path confPath = confFile.getRealPath();
+    TprResource confResource = mResourceRegistry.openResource("config.json");
+    std::filesystem::path confPath = mResourceRegistry.getResourceFilepath(confResource);
+    const std::byte* confBegin = mResourceRegistry.getResourceRawRODataPointer(confResource);
+    const std::byte* confEnd = mResourceRegistry.sizeofResource(confResource) + confBegin;
 
     mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Located config \"" << confPath.string() << "\"\n";
 
     njson mainJson;
     try {
-        mainJson = njson::parse(confSpan.begin(), confSpan.end());
+        mainJson = njson::parse(confBegin, confEnd);
     } catch (const njson::exception& e) {
         throw Exception(ErrCode::FormatError, "Failed to parse config \""s + confPath.string() + "\""s);
     }
@@ -163,10 +169,13 @@ void TemporEngine::init(int verboseLevel) {
     // loading settings
     njson settingsJson;
     if (mainJson.contains("settings")) {
-        ROFile settingsPacket = mVFSManager.openRO(mainJson["settings"].get<std::string>());
-        ROSpan settingsSpan = settingsPacket.read();
+        // ROFile settingsPacket = mVFSManager.openRO(mainJson["settings"].get<std::string>());
+        // ROSpan settingsSpan = settingsPacket.read();
+        TprResource settingsRes = mResourceRegistry.openResource(mainJson["settings"].get<std::string>());
+        const std::byte* settingsBegin = mResourceRegistry.getResourceRawRODataPointer(settingsRes);
+        const std::byte* settingsEnd = settingsBegin + mResourceRegistry.sizeofResource(settingsRes);
         try {
-            settingsJson = njson::parse(settingsSpan.begin(), settingsSpan.end());
+            settingsJson = njson::parse(settingsBegin, settingsEnd);
         } catch (const njson::exception& e) {
             throw Exception(ErrCode::FormatError, "Failed to parse settings \""s + confPath.string() + "\"");
         }
@@ -314,19 +323,22 @@ void TemporEngine::init(int verboseLevel) {
     mApi.wm.openWindow = &tpr_api::wm::openWindow;
     mApi.wm.closeWindow = &tpr_api::wm::closeWindow;
 
-    mApi.vfs.openResouceByPath = &tpr_api::vfs::openResouceByPath;
-    mApi.vfs.openResourceByBuffer = &tpr_api::vfs::openResourceByBuffer;
-    mApi.vfs.openResourceZeroed = &tpr_api::vfs::openResourceZeroed;
-    mApi.vfs.openResourceEmpty = &tpr_api::vfs::openResourceEmpty;
-    mApi.vfs.openResouceByPathLifetimed = &tpr_api::vfs::openResouceByPathLifetimed;
-    mApi.vfs.openResourceByBufferLifetimed = &tpr_api::vfs::openResourceByBufferLifetimed;
-    mApi.vfs.openResourceZeroedLifetimed = &tpr_api::vfs::openResourceZeroedLifetimed;
-    mApi.vfs.openResourceEmptyLifetimed = &tpr_api::vfs::openResourceEmptyLifetimed;
+    mApi.vfs.openPathResource = &tpr_api::vfs::openPathResource;
+    mApi.vfs.openRefResource = &tpr_api::vfs::openRefResource;
+    mApi.vfs.openEmptyResource = &tpr_api::vfs::openEmptyResource;
+    mApi.vfs.openCapabilityResource = &tpr_api::vfs::openCapabilityResource;
+    mApi.vfs.openPathResourceLifetimed = &tpr_api::vfs::openPathResourceLifetimed;
+    mApi.vfs.openRefResourceLifetimed = &tpr_api::vfs::openRefResourceLifetimed;
+    mApi.vfs.openEmptyResourceLifetimed = &tpr_api::vfs::openEmptyResourceLifetimed;
+    mApi.vfs.openCapabilityResourceLifetimed = &tpr_api::vfs::openCapabilityResourceLifetimed;
     mApi.vfs.resetResourceLifetime = &tpr_api::vfs::resetResourceLifetime;
     mApi.vfs.resizeResource = &tpr_api::vfs::resizeResource;
     mApi.vfs.sizeofResource = &tpr_api::vfs::sizeofResource;
-    mApi.vfs.getResourceRawDataPointer = &tpr_api::vfs::getResourceRawDataPointer;
+    mApi.vfs.getResourceRawRWDataPointer = &tpr_api::vfs::getResourceRawRWDataPointer;
+    mApi.vfs.getResourceRawRODataPointer = &tpr_api::vfs::getResourceRawRODataPointer;
     mApi.vfs.closeResource = &tpr_api::vfs::closeResource;
+
+    mApi.geo.parseAsset = &tpr_api::geo::parseAsset;
 
     serviceLocator->provide(&mApi);
     mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service API is ready\n";
@@ -339,11 +351,15 @@ void TemporEngine::init(int verboseLevel) {
     serviceLocator->provide(&mDataBridge);
     mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service DataBridge is ready\n";
 
+    mAssetStore.init();
+    serviceLocator->provide(&mAssetStore);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service AssetStore is ready\n";
+
     mPluginLauncher.init(&mApi);
     serviceLocator->provide(&mPluginLauncher);
     mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service PluginLauncher is ready\n";
 
-    auto plugins = mVFSManager.enumDir("plugins", ENUM_DIR_INCLUDE_LIBS | ENUM_DIR_INCLUDE_RECURSIVE);
+    auto plugins = mResourceRegistry.enumDir("plugins", TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT, 1);
     for (const auto& plugin : plugins) {
         try {
             mPluginLauncher.load(plugin);
@@ -353,7 +369,7 @@ void TemporEngine::init(int verboseLevel) {
     auto initEndTimepoint = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> initTime = initEndTimepoint - initStartTimepoint;
 
-    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Initialization done in " << initTime.count() << " ms\n";
+    mLogger.info(TPR_LOG_STYLE_ENDSTAMP1) << "Initialization done in " << initTime.count() << " ms\n";
     
 }
 
@@ -361,36 +377,19 @@ void TemporEngine::init(int verboseLevel) {
 
 void TemporEngine::mainloop() {
 
-    mMainClock.begin();
-    mTitleUpdateClock.begin();
+    mClock.begin();
 
     while (!mWindowManager.lost() && !shouldStop) {
 
         mPluginLauncher.triggerHook<TPR_HOOK_UPDATE_PER_FRAME>();
 
-        mVFSManager.update();
-        mPluginLauncher.update();
+        // mVFSManager.update();
         mDataBridge.update();
+        mResourceRegistry.update();
+        mPluginLauncher.update();
         mSceneManager.update();
         mWindowManager.update();
         mpRenderer->update();
-
-        // mGUIProcessor.update(mWindowManager.getWidth(), mWindowManager.getHeight());
-
-        // mpRenderer->beginRenderPass();
-        // mpRenderer->nextSubpass();
-        // mpRenderer->renderGUI(mGUIProcessor.getDrawDesc());
-        // std::vector<DebugLineVertex> lines;
-        // {
-        //     auto guiLines = mGUIProcessor.getDebugViewLines();
-        //     lines.insert(
-        //         lines.end(),
-        //         std::make_move_iterator(guiLines.begin()),
-        //         std::make_move_iterator(guiLines.end())
-        //     );
-        // }
-        // mBackend->renderDebugLines(lines);
-        // mpRenderer->endRenderPass();
 
         // render
         {
@@ -415,14 +414,6 @@ void TemporEngine::mainloop() {
             mpRenderer->render(graph);
         }
 
-        mMainClock.tick();
-
-        // setting window name with fps count
-        if (mTitleUpdateClock.ticked()) {
-            std::string title = "Tempor Testing Initiative | fps: "s + std::to_string(mMainClock.estimateFps());
-            // mWindowManager.setTitle(title.c_str());
-        }
-
         if (mSigInt || mSigTerm) {
             if (mSigInt) {
                 mLogger << "\n";
@@ -437,6 +428,14 @@ void TemporEngine::mainloop() {
             l << " signal\n";
             shouldStop = true;
         }
+
+        // setting window name with fps count
+        // if (mTitleUpdateClock.ticked()) {
+        //     std::string title = "Tempor Testing Initiative | fps: "s + std::to_string(mClock.estimateFps());
+        //     mWindowManager.setTitle(title.c_str());
+        // }
+
+        mClock.tick();
     }
 
 }
@@ -445,25 +444,48 @@ void TemporEngine::mainloop() {
 
 void TemporEngine::shutdown() noexcept {
 
+    auto shutdownStartTimepoint = std::chrono::steady_clock::now();
+
     mLogger.info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down...\n";
 
     mPluginLauncher.triggerHook<TPR_HOOK_SHUTDOWN>();
 
     mPluginLauncher.shutdown();
+    gGetServiceLocator()->provide<PluginLauncher>(nullptr);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service PluginLauncher\n";
 
     mDataBridge.shutdown();
+    gGetServiceLocator()->provide<DataBridge>(nullptr);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service DataBridge\n";
 
     mSceneManager.shutdown();
+    gGetServiceLocator()->provide<SceneManager>(nullptr);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service SceneManager\n";
 
     // mGUIProcessor.shutdown();
 
-    if (mpRenderer) mpRenderer->shutdown();
+    if (mpRenderer) {
+        mpRenderer->shutdown();
+        gGetServiceLocator()->provide<IRenderer>(nullptr);
+        mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service Renderer\n";
+    }
 
     mWindowManager.shutdown();
+    gGetServiceLocator()->provide<WindowManager>(nullptr);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service WindowManager\n";
 
-    mVFSManager.shutdown();
+    // mVFSManager.shutdown();
+    // gGetServiceLocator()->provide<VFSManager>(nullptr);
+    // mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service VFSManager\n";
 
-    mLogger.info(TPR_LOG_STYLE_ENDSTAMP1) << "Shutdown finished\n";
+    mResourceRegistry.shutdown();
+    gGetServiceLocator()->provide<ResourceRegistry>(nullptr);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service ResourceRegistry\n";
+
+    auto shutdownEndTimepoint = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> shutdownTime = shutdownEndTimepoint - shutdownStartTimepoint;
+
+    mLogger.info(TPR_LOG_STYLE_ENDSTAMP1) << "Shutdown finished in " << shutdownTime.count() << " ms\n";
 
 }
 

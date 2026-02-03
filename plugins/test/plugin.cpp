@@ -3,7 +3,10 @@
 #include "plugin_core.h"
 
 #include <cstring>
-// #include <iterator>
+#include <string>  // IWYU pragma: keep
+
+
+using namespace std::string_literals;
 
 
 
@@ -18,9 +21,9 @@
 class Plugin {
     public:
         const TprEngineAPI* api;
-        TprEntityHandle entA;
-        TprEntityHandle entB;
         TprWindow window;
+        TprEntityHandle entity;
+        TprAsset model;
 };
 
 
@@ -102,6 +105,14 @@ int32_t tprHookInit(void** ctx, const TprEngineAPI* api) noexcept {
 
     */
 
+    TprResource modelResource;
+    ROF(plugin->api->vfs.openPathResource("plugins/test/model.glb", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 1, &modelResource));
+    TprAssetParseInfo parseInfo{};
+    parseInfo.resource = modelResource;
+    parseInfo.type = TPR_ASSET_TYPE_MODEL;
+    ROF(plugin->api->geo.parseAsset(&parseInfo, &plugin->model));
+    plugin->api->vfs.closeResource(modelResource);
+
     return 0;
 }
 
@@ -109,7 +120,10 @@ int32_t tprHookInit(void** ctx, const TprEngineAPI* api) noexcept {
 
 void tprHookShutdown(void* ctx) noexcept {
     Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
+
+    // plugin->api->geo.destroyAsset(plugin->model);
     plugin->api->wm.closeWindow(plugin->window);
+
     delete plugin;
 }
 
@@ -140,9 +154,7 @@ void tprHookGetEntityDrawDescriptors(void *ctx, TprOArrayEntityDrawDesc oarray) 
     if (plugin->api->render.growEntityDrawOArray(oarray, 2, &arr) < 0) return;
 
     arr[0 + size].flags = TPR_ENTITY_DRAW_DESC_VISIBLE_FLAG_BIT;
-    arr[0 + size].entityHandle = plugin->entA;
-    arr[1 + size].flags = TPR_ENTITY_DRAW_DESC_VISIBLE_FLAG_BIT;
-    arr[1 + size].entityHandle = plugin->entB;
+    arr[0 + size].entityHandle = plugin->entity;
 
     if (plugin->api->render.endEntityDrawOArray(oarray, 2) < 0) return;
 }

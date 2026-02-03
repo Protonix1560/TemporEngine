@@ -11,7 +11,7 @@ option(WANT_DEBUG_TSAN "Enable TSan" OFF)
 option(WANT_DEBUG_MSAN "Enable MSan" OFF)
 option(WANT_DEBUG_LSAN "Enable UBSan" OFF)
 
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+if(${CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT})
     message(FATAL_ERROR "CMAKE_INSTALL_PREFIX is not set")
 endif()
 
@@ -36,17 +36,25 @@ set_target_properties(tempor PROPERTIES
     INSTALL_RPATH "$ORIGIN/lib"
 )
 
+# add_compile_options(-O2)
+
 # adding services
 add_subdirectory(src/irenderer)
 add_subdirectory(src/tempor_engine)
-add_subdirectory(src/utils)
+add_subdirectory(src/logger)
 add_subdirectory(src/data_bridge)
+add_subdirectory(src/resource_registry)
 add_subdirectory(src/plugin_launcher)
 add_subdirectory(src/window_manager)
 add_subdirectory(src/gui)
 add_subdirectory(src/scene_manager)
+add_subdirectory(src/asset_store)
 
-target_link_libraries(tempor PRIVATE tempor_class tempor_api utils plugin_launcher window_manager irenderer gui scene_manager data_bridge)
+target_link_libraries(
+    tempor PRIVATE
+    tempor_class tempor_api logger plugin_launcher window_manager
+    irenderer gui scene_manager data_bridge resource_registry asset_store
+)
 
 # adding sanitizers
 function(add_sanitizer sanitizer supported_compilers want_flag)

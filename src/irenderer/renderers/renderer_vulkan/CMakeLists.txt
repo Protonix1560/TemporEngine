@@ -27,7 +27,7 @@ add_library(
     swapchain.cpp
 )
 add_dependencies(renderer_vulkan vulkan_shaders)
-target_link_libraries(renderer_vulkan PRIVATE Vulkan::Vulkan irenderer utils window_manager common render_common_types)
+target_link_libraries(renderer_vulkan PRIVATE Vulkan::Vulkan irenderer logger window_manager common render_common_types resource_registry)
 target_include_directories(renderer_vulkan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # linking to irenderer

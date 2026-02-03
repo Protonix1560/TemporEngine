@@ -3,15 +3,16 @@
 #include "core.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
-#include "vfs.hpp"
+#include "resource_registry.hpp"
 #include "window_manager.hpp"
 
+#include <cassert>
 #include <cstring>
 #include <string>
 #include <vector>
 #include <memory>
 
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -261,6 +262,7 @@ void RendererVulkan::init() {
 void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
 
     auto& logger = gGetServiceLocator()->get<Logger>();
+    auto& resReg = gGetServiceLocator()->get<ResourceRegistry>();
 
     mDevice = device;
 
@@ -368,13 +370,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         VkPipelineShaderStageCreateInfo stages[2] = {};
 
         VkShaderModule fragShader;
-        ROFile packetFrag = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/debug_lines.frag.spv");
-        ROSpan spanFrag = packetFrag.read(4);
-        if (spanFrag.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource fragRes = resReg.openResource("shaders/vulkan/debug_lines.frag.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
+        if (resReg.sizeofResource(fragRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo fragModuleCreateInfo{};
         fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(spanFrag.size());
-        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(spanFrag.data());
+        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(fragRes));
+        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(fragRes));
         TOF(vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader));
         
         VkPipelineShaderStageCreateInfo& fragStage = stages[1];
@@ -384,13 +385,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         fragStage.pName = "main";
 
         VkShaderModule vertShader;
-        ROFile packetVert = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/debug_lines.vert.spv");
-        ROSpan spanVert = packetVert.read(4);
-        if (spanVert.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource vertRes = resReg.openResource("shaders/vulkan/debug_lines.vert.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
+        if (resReg.sizeofResource(vertRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo vertModuleCreateInfo{};
         vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(spanVert.size());
-        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(spanVert.data());
+        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(vertRes));
+        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(vertRes));
         TOF(vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader));
 
         VkPipelineShaderStageCreateInfo& vertStage = stages[0];
@@ -507,13 +507,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         VkPipelineShaderStageCreateInfo stages[2] = {};
 
         VkShaderModule fragShader;
-        ROFile packetFrag = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/gui.frag.spv");
-        ROSpan spanFrag = packetFrag.read(4);
-        if (spanFrag.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource fragRes = resReg.openResource("shaders/vulkan/gui.frag.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
+        if (resReg.sizeofResource(fragRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo fragModuleCreateInfo{};
         fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(spanFrag.size());
-        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(spanFrag.data());
+        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(fragRes));
+        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(fragRes));
         TOF(vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader));
         
         VkPipelineShaderStageCreateInfo& fragStage = stages[1];
@@ -523,13 +522,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         fragStage.pName = "main";
 
         VkShaderModule vertShader;
-        ROFile packetVert = gGetServiceLocator()->get<VFSManager>().openRO("shaders/vulkan/gui.vert.spv");
-        ROSpan spanVert = packetVert.read(4);
-        if (spanVert.size() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource vertRes = resReg.openResource("shaders/vulkan/gui.vert.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
+        if (resReg.sizeofResource(vertRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo vertModuleCreateInfo{};
         vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(spanVert.size());
-        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(spanVert.data());
+        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(vertRes));
+        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(vertRes));
         TOF(vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader));
 
         VkPipelineShaderStageCreateInfo& vertStage = stages[0];

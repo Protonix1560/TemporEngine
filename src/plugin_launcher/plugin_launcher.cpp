@@ -2,7 +2,6 @@
 
 #include "plugin_launcher.hpp"
 #include "core.hpp"
-#include "vfs.hpp"
 #include "logger.hpp"
 #include "plugin.hpp"
 #include "plugin_core.h"
@@ -43,7 +42,6 @@ void PluginLauncher::init(const TprEngineAPI* api) {
 const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
 
     auto& log = gGetServiceLocator()->get<Logger>();
-    VFSManager& io = gGetServiceLocator()->get<VFSManager>();
 
     uint32_t pluginId = mCounter;
 
@@ -57,9 +55,6 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
     log.info(TPR_LOG_STYLE_STARTSTAMP1) << LOG_PLUGIN_LAUNCHER_NAME ": Loading plugin " << pluginPath << " with name " << plugin->name() << "...\n";
 
     try {
-        ROFile packet = io.openRO(plugin->path);
-        auto virPath = packet.getVirtualPath();
-
         plugin->addr = DLOPEN_LOCAL_NOW(plugin->path.c_str());
         if (!plugin->addr) {
             plugin->addr = nullptr;

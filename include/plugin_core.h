@@ -43,7 +43,9 @@ typedef enum TprResult {
     TPR_COUNT_OVERFLOW = -1,
     TPR_UNKNOWN_ERROR = -2,
     TPR_INVALID_VALUE = -3,
-    TPR_INSUFFICIENT_INIT = -4
+    TPR_INSUFFICIENT_INIT = -4,
+    TPR_BAD_ALLOC = -5,
+    TPR_PARSE_ERROR = -6
 } TprResult;
 
 typedef enum TprDtype {
@@ -72,6 +74,11 @@ typedef enum TprHook {
     TPR_HOOK_GET_ENTITY_DRAW_ARRAY = 5
 } TprHook;
 
+typedef enum TprAssetType {
+    // TPR_ASSET_TYPE_AUTO = 0,
+    TPR_ASSET_TYPE_MODEL = 1
+} TprAssetType;
+
 
 
 // flags
@@ -81,16 +88,61 @@ typedef enum TprEntityDrawDescFlagBits {
 } TprEntityDrawFlagBits;
 typedef TprFlag_T TprEntityDrawDescFlags;
 
+
 typedef enum TprCreateWindowFlagBits {
     TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT = 0x1,
     TPR_CREATE_WINDOW_UNRESIZEABLE_FLAG_BIT = 0x2
 } TprCreateWindowFlagBits;
 typedef TprFlag_T TprCreateWindowFlags;
 
-typedef enum TprCreateResourceFlagBits {
-    TPR_CREATE_RESOURCE_DONT_COPY = 0x1
-} TprCreateResourceFlagBits;
-typedef TprFlag_T TprOpenResourceFlags;
+
+typedef enum TprOpenRefResourceFlagBits {
+    TPR_OPEN_REF_RESOURCE_DONT_COPY_FLAG_BIT = 0x1
+} TprOpenRefResourceFlagBits;
+typedef TprFlag_T TprOpenRefResourceFlags;
+
+typedef enum TprOpenEmptyResourceFlagBits {
+} TprOpenEmptyResourceFlagBits;
+typedef TprFlag_T TprOpenEmptyResourceFlags;
+
+typedef enum TprOpenPathResourceFlagBits {
+    TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT = 0x1,
+    TPR_OPEN_PATH_RESOURCE_WRITE_FLAG_BIT = 0x2
+} TprOpenPathResourceFlagBits;
+typedef TprFlag_T TprOpenPathResourceFlags;
+
+typedef enum TprOpenCapabilityResourceFlagBits {
+} TprOpenCapabilityResourceFlagBits;
+typedef TprFlag_T TprOpenCapabilityResourceFlags;
+
+
+typedef enum TprProtectResourceFlagBits {
+    TPR_PROTECT_RESOURCE_READ_FLAG_BIT = 0x1,
+    TPR_PROTECT_RESOURCE_WRITE_FLAG_BIT = 0x2,
+    TPR_PROTECT_RESOURCE_GROW_FLAG_BIT = 0x4,
+    TPR_PROTECT_RESOURCE_SHRINK_FLAG_BIT = 0x8,
+    TPR_PROTECT_RESOURCE_RESET_LIFETIME_FLAG_BIT = 0x10
+} TprProtectResourceFlagBits;
+typedef TprFlag_T TprProtectResourceFlags;
+
+
+typedef enum TprEnumDirFlagBits {
+    TPR_ENUM_DIR_DIRS_FLAG_BIT = 0x1,
+    TPR_ENUM_DIR_NORMAL_FILES_FLAG_BIT = 0x2,
+    TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT = 0x4,
+    TPR_ENUM_DIR_EXECUTABLES_FLAG_BIT = 0x8
+} TprEnumDirFlagBits;
+typedef TprFlag_T TprEnumDirFlags;
+
+
+
+// opaque handles
+
+typedef struct TprOArrayEntityDrawDesc_T* TprOArrayEntityDrawDesc;
+
+typedef struct TprWindow { uint64_t _d; } TprWindow;
+typedef struct TprResource { uint64_t _d; } TprResource;
+typedef struct TprAsset { uint64_t _d; } TprAsset;
 
 
 
@@ -100,11 +152,6 @@ typedef struct TprEntityHandle {
     uint32_t id;
     uint32_t gen;
 } TprEntityHandle;
-
-typedef struct TprROSpan {
-    const char* data;
-    uint32_t size;
-} TprROSpan;
 
 
 
@@ -119,14 +166,9 @@ typedef struct TprLifetime {
     uint64_t frames;
 } TprLifetime;
 
+typedef struct TprAssetSlot {
 
-
-// opaque handles
-
-typedef struct TprOArrayEntityDrawDesc_T* TprOArrayEntityDrawDesc;
-
-typedef struct TprWindow { uint64_t _d; } TprWindow;
-typedef struct TprResource { uint64_t _d; } TprResource;
+} TprAssetSlot;
 
 
 
@@ -143,6 +185,17 @@ typedef struct TprWindowCreateInfo {
     int32_t prefferedWidth;
     int32_t prefferedHeight;
 } TprWindowCreateInfo;
+
+typedef struct TprAssetParseInfo {
+    TprResource resource;
+    TprAssetType type;
+    uint32_t index;
+} TprAssetParseInfo;
+
+typedef struct TprAssetLoadInfo {
+    const TprAssetSlot* pSlots;
+    TprResource data;
+} TprAssetLoadInfo;
 
 
 

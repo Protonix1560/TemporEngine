@@ -45,6 +45,7 @@ namespace tpr_api {
     }
 
     namespace geo {
+        TprResult parseAsset(const TprAssetParseInfo* pInfo, TprAsset* pAsset) noexcept;
     }
 
     namespace render {
@@ -54,18 +55,19 @@ namespace tpr_api {
     }
 
     namespace vfs {
-        TprResult openResouceByPath(const char* path, TprOpenResourceFlags flags, TprResource* pResource) noexcept;
-        TprResult openResourceByBuffer(const char* begin, const char* end, TprOpenResourceFlags flags, TprResource* pResource) noexcept;
-        TprResult openResourceEmpty(uint64_t size, TprOpenResourceFlags flags, TprResource* pResource) noexcept;
-        TprResult openResourceZeroed(uint64_t size, TprOpenResourceFlags flags, TprResource* pResource) noexcept;
-        TprResult openResouceByPathLifetimed(const char* path, TprOpenResourceFlags flags, const TprLifetime* lifetime, TprResource* pResource) noexcept;
-        TprResult openResourceByBufferLifetimed(const char* begin, const char* end, TprOpenResourceFlags flags, const TprLifetime* lifetime, TprResource* pResource) noexcept;
-        TprResult openResourceEmptyLifetimed(uint64_t size, TprOpenResourceFlags flags, const TprLifetime* lifetime, TprResource* pResource) noexcept;
-        TprResult openResourceZeroedLifetimed(uint64_t size, TprOpenResourceFlags flags, const TprLifetime* lifetime, TprResource* pResource) noexcept;
+        TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept;
+        TprResult openRefResource(char* begin, char* end, TprOpenRefResourceFlags flags, TprResource* pResource) noexcept;
+        TprResult openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept;
+        TprResult openCapabilityResource(TprResource resource, TprOpenCapabilityResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept;
+        TprResult openPathResourceLifetimed(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, const TprLifetime* lifetime, TprResource* pResource) noexcept;
+        TprResult openRefResourceLifetimed(char* begin, char* end, TprOpenRefResourceFlags flags, const TprLifetime* lifetime, TprResource* pResource) noexcept;
+        TprResult openEmptyResourceLifetimed(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, const TprLifetime* lifetime, TprResource* pResource) noexcept;
+        TprResult openCapabilityResourceLifetimed(TprResource resource, TprOpenCapabilityResourceFlags flags, TprProtectResourceFlags protectFlags, const TprLifetime* lifetime, TprResource* pResource) noexcept;
         TprResult resetResourceLifetime(TprResource resource, const TprLifetime* lifetime) noexcept;
         TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept;
         TprResult sizeofResource(TprResource resource, uint64_t* pSize) noexcept;
-        TprResult getResourceRawDataPointer(TprResource resource, char** pData) noexcept;
+        TprResult getResourceRawRWDataPointer(TprResource resource, char** pData) noexcept;
+        TprResult getResourceRawRODataPointer(TprResource resource, const char** pData) noexcept;
         void closeResource(TprResource resource) noexcept;
     }
 

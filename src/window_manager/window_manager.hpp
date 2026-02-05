@@ -6,7 +6,7 @@
 
 
 #include "plugin_core.h"
-#include "common_types.hpp"
+#include "hardware_common_structs.hpp"
 
 #include <unordered_map>
 #include <vector>

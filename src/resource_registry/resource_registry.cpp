@@ -31,7 +31,7 @@ void ResourceRegistry::init() {
     #elif defined(_POSIX_VERSION)
         mAllocationGranularity = getpagesize();
     #endif
-    gGetServiceLocator()->get<Logger>().trace() << LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Memory mapped file allocation is aligned by " << mAllocationGranularity << " bytes\n";
+    gGetServiceLocator()->get<Logger>().trace() << logPrxRReg() + "Memory mapped file allocation is aligned by " << mAllocationGranularity << " bytes\n";
 
 }
 
@@ -64,9 +64,9 @@ TprResource ResourceRegistry::openResource(std::filesystem::path filepath, TprOp
     } else if (flags & TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT) {
         mResources[index] = ResourceROFile{};
     } else if (flags & TPR_OPEN_PATH_RESOURCE_WRITE_FLAG_BIT) {
-        throw Exception(ErrCode::NoSupportError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Opening path resource with write-only access is not supported");
+        throw Exception(ErrCode::NoSupportError, logPrxRReg() + "Opening path resource with write-only access is not supported");
     } else {
-        throw Exception(ErrCode::NoSupportError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Opening path resource without access is not supported");
+        throw Exception(ErrCode::NoSupportError, logPrxRReg() + "Opening path resource without access is not supported");
     }
 
     ResourceBase& resource = std::visit([](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); }, mResources[index]);
@@ -209,17 +209,17 @@ TprResource ResourceRegistry::openResource(TprResource protectedResource, TprPro
 
 void ResourceRegistry::validateHandle(TprResource handle) {
     if (getBasicHandleType(handle) != HandleType::Resource) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Handle type is not Resource");
+        throw Exception(ErrCode::WrongValueError, logPrxRReg() + "Handle type is not Resource");
     }
     if (getBasicHandleIndex(handle) >= mResources.size()) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Invalid handle");
+        throw Exception(ErrCode::WrongValueError, logPrxRReg() + "Invalid handle");
     }
     ResourceBase& resource = std::visit([](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); }, mResources[getBasicHandleIndex(handle)]);
     if (!resource.actual) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Closed resource");
+        throw Exception(ErrCode::WrongValueError, logPrxRReg() + "Closed resource");
     }
     if (resource.generation != getBasicHandleGeneration(handle)) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Closed resource");
+        throw Exception(ErrCode::WrongValueError, logPrxRReg() + "Closed resource");
     }
 }
 
@@ -294,7 +294,7 @@ void ResourceRegistry::resizeResource(TprResource handle, size_t newSize) {
     if (std::holds_alternative<ResourceCapability>(mResources[getBasicHandleIndex(handle)])) {
         TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
         if (sizeofResource(resource) < newSize && !(protectFlags & TPR_PROTECT_RESOURCE_GROW_FLAG_BIT)) {
-            throw Exception(ErrCode::AccessError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "Growing resource:"s + std::to_string(handle._d) + " is not permitted"s);
+            throw Exception(ErrCode::AccessError, logPrxRReg() + "Growing resource:"s + std::to_string(handle._d) + " is not permitted"s);
         }
         if (sizeofResource(resource) > newSize && !(protectFlags & TPR_PROTECT_RESOURCE_SHRINK_FLAG_BIT)) {
             throw Exception(ErrCode::AccessError, "Shrinking resource:"s + std::to_string(handle._d) + " is not permitted");
@@ -340,7 +340,7 @@ const std::byte* ResourceRegistry::getResourceRawRODataPointer(TprResource handl
         TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
         if (!(protectFlags & TPR_PROTECT_RESOURCE_READ_FLAG_BIT)) {
             throw Exception(
-                ErrCode::AccessError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME)
+                ErrCode::AccessError, logPrxRReg() +
                 "Getting raw read-only data pointer of resource:"s + std::to_string(handle._d) + " is not permitted"s
             );
         }
@@ -384,7 +384,7 @@ std::byte* ResourceRegistry::getResourceRawRWDataPointer(TprResource handle) {
         TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
         if (!(protectFlags & TPR_PROTECT_RESOURCE_READ_FLAG_BIT) || !(protectFlags & TPR_PROTECT_RESOURCE_WRITE_FLAG_BIT)) {
             throw Exception(
-                ErrCode::AccessError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME)
+                ErrCode::AccessError, logPrxRReg() +
                 "Getting raw data pointer of resource:"s + std::to_string(handle._d) + " is not permitted"s
             );
         }
@@ -461,11 +461,11 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
     auto& logger = gGetServiceLocator()->get<Logger>();
 
     if (!std::filesystem::exists(dirpath)) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) + dirpath.string() + " doesn't exist");
+        throw Exception(ErrCode::WrongValueError, logPrxRReg() + dirpath.string() + " doesn't exist");
     }
 
     if (!std::filesystem::is_directory(dirpath)) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) + dirpath.string() + " is not a directory");
+        throw Exception(ErrCode::WrongValueError, logPrxRReg() + dirpath.string() + " is not a directory");
     }
 
     std::vector<std::filesystem::path> entries;
@@ -509,7 +509,7 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
                     ELFIO::elfio reader;
                     if (!reader.load(stream)) {
                         logger.warn(TPR_LOG_STYLE_WARN1)
-                            << LOG_PREFIX(LOG_RESOURCE_REGISTRY_NAME) "ELFIO: Failed to process file " << entry.path() << ". Skipping\n";
+                            << logPrxRReg() + "ELFIO: Failed to process file " << entry.path() << ". Skipping\n";
                         continue;
                     }
 

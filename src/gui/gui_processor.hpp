@@ -5,7 +5,7 @@
 
 
 
-#include "common_types.hpp"
+#include "hardware_common_structs.hpp"
 
 #include <vector>
 #include <cstdint>

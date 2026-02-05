@@ -1,0 +1,8 @@
+
+
+add_library(hardware_memory_optimizator STATIC hardware_memory_optimizator.cpp)
+
+target_link_libraries(hardware_memory_optimizator PRIVATE common logger hardware_layer_interface asset_store)
+
+target_include_directories(hardware_memory_optimizator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+

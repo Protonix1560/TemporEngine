@@ -10,10 +10,11 @@
 #include "window_manager.hpp"
 #include "logger.hpp"
 #include "gui_processor.hpp"
-#include "irenderer.hpp"
+#include "hardware_layer_interface.hpp"
 #include "plugin_launcher.hpp"
 #include "scene_manager.hpp"
 #include "asset_store.hpp"
+#include "hardware_memory_optimizator.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -558,7 +559,7 @@ class TemporEngine {
     private:
         SleepClock mClock;
 
-        std::unique_ptr<IRenderer> mpRenderer;
+        std::unique_ptr<HardwareLayer> mpHardwareLayer;
         WindowManager mWindowManager;
         Logger mLogger;
         PluginLauncher mPluginLauncher;
@@ -566,6 +567,7 @@ class TemporEngine {
         SceneManager mSceneManager;
         ResourceRegistry mResourceRegistry;
         AssetStore mAssetStore;
+        HardwareMemoryOptimizator mHWMemOptimizator;
 
         // might be obsolete soon due to ResourceRegistry being better
         DataBridge mDataBridge;

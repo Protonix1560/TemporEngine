@@ -7,7 +7,7 @@
 #include "resource_registry.hpp"
 #include "scene_manager.hpp"
 #include "window_manager.hpp"
-#include "irenderer.hpp"
+#include "hardware_layer_interface.hpp"
 #include "asset_store.hpp"
 
 
@@ -516,13 +516,13 @@ namespace tpr_api {
             TprResult r;
             r = gGetServiceLocator()->get<WindowManager>().openWindow(pHandle, createInfo);
             if (r < 0) return r;
-            r = gGetServiceLocator()->get<IRenderer>().registerWindow(*pHandle);
+            r = gGetServiceLocator()->get<HardwareLayer>().registerWindow(*pHandle);
             if (r < 0) return r;
             return TPR_SUCCESS;
         }
 
         void closeWindow(TprWindow handle) noexcept {
-            gGetServiceLocator()->get<IRenderer>().unregisterWindow(handle);
+            gGetServiceLocator()->get<HardwareLayer>().unregisterWindow(handle);
             gGetServiceLocator()->get<WindowManager>().closeWindow(handle);
         }
     }

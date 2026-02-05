@@ -36,10 +36,9 @@ set_target_properties(tempor PROPERTIES
     INSTALL_RPATH "$ORIGIN/lib"
 )
 
-# add_compile_options(-O2)
-
 # adding services
-add_subdirectory(src/irenderer)
+add_subdirectory(src/hardware_layer_interface)
+add_subdirectory(src/hardware_memory_optimizator)
 add_subdirectory(src/tempor_engine)
 add_subdirectory(src/logger)
 add_subdirectory(src/data_bridge)
@@ -52,8 +51,8 @@ add_subdirectory(src/asset_store)
 
 target_link_libraries(
     tempor PRIVATE
-    tempor_class tempor_api logger plugin_launcher window_manager
-    irenderer gui scene_manager data_bridge resource_registry asset_store
+    tempor_class tempor_api logger plugin_launcher window_manager scene_manager
+    hardware_layer_interface gui data_bridge resource_registry asset_store hardware_memory_optimizator
 )
 
 # adding sanitizers

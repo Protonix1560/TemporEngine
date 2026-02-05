@@ -52,61 +52,61 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
     plugin->path = pluginPath;
     plugin->id = pluginId;
 
-    log.info(TPR_LOG_STYLE_STARTSTAMP1) << LOG_PLUGIN_LAUNCHER_NAME ": Loading plugin " << pluginPath << " with name " << plugin->name() << "...\n";
+    log.info(TPR_LOG_STYLE_STARTSTAMP1) << logPrxPlLn() + "Loading plugin " << pluginPath << " with name " << plugin->name() << "...\n";
 
     try {
         plugin->addr = DLOPEN_LOCAL_NOW(plugin->path.c_str());
         if (!plugin->addr) {
             plugin->addr = nullptr;
-            throw Exception(ErrCode::InternalError, LOG_PLUGIN_LAUNCHER_NAME ": Failed to load "s + plugin->name() + ": "s + DLERROR() + "\n"s);
+            throw Exception(ErrCode::InternalError, logPrxPlLn() + "Failed to load "s + plugin->name() + ": "s + DLERROR() + "\n"s);
         }
-        log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": Opened " << plugin->name() << " dynamic library\n";
+        log.debug() << logPrxPlLn() + "Opened " << plugin->name() << " dynamic library\n";
 
         auto hookInit = reinterpret_cast<pHookInit>(DLSYM(plugin->addr, kHookNames[TPR_HOOK_INIT]));
         {
             auto err = DLERROR();
             if (!err.empty()) {
                 throw Exception(
-                    ErrCode::PluginError, LOG_PLUGIN_LAUNCHER_NAME ": No required symbol "s + kHookNames[TPR_HOOK_INIT] +
+                    ErrCode::PluginError, logPrxPlLn() + "No required symbol "s + kHookNames[TPR_HOOK_INIT] +
                     " in " + plugin->name() + ". Error:\n"s + err
                 );
             }
         }
-        log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "\n";
+        log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "\n";
 
         plugin->shutdownHook = reinterpret_cast<pHookShutdown>(DLSYM(plugin->addr, kHookNames[TPR_HOOK_SHUTDOWN]));
         {
             auto err = DLERROR();
             if (!err.empty()) {
                 throw Exception(
-                    ErrCode::PluginError, LOG_PLUGIN_LAUNCHER_NAME ": No required symbol "s + kHookNames[TPR_HOOK_SHUTDOWN] +
+                    ErrCode::PluginError, logPrxPlLn() + "No required symbol "s + kHookNames[TPR_HOOK_SHUTDOWN] +
                     " in " + plugin->name() + ". Error:\n"s + err
                 );
             }
         }
-        log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_SHUTDOWN] << "\n";
+        log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_SHUTDOWN] << "\n";
 
-        log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": Calling " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "...\n";
+        log.debug() << logPrxPlLn() + "Calling " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "...\n";
         int32_t initErr = hookInit(&plugin->pluginContext, mpApi);
         if (initErr < 0) {
             throw Exception(
                 ErrCode::InternalError, 
-                LOG_PLUGIN_LAUNCHER_NAME ": Plugin"s + std::to_string(plugin->id) + "."s + kHookNames[TPR_HOOK_INIT] + " returned exit code "s + std::to_string(initErr)
+                logPrxPlLn() + "Plugin"s + std::to_string(plugin->id) + "."s + kHookNames[TPR_HOOK_INIT] + " returned exit code "s + std::to_string(initErr)
             );
         }
-        log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << " returned exit code " << initErr << ". Success\n";
+        log.debug() << logPrxPlLn() + "" << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << " returned exit code " << initErr << ". Success\n";
 
         auto hookGetNeededHooks = reinterpret_cast<pHookGetNeededHooks>(DLSYM(plugin->addr, kHookNames[TPR_HOOK_GET_NEEDED_HOOKS]));
         {
             auto err = DLERROR();
             if (!err.empty()) {
                 throw Exception(
-                    ErrCode::PluginError, LOG_PLUGIN_LAUNCHER_NAME ": No required symbol "s + kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] +
+                    ErrCode::PluginError, logPrxPlLn() + "No required symbol "s + kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] +
                     " in " + plugin->name() + ". Error:\n"s + err
                 );
             }
         }
-        log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] << "\n";
+        log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] << "\n";
 
         unsigned int hookCount = hookGetNeededHooks(plugin->pluginContext, nullptr);
         std::vector<TprHook> hooks(hookCount);
@@ -119,12 +119,12 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
             auto err = DLERROR();
             if (!err.empty()) {
                 throw Exception(
-                    ErrCode::PluginError, LOG_PLUGIN_LAUNCHER_NAME ": No listed by "s + kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] + " symbol "s + kHookNames[hookType] +
+                    ErrCode::PluginError, logPrxPlLn() + "No listed by "s + kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] + " symbol "s + kHookNames[hookType] +
                     " in " + plugin->name() + ". Error:\n"s + err
                 );
             }
             ptrs.push_back(sym);
-            log.debug() << LOG_PLUGIN_LAUNCHER_NAME ": Loaded " << plugin->name() << "." << kHookNames[hookType] << "\n";
+            log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[hookType] << "\n";
         }
 
         for (size_t i = 0; i < ptrs.size(); i++) {
@@ -133,18 +133,18 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
 
     } catch (const Exception& e) {
         auto l = log.error(TPR_LOG_STYLE_ERROR1);
-        l << LOG_PLUGIN_LAUNCHER_NAME ": Failed to load " << plugin->name() << ":\n" << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
+        l << logPrxPlLn() + "Failed to load " << plugin->name() << ":\n" << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
         throw;
     } catch (const std::exception& e) {
         auto l = log.error(TPR_LOG_STYLE_ERROR1);
-        l << LOG_PLUGIN_LAUNCHER_NAME ": Failed to load " << plugin->name() << ":\n" << "Unexpected exception: " << e.what() << "\n";
+        l << logPrxPlLn() + "Failed to load " << plugin->name() << ":\n" << "Unexpected exception: " << e.what() << "\n";
         throw;
     } catch (...) {
         log.error(TPR_LOG_STYLE_ERROR1) << "Failed to load " << plugin->name() << ":\n" << "Unknown exception\n";
         throw;
     }
 
-    log.info(TprLogStyle::TPR_LOG_STYLE_ENDSTAMP1) << LOG_PLUGIN_LAUNCHER_NAME ": Loaded " << plugin->name() << "\n";
+    log.info(TprLogStyle::TPR_LOG_STYLE_ENDSTAMP1) << logPrxPlLn() + "Loaded " << plugin->name() << "\n";
 
     return plugin;
 }
@@ -176,7 +176,7 @@ void PluginLauncher::unload(const Plugin* plugin) {
     );
 
     if (it == mPlugins.end()) {
-        throw Exception(ErrCode::InternalError, LOG_PLUGIN_LAUNCHER_NAME ": No given plugin is loaded"s);
+        throw Exception(ErrCode::InternalError, logPrxPlLn() + "No given plugin is loaded"s);
     }
 
     try {
@@ -222,7 +222,7 @@ void PluginLauncher::update() {
     for (Plugin* plugin : mFailedPlugins) {
         std::string name = plugin->name();
         unload(plugin);
-        gGetServiceLocator()->get<Logger>().info(TPR_LOG_STYLE_TIMESTAMP1) << LOG_PLUGIN_LAUNCHER_NAME ": Shut down " << name << "\n";
+        gGetServiceLocator()->get<Logger>().info(TPR_LOG_STYLE_TIMESTAMP1) << logPrxPlLn() + "Shut down " << name << "\n";
     }
     mFailedPlugins.clear();
 
@@ -246,11 +246,11 @@ void PluginLauncher::unloadAll() noexcept {
         try {
             unloadPluginLib(*plugin);
         } catch(const Exception& e) {
-            log.error(TPR_LOG_STYLE_ERROR1) << LOG_PLUGIN_LAUNCHER_NAME ": Failed to unload " << plugin->name() << " due to an expected exception[" << e.code() << "]: " << e.what() << "\n";
+            log.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an expected exception[" << e.code() << "]: " << e.what() << "\n";
         } catch(const std::exception& e) {
-            log.error(TPR_LOG_STYLE_ERROR1) << LOG_PLUGIN_LAUNCHER_NAME ": Failed to unload " << plugin->name() << " due to an unexpected exception: " << e.what() << "\n";
+            log.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an unexpected exception: " << e.what() << "\n";
         } catch(...) {
-            log.error(TPR_LOG_STYLE_ERROR1) << LOG_PLUGIN_LAUNCHER_NAME ": Failed to unload " << plugin->name() << " due to an unknown exception" << "\n";
+            log.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an unknown exception" << "\n";
         }
     }
 

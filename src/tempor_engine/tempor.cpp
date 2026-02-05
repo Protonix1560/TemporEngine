@@ -1,7 +1,7 @@
 
 
 #include "tempor.hpp"
-#include "common_types.hpp"
+#include "hardware_common_structs.hpp"
 #include "core.hpp"
 #include "data_bridge.hpp"
 #include "logger.hpp"
@@ -17,18 +17,17 @@
 
 #include <glm/packing.hpp>
 #include <nlohmann/json.hpp>
-#include <ratio>
 
 using njson = nlohmann::json;
 
 
 
 
-void sigint_handler(int) noexcept {
+SIG_SAFE void sigintHandler(int) noexcept {
     gGetServiceLocator()->get<TemporEngine>().sigint();
 }
 
-void sigterm_handler(int) noexcept {
+SIG_SAFE void sigtermHandler(int) noexcept {
     gGetServiceLocator()->get<TemporEngine>().sigterm();
 }
 
@@ -51,8 +50,8 @@ int TemporEngine::run(int argc, char* argv[]) noexcept {
     try {
 
         gGetServiceLocator()->provide(this);
-        std::signal(SIGINT, sigint_handler);
-        std::signal(SIGTERM, sigterm_handler);
+        std::signal(SIGINT, sigintHandler);
+        std::signal(SIGTERM, sigtermHandler);
 
         gGetServiceLocator()->provide(&mLogger);
 
@@ -64,9 +63,10 @@ int TemporEngine::run(int argc, char* argv[]) noexcept {
 
         auto vFlag = argParser.declareFlag(
             'v', nullptr, 0, 
-            "Sets verbosity level to 3 when occures once.\n"
-            "Sets verbosity level to 4 when occures twice.\n"
-            "Sets verbosity level to 5 when occures 3 times"
+            "Sets verbosity level.\n"
+            "-v is equivalent to --verbose=3.\n"
+            "-vv is equivalent to --verbose=4.\n"
+            "-vvv is equivalent to --verbose=5.\n"
         );
         argParser.declareFlag(
             'h', "help", ArgParser::FlagParams::FLAG_HELP_MSG, 
@@ -191,35 +191,35 @@ void TemporEngine::init(int verboseLevel) {
 
     
     // finding sufficient renderer
-    auto& rendererFactories = serviceLocator->getListFactories<IRenderer>();
+    auto& rendererFactories = serviceLocator->getListFactories<HardwareLayer>();
     for (const auto& rendererFactory : rendererFactories) {
         try {
-            mpRenderer = std::move(rendererFactory());
-            mWindowManager.init(mpRenderer->getGraphicsBackend());
+            mpHardwareLayer = std::move(rendererFactory());
+            mWindowManager.init(mpHardwareLayer->getGraphicsBackend());
             serviceLocator->provide(&mWindowManager);
-            mpRenderer->init();
+            mpHardwareLayer->init();
 
         } catch (const Exception& e) {
             mLogger.error(TPR_LOG_STYLE_ERROR1) << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-            mpRenderer.reset();
+            mpHardwareLayer.reset();
             mWindowManager.shutdown();
             serviceLocator->provide<WindowManager>(nullptr);
         } catch (const std::exception& e) {
             mLogger.error(TPR_LOG_STYLE_ERROR1) << "Unexpected exception: " << e.what() << "\n";
-            mpRenderer.reset();
+            mpHardwareLayer.reset();
             mWindowManager.shutdown();
             serviceLocator->provide<WindowManager>(nullptr);
         } catch (...) {
             mLogger.error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-            mpRenderer.reset();
+            mpHardwareLayer.reset();
             mWindowManager.shutdown();
             serviceLocator->provide<WindowManager>(nullptr);
         }
     }
-    if (!mpRenderer) throw Exception(ErrCode::NoSupportError, "No supported renderer on this machine");
+    if (!mpHardwareLayer) throw Exception(ErrCode::NoSupportError, "No supported renderer on this machine");
     mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service WindowManager is ready\n";
-    serviceLocator->provide(mpRenderer.get());
-    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service Renderer is ready\n";
+    serviceLocator->provide(mpHardwareLayer.get());
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service HardwareLayer is ready\n";
 
     auto readyOpeningWindowTimepoint = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> readyOpeningWindowTime = readyOpeningWindowTimepoint - initStartTimepoint;
@@ -369,6 +369,10 @@ void TemporEngine::init(int verboseLevel) {
     auto initEndTimepoint = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> initTime = initEndTimepoint - initStartTimepoint;
 
+    mHWMemOptimizator.init();
+    serviceLocator->provide(&mHWMemOptimizator);
+    mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Service HardwareMemoryOptimizator is ready\n";
+
     mLogger.info(TPR_LOG_STYLE_ENDSTAMP1) << "Initialization done in " << initTime.count() << " ms\n";
     
 }
@@ -383,13 +387,14 @@ void TemporEngine::mainloop() {
 
         mPluginLauncher.triggerHook<TPR_HOOK_UPDATE_PER_FRAME>();
 
-        // mVFSManager.update();
         mDataBridge.update();
         mResourceRegistry.update();
         mPluginLauncher.update();
         mSceneManager.update();
+        mAssetStore.update();
+        mHWMemOptimizator.update();
         mWindowManager.update();
-        mpRenderer->update();
+        mpHardwareLayer->update();
 
         // render
         {
@@ -397,10 +402,10 @@ void TemporEngine::mainloop() {
             
             for (auto& handle : mWindowManager.getWindows()) {
                 RenderGraph::WindowConfig& conf = graph.windows.emplace_back(handle, RenderGraph::WindowConfig{}).second;
-                conf.scissor = Scissor{0, 0, mpRenderer->getFrameWidth(handle), mpRenderer->getFrameHeight(handle)};
+                conf.scissor = Scissor{0, 0, mpHardwareLayer->getFrameWidth(handle), mpHardwareLayer->getFrameHeight(handle)};
                 conf.viewport = Viewport{
-                    0.0f, 0.0f, static_cast<float>(mpRenderer->getFrameWidth(handle)), 
-                    static_cast<float>(mpRenderer->getFrameHeight(handle)), 0.0f, 1.0f
+                    0.0f, 0.0f, static_cast<float>(mpHardwareLayer->getFrameWidth(handle)), 
+                    static_cast<float>(mpHardwareLayer->getFrameHeight(handle)), 0.0f, 1.0f
                 };
 
             }
@@ -411,7 +416,7 @@ void TemporEngine::mainloop() {
             );
             mPluginLauncher.triggerHook<TPR_HOOK_GET_ENTITY_DRAW_ARRAY>(drawEntityOArray);
 
-            mpRenderer->render(graph);
+            mpHardwareLayer->render(graph);
         }
 
         if (mSigInt || mSigTerm) {
@@ -450,6 +455,8 @@ void TemporEngine::shutdown() noexcept {
 
     mPluginLauncher.triggerHook<TPR_HOOK_SHUTDOWN>();
 
+    mHWMemOptimizator.shutdown();
+
     mPluginLauncher.shutdown();
     gGetServiceLocator()->provide<PluginLauncher>(nullptr);
     mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service PluginLauncher\n";
@@ -464,9 +471,9 @@ void TemporEngine::shutdown() noexcept {
 
     // mGUIProcessor.shutdown();
 
-    if (mpRenderer) {
-        mpRenderer->shutdown();
-        gGetServiceLocator()->provide<IRenderer>(nullptr);
+    if (mpHardwareLayer) {
+        mpHardwareLayer->shutdown();
+        gGetServiceLocator()->provide<HardwareLayer>(nullptr);
         mLogger.trace(TPR_LOG_STYLE_TIMESTAMP1) << "Stopped service Renderer\n";
     }
 

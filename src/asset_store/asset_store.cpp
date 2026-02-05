@@ -42,17 +42,17 @@ void AssetStore::shutdown() noexcept {
 
 void AssetStore::validateHandle(TprAsset handle) {
     if (getBasicHandleType(handle) != HandleType::Asset) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_ASSET_STORE_NAME) "Handle type is not Asset");
+        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Handle type is not Asset");
     }
     if (getBasicHandleIndex(handle) >= mAssets.size()) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_ASSET_STORE_NAME) "Invalid handle");
+        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Invalid handle");
     }
     Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[getBasicHandleIndex(handle)]);
     if (!asset.actual) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_ASSET_STORE_NAME) "Destroyed asset");
+        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Destroyed asset");
     }
     if (asset.generation != getBasicHandleGeneration(handle)) {
-        throw Exception(ErrCode::WrongValueError, LOG_PREFIX(LOG_ASSET_STORE_NAME) "Destroyed asset");
+        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Destroyed asset");
     }
 }
 

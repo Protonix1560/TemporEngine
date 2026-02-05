@@ -1,6 +1,5 @@
 
 #include "window_manager.hpp"
-#include "common_types.hpp"
 #include "core.hpp"
 #include "logger.hpp"  // IWYU pragma: keep
 #include "plugin_core.h"
@@ -135,21 +134,21 @@ void WindowManager::shutdown() noexcept {
 
 
 std::vector<const char*> WindowManager::getExtensionsVk(TprWindow handle) const {
-    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw Exception(ErrCode::NoSupportError, LOG_WINDOW_MANAGER_NAME ": Was not initialized with Vulkan support");
-    if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) throw Exception(ErrCode::WrongValueError, LOG_WINDOW_MANAGER_NAME ": Wrong handle generation");
+    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw Exception(ErrCode::NoSupportError, logPrxWinM() + "Was not initialized with Vulkan support");
+    if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) throw Exception(ErrCode::WrongValueError, logPrxWinM() + "Wrong handle generation");
     uint32_t count;
     if (!SDL_Vulkan_GetInstanceExtensions(mWindows[getBasicHandleIndex(handle)].window, &count, nullptr))
-        throw Exception(ErrCode::InternalError, LOG_WINDOW_MANAGER_NAME ": Failed to get vulkan instance extensions");
+        throw Exception(ErrCode::InternalError, logPrxWinM() + "Failed to get vulkan instance extensions");
     std::vector<const char*> extensions(count);
     if (!SDL_Vulkan_GetInstanceExtensions(mWindows[getBasicHandleIndex(handle)].window, &count, extensions.data()))
-        throw Exception(ErrCode::InternalError, LOG_WINDOW_MANAGER_NAME ": Failed to get vulkan instance extensions");
+        throw Exception(ErrCode::InternalError, logPrxWinM() + "Failed to get vulkan instance extensions");
     return std::move(extensions);
 }
 
 
 VkSurfaceKHR WindowManager::createSurfaceVk(TprWindow handle, VkInstance instance) const {
-    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw Exception(ErrCode::NoSupportError, LOG_WINDOW_MANAGER_NAME ": Was not initialized with Vulkan support");
-    if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) throw Exception(ErrCode::WrongValueError, LOG_WINDOW_MANAGER_NAME ": Wrong handle generation");
+    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw Exception(ErrCode::NoSupportError, logPrxWinM() + "Was not initialized with Vulkan support");
+    if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) throw Exception(ErrCode::WrongValueError, logPrxWinM() + "Wrong handle generation");
     VkSurfaceKHR surface;
     if (!SDL_Vulkan_CreateSurface(mWindows[getBasicHandleIndex(handle)].window, instance, &surface)) {
         gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << SDL_GetError() << "\n";
@@ -235,7 +234,7 @@ void WindowManager::closeWindow(TprWindow handle) noexcept {
         if (getBasicHandleIndex(handle) >= mWindows.size()) return;
         if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) return;
 
-        gGetServiceLocator()->get<Logger>().debug() << LOG_WINDOW_MANAGER_NAME ": Closed window\n";
+        gGetServiceLocator()->get<Logger>().debug() << logPrxWinM() + "Closed window\n";
 
         SDL_DestroyWindow(mWindows[getBasicHandleIndex(handle)].window);
         mWindows[getBasicHandleIndex(handle)].actual = false;

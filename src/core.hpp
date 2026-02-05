@@ -57,12 +57,78 @@ using FlagType = uint32_t;
 
 
 
+template <size_t N>
+class ConstexprString {
+
+    public:
+
+        constexpr ConstexprString() : mStr{} {}
+
+        template <size_t M>
+        constexpr ConstexprString(const char (&str)[M]) {
+            static_assert(M == N, "ConstexprString: ConstexprString size doesn't match const char* size");
+            if (str[M - 1] == '\0') {
+                throw "ConstexprString: Str is not null-terminated";
+            }
+            for (size_t i = 0; i < M; i++) {
+                mStr[i] = str[i];
+            }
+        }
+
+        template <size_t M>
+        constexpr ConstexprString<N + M - 1UL> operator+(const ConstexprString<M>& other) const {
+            ConstexprString<N + M - 1UL> concat{};
+            for (size_t i = 0; i < N - 1; i++) {
+                concat[i] = mStr[i];
+            }
+            for (size_t i = 0; i < M; i++) {
+                concat[i + N - 1] = other.mStr[i];
+            }
+            return concat;
+        }
+
+        template <size_t M>
+        constexpr ConstexprString<N + M - 1UL> operator+(const char (&str)[M]) const {
+            ConstexprString<N + M - 1UL> concat{};
+            for (size_t i = 0; i < N - 1; i++) {
+                concat[i] = mStr[i];
+            }
+            for (size_t i = 0; i < M; i++) {
+                concat[i + N - 1] = str[i];
+            }
+            return concat;
+        }
+
+        constexpr char& operator[](size_t index) { return index < N ? mStr[index] : throw "ConstexprString: Index out of range"; }
+        constexpr const char& operator[](size_t index) const { return index < N ? mStr[index] : throw "ConstexprString: Index out of range"; }
+        constexpr const char* cStr() const { return mStr; }
+        constexpr operator const char*() const { return mStr; }
+
+        std::string string() const { return std::string(mStr); }
+
+        template <typename T, typename = std::enable_if_t<!std::is_array_v<T> && std::is_constructible_v<std::string, T>>>
+        std::string operator+(T str) const {
+            return string() + std::string(str);
+        }
+
+        std::string operator+(std::string str) const { return string() + str; }
+        
+    private:
+        char mStr[N];
+    
+};
+
+
 struct Exception : public std::exception {
 
     public:
 
         explicit Exception(ErrCode c, std::string msg = {})
             : errCode(c), message(std::move(msg)) {}
+
+        template <size_t N>
+        explicit Exception(ErrCode c, ConstexprString<N> msg = {})
+            : errCode(c), message(msg) {}
 
         const char* what() const noexcept override {
             if (message.empty()) {
@@ -207,12 +273,62 @@ inline constexpr T constructBasicHandle(uint32_t index, uint32_t generation, Han
 
 
 
-#define LOG_RENDERER_NAME "Rndr"
-#define LOG_WINDOW_MANAGER_NAME "WinM"
-#define LOG_PLUGIN_LAUNCHER_NAME "PLan"
-#define LOG_RESOURCE_REGISTRY_NAME "RReg"
-#define LOG_ASSET_STORE_NAME "Asst"
-#define LOG_PREFIX(str) str ": "
+constexpr auto logHWLRName() {
+    const char name[] = "HWLR";
+    return ConstexprString<std::size(name)>(name);
+}
+constexpr auto logPrxHWLR() {
+    return logHWLRName() + ": ";
+}
+
+constexpr auto logHWMOName() {
+    const char name[] = "HWMO";
+    return ConstexprString<std::size(name)>(name);
+}
+constexpr auto logPrxHWMO() {
+    return logHWMOName() + ": ";
+}
+
+constexpr auto logRRegName() {
+    const char name[] = "RReg";
+    return ConstexprString<std::size(name)>(name);
+}
+constexpr auto logPrxRReg() {
+    return logRRegName() + ": ";
+}
+
+constexpr auto logPlLnName() {
+    const char name[] = "PlLn";
+    return ConstexprString<std::size(name)>(name);
+}
+constexpr auto logPrxPlLn() {
+    return logPlLnName() + ": ";
+}
+
+constexpr auto logAStrName() {
+    const char name[] = "AStr";
+    return ConstexprString<std::size(name)>(name);
+}
+constexpr auto logPrxAStr() {
+    return logAStrName() + ": ";
+}
+
+constexpr auto logWinMName() {
+    const char name[] = "WinM";
+    return ConstexprString<std::size(name)>(name);
+}
+constexpr auto logPrxWinM() {
+    return logWinMName() + ": ";
+}
+
+
+
+// template <size_t N>
+// constexpr auto makeArray(const char (&str)[N]) { return str; }
+
+// #define LOG_HARDWARE_LAYER_INTERFACE_NAME "HWLI"
+// constexpr auto logHWLI() { return makeArray("HWLI"); }
+// inline constexpr const char[] logPrxHWLI() { return LOG_HARDWARE_LAYER_INTERFACE_NAME ": "; }
 
 
 

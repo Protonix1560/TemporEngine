@@ -27,7 +27,11 @@ add_library(
     swapchain.cpp
 )
 add_dependencies(hardware_layer_vulkan vulkan_shaders)
-target_link_libraries(hardware_layer_vulkan PRIVATE Vulkan::Vulkan hardware_layer_interface logger window_manager common hardware_common_structs resource_registry)
+target_link_libraries(
+    hardware_layer_vulkan PRIVATE
+    Vulkan::Vulkan hardware_layer_interface logger window_manager
+    common hardware_common_structs resource_registry
+)
 target_include_directories(hardware_layer_vulkan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # linking to irenderer

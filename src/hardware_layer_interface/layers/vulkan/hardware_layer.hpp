@@ -8,6 +8,9 @@
 #include "core.hpp"
 #include "plugin_core.h"
 #include "hardware_layer_interface.hpp"
+#include "logger.hpp"
+#include "resource_registry.hpp"
+#include "window_manager.hpp"
 
 #include <SDL2/SDL_vulkan.h>
 #include <array>
@@ -286,7 +289,7 @@ struct RenderPass {
     VkPipelineLayout mGUIPipelineLayout = VK_NULL_HANDLE;
     VkPipeline mGUIPipeline = VK_NULL_HANDLE;
     VkDevice mDevice = VK_NULL_HANDLE;
-    void construct(VkDevice device, Swapchain& swapchain);
+    void construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, Swapchain& swapchain);
     void destroy() noexcept;
 };
 
@@ -304,13 +307,14 @@ struct WindowContext {
 class HardwareLayerVulkan : public HardwareLayer {
 
     public:
-        void init() override;
-        void shutdown() noexcept override;
+
+        HardwareLayerVulkan(HWLCreateInfo& createInfo);
+        ~HardwareLayerVulkan() noexcept;
+
         void update() override;
         
-        GraphicsBackend getGraphicsBackend() const override { return GraphicsBackend::Vulkan; }
-        uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(getBasicHandleIndex(handle)).swapchain.extent().width; }
-        uint32_t getFrameHeight(TprWindow handle) const override { return mWindowContexts.at(getBasicHandleIndex(handle)).swapchain.extent().height; }
+        uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).swapchain.extent().width; }
+        uint32_t getFrameHeight(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).swapchain.extent().height; }
         
         TprResult registerWindow(TprWindow handle) noexcept override;
 
@@ -322,6 +326,12 @@ class HardwareLayerVulkan : public HardwareLayer {
         [[deprecated]] void renderGUI(const GUIDrawDesc& desc);
 
     private:
+
+        // deps
+        Logger& mrLogger;
+        ResourceRegistry& mrResReg;
+        WindowManager& mrWinMan;
+
         VkInstance mInstance = VK_NULL_HANDLE;
         uint32_t mApiVer;
         VkDevice mDevice = VK_NULL_HANDLE;

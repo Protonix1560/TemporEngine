@@ -136,7 +136,7 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
 
             if (!mConstructed) {
                 auto l = gGetServiceLocator()->get<Logger>().debug();
-                l << logPrxHWLR() << ": Created swapchain " << mExtent.width << "x" << mExtent.height << " with format: ";
+                l << logPrxHWLR() << "Created swapchain " << mExtent.width << "x" << mExtent.height << " with format: ";
                 switch (mChainImageFormat) {
                     case VK_FORMAT_B8G8R8A8_UNORM: l << "VK_FORMAT_B8G8R8A8_UNORM"; break;
                         case VK_FORMAT_R8G8B8A8_UNORM: l << "VK_FORMAT_R8G8B8A8_UNORM"; break;

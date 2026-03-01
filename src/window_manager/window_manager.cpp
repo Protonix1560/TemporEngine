@@ -21,38 +21,28 @@
 
 
 
-void WindowManager::init(GraphicsBackend backend) {
-
-    auto& logger = gGetServiceLocator()->get<Logger>();
+WindowManager::WindowManager(GraphicsBackend backend, Logger& logger)
+    : mrLogger(logger)
+{
 
     if (SDL_InitSubSystem(SDL_INIT_VIDEO)) SDL_LOG_FAIL("Failed to initialze SDL subsystem VIDEO");
     
     switch (backend) {
 
         case GraphicsBackend::None:
-            logger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager without graphics backend context\n";
+            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager without a graphics backend\n";
             break;
 
         case GraphicsBackend::Unknown:
-            logger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager without a known graphics backend context\n";
+            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager without a known graphics backend\n";
             break;
 
         case GraphicsBackend::Vulkan:
             mWindowFlags |= SDL_WINDOW_VULKAN;
-            logger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with Vulkan context\n";
+            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with Vulkan\n";
             break;
     }
 
-    // logger.info() << "Creating a hidden window...\n";
-
-    // mpWindow = SDL_CreateWindow(name, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
-
-    // logger.info() << "Created a hidden window\n";
-
-    // if (!mpWindow) {
-    //     SDL_Quit();
-    //     SDL_LOG_FAIL("Failed to create SDL window");
-    // }
 }
 
 
@@ -64,22 +54,6 @@ void WindowManager::update() {
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        // if (event.type == SDL_QUIT) {
-        //     mShouldClose = true;
-
-        // } else if (event.type == SDL_KEYDOWN) {
-        //     if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-        //         mShouldClose = true;
-        //     }
-
-        // } else if (event.type == SDL_WINDOWEVENT) {
-        //     switch (event.window.event) {
-        //         case SDL_WINDOWEVENT_RESIZED:
-        //         case SDL_WINDOWEVENT_SIZE_CHANGED:
-        //             mResized = true;
-        //             break;
-        //     }
-        // }
 
         size_t winIndex = mWindowIDToWindow[event.window.windowID];
 
@@ -122,7 +96,7 @@ void WindowManager::update() {
 }
 
 
-void WindowManager::shutdown() noexcept {
+WindowManager::~WindowManager() noexcept {
 
     for (auto& window : mWindows) {
         SDL_DestroyWindow(window.window);
@@ -135,12 +109,12 @@ void WindowManager::shutdown() noexcept {
 
 std::vector<const char*> WindowManager::getExtensionsVk(TprWindow handle) const {
     if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw Exception(ErrCode::NoSupportError, logPrxWinM() + "Was not initialized with Vulkan support");
-    if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) throw Exception(ErrCode::WrongValueError, logPrxWinM() + "Wrong handle generation");
+    if (mWindows[get_basic_handle_index(handle)].generation != get_basic_handle_generation(handle)) throw Exception(ErrCode::WrongValueError, logPrxWinM() + "Wrong handle generation");
     uint32_t count;
-    if (!SDL_Vulkan_GetInstanceExtensions(mWindows[getBasicHandleIndex(handle)].window, &count, nullptr))
+    if (!SDL_Vulkan_GetInstanceExtensions(mWindows[get_basic_handle_index(handle)].window, &count, nullptr))
         throw Exception(ErrCode::InternalError, logPrxWinM() + "Failed to get vulkan instance extensions");
     std::vector<const char*> extensions(count);
-    if (!SDL_Vulkan_GetInstanceExtensions(mWindows[getBasicHandleIndex(handle)].window, &count, extensions.data()))
+    if (!SDL_Vulkan_GetInstanceExtensions(mWindows[get_basic_handle_index(handle)].window, &count, extensions.data()))
         throw Exception(ErrCode::InternalError, logPrxWinM() + "Failed to get vulkan instance extensions");
     return std::move(extensions);
 }
@@ -148,10 +122,10 @@ std::vector<const char*> WindowManager::getExtensionsVk(TprWindow handle) const 
 
 VkSurfaceKHR WindowManager::createSurfaceVk(TprWindow handle, VkInstance instance) const {
     if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw Exception(ErrCode::NoSupportError, logPrxWinM() + "Was not initialized with Vulkan support");
-    if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) throw Exception(ErrCode::WrongValueError, logPrxWinM() + "Wrong handle generation");
+    if (mWindows[get_basic_handle_index(handle)].generation != get_basic_handle_generation(handle)) throw Exception(ErrCode::WrongValueError, logPrxWinM() + "Wrong handle generation");
     VkSurfaceKHR surface;
-    if (!SDL_Vulkan_CreateSurface(mWindows[getBasicHandleIndex(handle)].window, instance, &surface)) {
-        gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << SDL_GetError() << "\n";
+    if (!SDL_Vulkan_CreateSurface(mWindows[get_basic_handle_index(handle)].window, instance, &surface)) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << SDL_GetError() << "\n";
         throw Exception(ErrCode::InternalError, "Failed to create vulkan surface");
     }
     return surface;
@@ -212,9 +186,9 @@ TprResult WindowManager::openWindow(TprWindow* pHandle, const TprWindowCreateInf
         window.id = SDL_GetWindowID(pWindow);
         window.flags = flags;
 
-        setBasicHandleIndex(pHandle, index);
-        setBasicHandleGeneration(pHandle, window.generation);
-        setBasicHandleType(pHandle, HandleType::Window);
+        set_basic_handle_index(pHandle, index);
+        set_basic_handle_generation(pHandle, window.generation);
+        set_basic_handle_type(pHandle, handle_type::window);
 
         window.handle = *pHandle;
 
@@ -230,15 +204,15 @@ TprResult WindowManager::openWindow(TprWindow* pHandle, const TprWindowCreateInf
 
 void WindowManager::closeWindow(TprWindow handle) noexcept {
     try {
-        if (getBasicHandleType(handle) != HandleType::Window) return;
-        if (getBasicHandleIndex(handle) >= mWindows.size()) return;
-        if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) return;
+        if (get_basic_handle_type(handle) != handle_type::window) return;
+        if (get_basic_handle_index(handle) >= mWindows.size()) return;
+        if (mWindows[get_basic_handle_index(handle)].generation != get_basic_handle_generation(handle)) return;
 
-        gGetServiceLocator()->get<Logger>().debug() << logPrxWinM() + "Closed window\n";
+        mrLogger.debug() << logPrxWinM() + "Closed window\n";
 
-        SDL_DestroyWindow(mWindows[getBasicHandleIndex(handle)].window);
-        mWindows[getBasicHandleIndex(handle)].actual = false;
-        mFreeWindows.push_back(getBasicHandleIndex(handle));
+        SDL_DestroyWindow(mWindows[get_basic_handle_index(handle)].window);
+        mWindows[get_basic_handle_index(handle)].actual = false;
+        mFreeWindows.push_back(get_basic_handle_index(handle));
         mActualWindowCount--;
 
     } catch (...) {}
@@ -247,11 +221,11 @@ void WindowManager::closeWindow(TprWindow handle) noexcept {
 
 TprResult WindowManager::getWindowWidth(TprWindow handle, int32_t* width) noexcept {
     try {
-        if (getBasicHandleType(handle) != HandleType::Window) return TPR_INVALID_VALUE;
-        if (getBasicHandleIndex(handle) >= mWindows.size()) return TPR_INVALID_VALUE;
-        if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) return TPR_INVALID_VALUE;
+        if (get_basic_handle_type(handle) != handle_type::window) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(handle) >= mWindows.size()) return TPR_INVALID_VALUE;
+        if (mWindows[get_basic_handle_index(handle)].generation != get_basic_handle_generation(handle)) return TPR_INVALID_VALUE;
         int w, h;
-        SDL_GetWindowSize(mWindows[getBasicHandleIndex(handle)].window, &w, &h);
+        SDL_GetWindowSize(mWindows[get_basic_handle_index(handle)].window, &w, &h);
         *width = static_cast<int32_t>(w);
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -262,11 +236,11 @@ TprResult WindowManager::getWindowWidth(TprWindow handle, int32_t* width) noexce
 
 TprResult WindowManager::getWindowHeight(TprWindow handle, int32_t* height) noexcept {
     try {
-        if (getBasicHandleType(handle) != HandleType::Window) return TPR_INVALID_VALUE;
-        if (getBasicHandleIndex(handle) >= mWindows.size()) return TPR_INVALID_VALUE;
-        if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) return TPR_INVALID_VALUE;
+        if (get_basic_handle_type(handle) != handle_type::window) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(handle) >= mWindows.size()) return TPR_INVALID_VALUE;
+        if (mWindows[get_basic_handle_index(handle)].generation != get_basic_handle_generation(handle)) return TPR_INVALID_VALUE;
         int w, h;
-        SDL_GetWindowSize(mWindows[getBasicHandleIndex(handle)].window, &w, &h);
+        SDL_GetWindowSize(mWindows[get_basic_handle_index(handle)].window, &w, &h);
         *height = static_cast<int32_t>(h);
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -277,10 +251,10 @@ TprResult WindowManager::getWindowHeight(TprWindow handle, int32_t* height) noex
 
 TprResult WindowManager::hasWindowResized(TprWindow handle, TprBool8* pValue) noexcept {
     try {
-        if (getBasicHandleType(handle) != HandleType::Window) return TPR_INVALID_VALUE;
-        if (getBasicHandleIndex(handle) >= mWindows.size()) return TPR_INVALID_VALUE;
-        if (mWindows[getBasicHandleIndex(handle)].generation != getBasicHandleGeneration(handle)) return TPR_INVALID_VALUE;
-        *pValue = mWindows[getBasicHandleIndex(handle)].resized;
+        if (get_basic_handle_type(handle) != handle_type::window) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(handle) >= mWindows.size()) return TPR_INVALID_VALUE;
+        if (mWindows[get_basic_handle_index(handle)].generation != get_basic_handle_generation(handle)) return TPR_INVALID_VALUE;
+        *pValue = mWindows[get_basic_handle_index(handle)].resized;
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
     }

@@ -34,14 +34,11 @@
 
 
 
-void PluginLauncher::init(const TprEngineAPI* api) {
-    mpApi = api;
-}
+PluginLauncher::PluginLauncher(Logger& rLogger, const TprEngineAPI* api)
+    : mrLogger(rLogger), mpApi(api) {}
 
 
 const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
-
-    auto& log = gGetServiceLocator()->get<Logger>();
 
     uint32_t pluginId = mCounter;
 
@@ -52,7 +49,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
     plugin->path = pluginPath;
     plugin->id = pluginId;
 
-    log.info(TPR_LOG_STYLE_STARTSTAMP1) << logPrxPlLn() + "Loading plugin " << pluginPath << " with name " << plugin->name() << "...\n";
+    mrLogger.info(TPR_LOG_STYLE_STARTSTAMP1) << logPrxPlLn() + "Loading plugin " << pluginPath << " with name " << plugin->name() << "...\n";
 
     try {
         plugin->addr = DLOPEN_LOCAL_NOW(plugin->path.c_str());
@@ -60,7 +57,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
             plugin->addr = nullptr;
             throw Exception(ErrCode::InternalError, logPrxPlLn() + "Failed to load "s + plugin->name() + ": "s + DLERROR() + "\n"s);
         }
-        log.debug() << logPrxPlLn() + "Opened " << plugin->name() << " dynamic library\n";
+        mrLogger.debug() << logPrxPlLn() + "Opened " << plugin->name() << " dynamic library\n";
 
         auto hookInit = reinterpret_cast<pHookInit>(DLSYM(plugin->addr, kHookNames[TPR_HOOK_INIT]));
         {
@@ -72,7 +69,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
                 );
             }
         }
-        log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "\n";
+        mrLogger.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "\n";
 
         plugin->shutdownHook = reinterpret_cast<pHookShutdown>(DLSYM(plugin->addr, kHookNames[TPR_HOOK_SHUTDOWN]));
         {
@@ -84,9 +81,9 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
                 );
             }
         }
-        log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_SHUTDOWN] << "\n";
+        mrLogger.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_SHUTDOWN] << "\n";
 
-        log.debug() << logPrxPlLn() + "Calling " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "...\n";
+        mrLogger.debug() << logPrxPlLn() + "Calling " << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << "...\n";
         int32_t initErr = hookInit(&plugin->pluginContext, mpApi);
         if (initErr < 0) {
             throw Exception(
@@ -94,7 +91,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
                 logPrxPlLn() + "Plugin"s + std::to_string(plugin->id) + "."s + kHookNames[TPR_HOOK_INIT] + " returned exit code "s + std::to_string(initErr)
             );
         }
-        log.debug() << logPrxPlLn() + "" << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << " returned exit code " << initErr << ". Success\n";
+        mrLogger.debug() << logPrxPlLn() + "" << plugin->name() << "." << kHookNames[TPR_HOOK_INIT] << " returned exit code " << initErr << ". Success\n";
 
         auto hookGetNeededHooks = reinterpret_cast<pHookGetNeededHooks>(DLSYM(plugin->addr, kHookNames[TPR_HOOK_GET_NEEDED_HOOKS]));
         {
@@ -106,7 +103,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
                 );
             }
         }
-        log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] << "\n";
+        mrLogger.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[TPR_HOOK_GET_NEEDED_HOOKS] << "\n";
 
         unsigned int hookCount = hookGetNeededHooks(plugin->pluginContext, nullptr);
         std::vector<TprHook> hooks(hookCount);
@@ -124,7 +121,7 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
                 );
             }
             ptrs.push_back(sym);
-            log.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[hookType] << "\n";
+            mrLogger.debug() << logPrxPlLn() + "Loaded " << plugin->name() << "." << kHookNames[hookType] << "\n";
         }
 
         for (size_t i = 0; i < ptrs.size(); i++) {
@@ -132,19 +129,19 @@ const Plugin* PluginLauncher::load(std::filesystem::path pluginPath) {
         }
 
     } catch (const Exception& e) {
-        auto l = log.error(TPR_LOG_STYLE_ERROR1);
+        auto l = mrLogger.error(TPR_LOG_STYLE_ERROR1);
         l << logPrxPlLn() + "Failed to load " << plugin->name() << ":\n" << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
         throw;
     } catch (const std::exception& e) {
-        auto l = log.error(TPR_LOG_STYLE_ERROR1);
+        auto l = mrLogger.error(TPR_LOG_STYLE_ERROR1);
         l << logPrxPlLn() + "Failed to load " << plugin->name() << ":\n" << "Unexpected exception: " << e.what() << "\n";
         throw;
     } catch (...) {
-        log.error(TPR_LOG_STYLE_ERROR1) << "Failed to load " << plugin->name() << ":\n" << "Unknown exception\n";
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to load " << plugin->name() << ":\n" << "Unknown exception\n";
         throw;
     }
 
-    log.info(TprLogStyle::TPR_LOG_STYLE_ENDSTAMP1) << logPrxPlLn() + "Loaded " << plugin->name() << "\n";
+    mrLogger.info(TprLogStyle::TPR_LOG_STYLE_ENDSTAMP1) << logPrxPlLn() + "Loaded " << plugin->name() << "\n";
 
     return plugin;
 }
@@ -222,7 +219,7 @@ void PluginLauncher::update() {
     for (Plugin* plugin : mFailedPlugins) {
         std::string name = plugin->name();
         unload(plugin);
-        gGetServiceLocator()->get<Logger>().info(TPR_LOG_STYLE_TIMESTAMP1) << logPrxPlLn() + "Shut down " << name << "\n";
+        mrLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << logPrxPlLn() + "Shut down " << name << "\n";
     }
     mFailedPlugins.clear();
 
@@ -230,7 +227,7 @@ void PluginLauncher::update() {
 
 
 
-void PluginLauncher::shutdown() noexcept {
+PluginLauncher::~PluginLauncher() noexcept {
 
     unloadAll();
 
@@ -240,17 +237,15 @@ void PluginLauncher::shutdown() noexcept {
 
 void PluginLauncher::unloadAll() noexcept {
 
-    auto& log = gGetServiceLocator()->get<Logger>();
-
     for (auto& plugin : mPlugins) {
         try {
             unloadPluginLib(*plugin);
         } catch(const Exception& e) {
-            log.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an expected exception[" << e.code() << "]: " << e.what() << "\n";
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an expected exception[" << e.code() << "]: " << e.what() << "\n";
         } catch(const std::exception& e) {
-            log.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an unexpected exception: " << e.what() << "\n";
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an unexpected exception: " << e.what() << "\n";
         } catch(...) {
-            log.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an unknown exception" << "\n";
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLn() + "Failed to unload " << plugin->name() << " due to an unknown exception" << "\n";
         }
     }
 

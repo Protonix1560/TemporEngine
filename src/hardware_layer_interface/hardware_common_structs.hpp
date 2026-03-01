@@ -16,6 +16,12 @@ enum class GraphicsBackend {
     Vulkan = 2
 };
 
+constexpr const char* graphicsBackendName[] = {
+    "None",
+    "Unknown",
+    "Vulkan"
+};
+
 
 
 struct DebugLineVertex {

@@ -21,46 +21,46 @@
 
 
 
-AssetStore::AssetStore() {
+AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg)
+    : mrLogger(rLogger), mrResReg(rRegReg)
+{
     mLoc = *gGetServiceLocator();
 }
 
 
-void AssetStore::init() {
+AssetStore::~AssetStore() noexcept {
 
 }
+
 
 void AssetStore::update() {
 
 }
 
-void AssetStore::shutdown() noexcept {
-
-}
 
 
-
-void AssetStore::validateHandle(TprAsset handle) {
-    if (getBasicHandleType(handle) != HandleType::Asset) {
-        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Handle type is not Asset");
+TprResult AssetStore::validateHandle(TprAsset handle) {
+    if (get_basic_handle_type(handle) != handle_type::asset) {
+        return TPR_INVALID_VALUE;
     }
-    if (getBasicHandleIndex(handle) >= mAssets.size()) {
-        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Invalid handle");
+    if (get_basic_handle_index(handle) >= mAssets.size()) {
+        return TPR_INVALID_VALUE;
     }
-    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[getBasicHandleIndex(handle)]);
+    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[get_basic_handle_index(handle)]);
     if (!asset.actual) {
-        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Destroyed asset");
+        return TPR_INVALID_VALUE;
     }
-    if (asset.generation != getBasicHandleGeneration(handle)) {
-        throw Exception(ErrCode::WrongValueError, logPrxAStr() + "Destroyed asset");
+    if (asset.generation != get_basic_handle_generation(handle)) {
+        return TPR_INVALID_VALUE;
     }
+    return TPR_SUCCESS;
 }
 
 
 
-Expected<TprAsset, TprResult> AssetStore::loadAsset(const TprAssetLoadInfo* info) noexcept {
+expected<TprAsset, TprResult> AssetStore::loadAsset(const TprAssetLoadInfo* info) noexcept {
 
-    auto& rreg = mLoc.get<ResourceRegistry>();
+    auto& mrResReg = mLoc.get<ResourceRegistry>();
 
     size_t index;
     if (!mFreeAssets.empty()) {
@@ -74,21 +74,18 @@ Expected<TprAsset, TprResult> AssetStore::loadAsset(const TprAssetLoadInfo* info
     Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[index]);
 
     asset.generation++;
-    asset.data.reserve(rreg.sizeofResource(info->data));
-    asset.data.resize(rreg.sizeofResource(info->data));
-    std::memcpy(asset.data.data(), rreg.getResourceRawRODataPointer(info->data), rreg.sizeofResource(info->data));
+    asset.data.reserve(mrResReg.sizeofResource(info->data).value());
+    asset.data.resize(mrResReg.sizeofResource(info->data).value());
+    std::memcpy(asset.data.data(), mrResReg.getResourceConstPointer(info->data).value(), mrResReg.sizeofResource(info->data).value());
 
-    TprAsset handle = constructBasicHandle<TprAsset>(index, asset.generation, HandleType::Asset);
+    TprAsset handle = construct_basic_handle<TprAsset>(index, asset.generation, handle_type::asset);
 
     return handle;
 }
 
 
 
-Expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* parseInfo) noexcept {
-
-    auto& logger = mLoc.get<Logger>();
-    auto& rreg = mLoc.get<ResourceRegistry>();
+expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* parseInfo) noexcept {
 
     TprAssetLoadInfo loadInfo{};
 
@@ -99,23 +96,23 @@ Expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* pa
 
     bool res = loader.LoadBinaryFromMemory(
         &scene, &err, &warn, 
-        reinterpret_cast<const unsigned char*>(rreg.getResourceRawRODataPointer(parseInfo->resource)), 
-        rreg.sizeofResource(parseInfo->resource)
+        reinterpret_cast<const unsigned char*>(mrResReg.getResourceConstPointer(parseInfo->resource).value()), 
+        mrResReg.sizeofResource(parseInfo->resource).value()
     );
 
     if (!warn.empty()) {
-        logger.warn(TPR_LOG_STYLE_WARN1) << "tinygltf: " << warn << "\n";
+        mrLogger.warn(TPR_LOG_STYLE_WARN1) << "tinygltf: " << warn << "\n";
     }
     if (!res || !err.empty()) {
-        logger.error(TPR_LOG_STYLE_ERROR1) << "tinygltf: " << err << "\n";
-        return Unexpected(TPR_PARSE_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "tinygltf: " << err << "\n";
+        return unexpected(TPR_PARSE_ERROR);
     }
 
     switch (parseInfo->type) {
 
         case TPR_ASSET_TYPE_MODEL: {
 
-            if (parseInfo->index >= scene.meshes.size()) return Unexpected(TPR_COUNT_OVERFLOW);
+            if (parseInfo->index >= scene.meshes.size()) return unexpected(TPR_COUNT_OVERFLOW);
             const tinygltf::Mesh& mesh = scene.meshes[0];
 
             uint32_t assetIndicesSize = 0;
@@ -128,10 +125,8 @@ Expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* pa
             }
             uint32_t assetDataSize = sizeof(AssetModel::Header) + assetIndicesSize + assetVerticesSize;
 
-            TprLifetime lifetime;
-            lifetime.frames = UINT64_MAX;
-            loadInfo.data = rreg.openResource(assetDataSize, 0, 1, &lifetime);
-            std::byte* pData = rreg.getResourceRawRWDataPointer(loadInfo.data);
+            loadInfo.data = mrResReg.openResource(assetDataSize, 0, 1).value();
+            std::byte* pData = mrResReg.getResourceRawDataPointer(loadInfo.data).value();
             uint32_t offset = sizeof(AssetModel::Header);
 
             // indices
@@ -187,11 +182,13 @@ Expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* pa
 
         }
 
+        default: ;
+
     }
     
     auto assetHandle = loadAsset(&loadInfo);
     
-    rreg.closeResource(loadInfo.data);
+    mrResReg.closeResource(loadInfo.data);
 
     return assetHandle;
 }
@@ -200,13 +197,13 @@ Expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* pa
 
 void AssetStore::destroyAsset(TprAsset handle) noexcept {
 
-    validateHandle(handle);
+    if (validateHandle(handle) < 0) return;
 
-    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[getBasicHandleIndex(handle)]);
+    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[get_basic_handle_index(handle)]);
 
     asset.actual = false;
 
-    mFreeAssets.push_back(getBasicHandleIndex(handle));
+    mFreeAssets.push_back(get_basic_handle_index(handle));
 
 }
 

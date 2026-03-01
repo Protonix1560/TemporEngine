@@ -1,7 +1,7 @@
 
 
-#ifndef _UTILS_LOGGER_LOGGER_HPP
-#define _UTILS_LOGGER_LOGGER_HPP
+#ifndef LOGGER_LOGGER_HPP_
+#define LOGGER_LOGGER_HPP_
 
 
 #include "logger.hpp"
@@ -46,22 +46,44 @@ void Logger::write(LogEntry& logEntry) {
         auto& stream = (logEntry.mLogLevel == TPR_LOG_LEVEL_ERROR) ? std::cerr : std::cout;
         std::string nsep;
 
+        std::string div;
+        if (mStartstampCount == 0) {
+            div = " ";
+        } else if (mStartstampCount == 1) {
+            div = "\033[2;90m`\033[0m";
+        } else if (mStartstampCount == 2) {
+            div = "\033[2;90m'\033[0m";
+        } else if (mStartstampCount == 3) {
+            div = "\033[2;90m:\033[0m";
+        } else if (mStartstampCount == 4) {
+            div = "\033[90m:\033[0m";
+        } else if (mStartstampCount == 5) {
+            div = "\033[2m;\033[0m";
+        } else if (mStartstampCount == 6) {
+            div = "!";
+        } else if (mStartstampCount >= 7) {
+            div = "|";
+        }
+
         switch (logEntry.mLogStyle) {
             case TPR_LOG_STYLE_2IDENT:
-                stream << "  "; nsep = "  "; break;             
+                stream << div + " "; nsep = div + " "; break;
+            case TPR_LOG_STYLE_6IDENT:
+                stream << div + "     "; nsep = div + "     "; break;
             case TPR_LOG_STYLE_TIMESTAMP1:
-                stream << "==> [" << currTime() << "]: "; nsep = "    "; break;
+                stream << div + " > [" << currTime() << "]: "; nsep = div + "   "; break;
             case TPR_LOG_STYLE_ERROR1:
-                stream << "\033[91m  "; nsep = "  "; break;
+                stream << div + "     \033[91m"; nsep = div + "     "; break;
             case TPR_LOG_STYLE_WARN1:
-                stream << "\033[93m  "; nsep = "  "; break;
+                stream << div + "     \033[93m"; nsep = div + "     "; break;
             case TPR_LOG_STYLE_SUCCESS1:
-                stream << "\033[102m  "; nsep = "  "; break;
+                stream << div + "     \033[102m"; nsep = div + "     "; break;
             case TPR_LOG_STYLE_ENDSTAMP1:
-                stream << "\033[32ml->\033[0m [" << currTime() << "]: "; nsep = "    "; break;
+                stream << "\033[32ml->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount--; break;
             case TPR_LOG_STYLE_STARTSTAMP1:
-                stream << "\033[35mr->\033[0m [" << currTime() << "]: "; nsep = "    "; break;
+                stream << "\033[35mr->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount++; break;
             case TPR_LOG_STYLE_STANDART: break;
+            default: ;
         }
 
         if (logEntry.mLogStyle != TPR_LOG_STYLE_STANDART) {
@@ -81,7 +103,7 @@ void Logger::write(LogEntry& logEntry) {
     }
 }
 
-void Logger::setVerbosityLevel(int level) {
+void Logger::setVerbosityLevel(size_t level) {
     verboseLevel.store(level);
 }
 
@@ -146,4 +168,4 @@ LogEntry::~LogEntry() {
 
 
 
-#endif  // _UTILS_LOGGER_LOGGER_HPP
+#endif  // LOGGER_LOGGER_HPP_

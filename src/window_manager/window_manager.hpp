@@ -5,8 +5,10 @@
 
 
 
+#include "core.hpp"
 #include "plugin_core.h"
 #include "hardware_common_structs.hpp"
+#include "logger.hpp"
 
 #include <unordered_map>
 #include <vector>
@@ -19,8 +21,8 @@
 class WindowManager {
 
     public:
-        void init(GraphicsBackend graphicsBackend);
-        void shutdown() noexcept;
+        WindowManager(GraphicsBackend graphicsBackend, Logger& logger);
+        ~WindowManager() noexcept;
         void update();
 
         bool lost() const;
@@ -38,6 +40,8 @@ class WindowManager {
         TprResult hasWindowResized(TprWindow handle, TprBool8* pValue) noexcept;
 
     private:
+
+        Logger& mrLogger;
 
         struct Window {
             SDL_Window* window;
@@ -57,6 +61,8 @@ class WindowManager {
         std::unordered_map<Uint32, size_t> mWindowIDToWindow;
 
 };
+
+REGISTER_TYPE_NAME(WindowManager);
 
 
 

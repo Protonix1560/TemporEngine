@@ -4,12 +4,14 @@
 
 
 #include "plugin_core.h"
+#include "core.hpp"
 
 #include <mio/mmap.hpp>
 #include <elfio/elfio.hpp>
 
 #include <filesystem>
 #include <streambuf>
+#include <unordered_map>
 #include <vector>
 #include <variant>
 
@@ -90,7 +92,7 @@ template<mio::access_mode AccessMode, typename ByteT>
 class BasicMMapStreambuf : public std::streambuf {
     public:
         explicit BasicMMapStreambuf(const mio::basic_mmap<AccessMode, ByteT>& mmap) {
-            char* begin = const_cast<char*>(mmap.data());
+            char* begin = const_cast<char*>(reinterpret_cast<const char*>(mmap.data()));
             setg(begin, begin, begin + mmap.size());
         }
     protected:
@@ -127,49 +129,59 @@ class BasicMMapStreambuf : public std::streambuf {
 };
 template <typename ByteT> using BasicMMapSinkStreambuf = BasicMMapStreambuf<mio::access_mode::write, ByteT>;
 template <typename ByteT> using BasicMMapSourceStreambuf = BasicMMapStreambuf<mio::access_mode::read, ByteT>;
-using MMapSinkStreambuf = BasicMMapSinkStreambuf<char>;
-using MMapSourceStreambuf = BasicMMapSourceStreambuf<char>;
+using MMapSinkStreambuf = BasicMMapSinkStreambuf<std::byte>;
+using MMapSourceStreambuf = BasicMMapSourceStreambuf<std::byte>;
+
+using MMapSink = mio::basic_mmap_sink<std::byte>;
+using MMapSource = mio::basic_mmap_source<std::byte>;
+
+
+
+// from "logger.hpp"
+class Logger;
 
 
 
 class ResourceRegistry {
 
     public:
-        void init();
-        void update();
-        void shutdown() noexcept;
 
-        TprResource openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags = TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, size_t alignment = 1, const TprLifetime* lifetime = nullptr);
-        TprResource openResource(size_t size, TprOpenEmptyResourceFlags flags = 0, size_t alignment = 1, const TprLifetime* lifetime = nullptr);
-        TprResource openResource(std::byte* begin, std::byte* end, TprOpenRefResourceFlags flags = 0, const TprLifetime* lifetime = nullptr);
-        TprResource openResource(TprResource protectedResource, TprProtectResourceFlags protectFlags, TprOpenCapabilityResourceFlags flags = 0, const TprLifetime* lifetime = nullptr);
+        ResourceRegistry(Logger& rLogger);
+        ~ResourceRegistry() noexcept;
+
+        void update();
+
+        expected<TprResource, TprResult> openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags = 0, size_t alignment = 1);
+        expected<TprResource, TprResult> openResource(size_t size, TprOpenEmptyResourceFlags flags = 0, size_t alignment = 1);
+        expected<TprResource, TprResult> openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags = 0, size_t alignment = 1);
+        expected<TprResource, TprResult> openResource(TprResource protectedResource, TprProtectResourceFlags protectFlags, TprOpenCapabilityResourceFlags flags = 0);
+
+        TprResult resetResourceLifetime(TprResource resource, const TprLifetime* lifetime);
+        TprResult resizeResource(TprResource resource, size_t newSize);
+        expected<uint64_t, TprResult> sizeofResource(TprResource resource);
+        expected<std::byte*, TprResult> getResourceRawDataPointer(TprResource resource);
+        expected<const std::byte*, TprResult> getResourceConstPointer(TprResource resource);
+        void closeResource(TprResource resource) noexcept;
+
+        [[deprecated("breaks the architecture, no replacement yet")]] std::filesystem::path getResourceFilepath(TprResource resource);
 
         std::vector<std::filesystem::path> enumDir(std::filesystem::path dirpath, TprEnumDirFlags flags, size_t depth);
 
-        void resetResourceLifetime(TprResource resource, const TprLifetime* lifetime);
-        void resizeResource(TprResource resource, size_t newSize);
-        size_t sizeofResource(TprResource resource);
-        std::byte* getResourceRawRWDataPointer(TprResource resource);
-        const std::byte* getResourceRawRODataPointer(TprResource resource);
-        std::filesystem::path getResourceFilepath(TprResource resource);
-
-        void closeResource(TprResource resource) noexcept;
-
     private:
 
+        Logger& mrLogger;
+
         struct ResourceBase {
-            TprLifetime lifetime;
-            uint32_t generation = 0;
-            bool actual = true;
+            std::vector<TprResource> capabilityResources;
         };
 
         struct ResourceROFile : public ResourceBase {
-            mio::mmap_source mmapSource;
+            MMapSource mmapSource;
             std::filesystem::path path;
         };
 
         struct ResourceRWFile : public ResourceBase {
-            mio::mmap_sink mmapSink;
+            MMapSink mmapSink;
             std::filesystem::path path;
         };
 
@@ -189,15 +201,18 @@ class ResourceRegistry {
             TprProtectResourceFlags protectFlags;
         };
 
-        std::vector<std::variant<ResourceROFile, ResourceRWFile, ResourceData, ResourceReference, ResourceCapability>> mResources;
-        std::vector<size_t> mFreeResources;
+        std::unordered_map<uint32_t, std::variant<ResourceROFile, ResourceRWFile, ResourceData, ResourceReference, ResourceCapability>> mResources;
+        uint32_t mResourceCounter = 0;
         size_t mAllocationGranularity;
 
-        void validateHandle(TprResource handle);
+        TprResult validateHandle(TprResource handle);
         TprResource getRootResource(TprResource resource);
         TprProtectResourceFlags accumulateProtectFlags(TprResource resource);
 
 };
+
+REGISTER_TYPE_NAME(ResourceRegistry);
+
 
 
 #endif  // RESOURCE_REGISTRY_RESOURCE_REGISTRY_HPP_

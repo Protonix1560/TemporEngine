@@ -9,106 +9,96 @@
 
 
 #ifdef __cplusplus
-    #define __noexcept noexcept(true)
+    #define NOEXCEPT noexcept(true)
 #else
-    #define __noexcept
+    #define NOEXCEPT
 #endif
 
 
 
 typedef struct TprEngineAPI {
 
-    // log functions, allow to log the same way the engine logs (i. e. to the same log file or to stdout and with the same formatting)
-    // plugin should use log functions to log
-    void(*log)(TprLogLevel logLevel, const char* message) __noexcept;
-    void(*logInfo)(const char* message) __noexcept;
-    void(*logWarn)(const char* message) __noexcept;
-    void(*logError)(const char* message) __noexcept;
-    void(*logDebug)(const char* message) __noexcept;
-    void(*logTrace)(const char* message) __noexcept;
+    struct Log {
 
-    void(*logStyled)(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) __noexcept;
-    void(*logInfoStyled)(TprLogStyle logStyle, const char* message) __noexcept;
-    void(*logWarnStyled)(TprLogStyle logStyle, const char* message) __noexcept;
-    void(*logErrorStyled)(TprLogStyle logStyle, const char* message) __noexcept;
-    void(*logDebugStyled)(TprLogStyle logStyle, const char* message) __noexcept;
-    void(*logTraceStyled)(TprLogStyle logStyle, const char* message) __noexcept;
+        // log functions, allow to log the same way the engine logs (i. e. to the same log file or to stdout and with the same formatting)
+        // plugin should use log functions to log
+        void(*log)(TprLogLevel logLevel, const char* message) NOEXCEPT;
+        void(*info)(const char* message) NOEXCEPT;
+        void(*warn)(const char* message) NOEXCEPT;
+        void(*error)(const char* message) NOEXCEPT;
+        void(*debug)(const char* message) NOEXCEPT;
+        void(*trace)(const char* message) NOEXCEPT;
 
-    struct {
+        void(*logStyled)(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) NOEXCEPT;
+        void(*infoStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT;
+        void(*warnStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT;
+        void(*errorStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT;
+        void(*debugStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT;
+        void(*traceStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT;
+
+    } *log;
+
+    struct Scene {
 
         /// @brief declares a new component id.
         /// @details new id is a valid id and can be passed to other functions.
-        TprResult(*registerComponent)(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) __noexcept;
+        TprResult(*registerComponent)(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) NOEXCEPT;
 
-        TprResult(*acquireComponent)(const char* componentName, uint32_t* pComponentId) __noexcept;
+        TprResult(*acquireComponent)(const char* componentName, uint32_t* pComponentId) NOEXCEPT;
 
         /// @brief creates an entity.
         /// @param pEntityId pointer to uint32_t where created entity id will be stored.
         /// @param componentIdsCount count of components that created entity must have.
         /// @param pComponentIds array with component ids that created entity must have. All ids must be valid ids created using declareComponentId.
         /// @returns TPR_SUCCESS on success
-        TprResult(*createEntity)(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntityHandle* pEntityHandle) __noexcept;
+        TprResult(*createEntity)(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntity* pEntityHandle) NOEXCEPT;
 
-        void(*destroyEntity)(const TprEntityHandle* entityHandle) __noexcept;
+        void(*destroyEntity)(const TprEntity* entityHandle) NOEXCEPT;
 
-        TprResult(*modifyEntityComponentSet)(const TprEntityHandle* entityHandle, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) __noexcept;
+        TprResult(*modifyEntityComponentSet)(const TprEntity* entityHandle, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) NOEXCEPT;
 
-        TprResult(*copyEntityComponentData)(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) __noexcept;
-        TprResult(*readEntityComponent8bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint8_t* data) __noexcept;
-        TprResult(*readEntityComponent16bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint16_t* data) __noexcept;
-        TprResult(*readEntityComponent32bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint32_t* data) __noexcept;
-        TprResult(*readEntityComponent64bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint64_t* data) __noexcept;
+        TprResult(*copyEntityComponentData)(const TprEntity* entityHandle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) NOEXCEPT;
+        TprResult(*readEntityComponent8bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint8_t* data) NOEXCEPT;
+        TprResult(*readEntityComponent16bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint16_t* data) NOEXCEPT;
+        TprResult(*readEntityComponent32bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint32_t* data) NOEXCEPT;
+        TprResult(*readEntityComponent64bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint64_t* data) NOEXCEPT;
 
-        TprResult(*writeEntityComponentData)(const TprEntityHandle* entityHandle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) __noexcept;
-        TprResult(*writeEntityComponent8bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint8_t data, uint32_t offset) __noexcept;
-        TprResult(*writeEntityComponent16bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint16_t data, uint32_t offset) __noexcept;
-        TprResult(*writeEntityComponent32bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t data, uint32_t offset) __noexcept;
-        TprResult(*writeEntityComponent64bit)(const TprEntityHandle* entityHandle, uint32_t componentId, uint64_t data, uint32_t offset) __noexcept;
+        TprResult(*writeEntityComponentData)(const TprEntity* entityHandle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) NOEXCEPT;
+        TprResult(*writeEntityComponent8bit)(const TprEntity* entityHandle, uint32_t componentId, uint8_t data, uint32_t offset) NOEXCEPT;
+        TprResult(*writeEntityComponent16bit)(const TprEntity* entityHandle, uint32_t componentId, uint16_t data, uint32_t offset) NOEXCEPT;
+        TprResult(*writeEntityComponent32bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t data, uint32_t offset) NOEXCEPT;
+        TprResult(*writeEntityComponent64bit)(const TprEntity* entityHandle, uint32_t componentId, uint64_t data, uint32_t offset) NOEXCEPT;
 
-    } scene;
+    } *scene;
 
-    struct {
+    struct Geo {
 
-        TprResult(*parseAsset)(const TprAssetParseInfo* pParseInfo, TprAsset* pAsset) __noexcept;
+        TprResult(*parseAsset)(const TprAssetParseInfo* pParseInfo, TprAsset* pAsset) NOEXCEPT;
 
-    } geo;
+    } *geo;
 
-    struct {
+    struct VFS {
 
-        TprResult(*growEntityDrawOArray)(TprOArrayEntityDrawDesc oarray, uint32_t count, TprEntityDrawDesc** pStart) __noexcept;
-        TprResult(*endEntityDrawOArray)(TprOArrayEntityDrawDesc oarray, uint32_t actualSize) __noexcept;
-        TprResult(*sizeofEntityDrawOArray)(TprOArrayEntityDrawDesc oarray, uint32_t* pSize) __noexcept;
+        TprResult(*openPathResource)(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) NOEXCEPT;
+        TprResult(*openReferenceResource)(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) NOEXCEPT;
+        TprResult(*openEmptyResource)(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) NOEXCEPT;
+        TprResult(*openCapabilityResource)(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) NOEXCEPT;
 
-    } render;
+        TprResult(*resizeResource)(TprResource resource, uint64_t newSize) NOEXCEPT;
+        TprResult(*sizeofResource)(TprResource resource, uint64_t* pSize) NOEXCEPT;
+        TprResult(*getResourceRawDataPointer)(TprResource resource, char** pData) NOEXCEPT;
+        TprResult(*getResourceConstPointer)(TprResource resource, const char** pData) NOEXCEPT;
 
-    struct {
+        void(*closeResource)(TprResource resource) NOEXCEPT;
 
-        TprResult(*openPathResource)(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) __noexcept;
-        TprResult(*openRefResource)(char* begin, char* end, TprOpenRefResourceFlags flags, TprResource* pResource) __noexcept;
-        TprResult(*openEmptyResource)(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) __noexcept;
-        TprResult(*openCapabilityResource)(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) __noexcept;
+    } *vfs;
 
-        TprResult(*openPathResourceLifetimed)(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, const TprLifetime* pLifetime, TprResource* pResource) __noexcept;
-        TprResult(*openRefResourceLifetimed)(char* begin, char* end, TprOpenRefResourceFlags flags, const TprLifetime* pLifetime, TprResource* pResource) __noexcept;
-        TprResult(*openEmptyResourceLifetimed)(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, const TprLifetime* pLifetime, TprResource* pResource) __noexcept;
-        TprResult(*openCapabilityResourceLifetimed)(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, const TprLifetime* pLifetime, TprResource* pResource) __noexcept;
+    struct WM {
 
-        TprResult(*resetResourceLifetime)(TprResource resource, const TprLifetime* lifetime) __noexcept;
-        TprResult(*resizeResource)(TprResource resource, uint64_t newSize) __noexcept;
-        TprResult(*sizeofResource)(TprResource resource, uint64_t* pSize) __noexcept;
-        TprResult(*getResourceRawRWDataPointer)(TprResource resource, char** pData) __noexcept;
-        TprResult(*getResourceRawRODataPointer)(TprResource resource, const char** pData) __noexcept;
+        TprResult(*openWindow)(TprWindow* pHandle, const TprWindowCreateInfo* pCreateInfo) NOEXCEPT;
+        void(*closeWindow)(TprWindow handle) NOEXCEPT;
 
-        void(*closeResource)(TprResource resource) __noexcept;
-
-    } vfs;
-
-    struct {
-
-        TprResult(*openWindow)(TprWindow* pHandle, const TprWindowCreateInfo* pCreateInfo) __noexcept;
-        void(*closeWindow)(TprWindow handle) __noexcept;
-
-    } wm;
+    } *wm;
 
 } TprEngineAPI;
 
@@ -129,11 +119,11 @@ extern "C" {
 /// @details is called by the engine the first.
 /// *ctx should be set to a pointer to plugin's data (e. g. to a struct where all of the data is stored) or NULL if there is none.
 /// In case of negative exit code tprHookShutdown will not be called
-int32_t tprHookInit(void** ctx, const TprEngineAPI* engineApi) __noexcept;
+int32_t tprHookInit(void** ctx, const TprEngineAPI* engineApi) NOEXCEPT;
 
 /// @brief shutdowns the plugin. Required.
 /// @details is called by the engine at the end of it's lifecycle or if any previous plugin's hook before returned negative exit code
-void tprHookShutdown(void* ctx) __noexcept;
+void tprHookShutdown(void* ctx) NOEXCEPT;
 
 /// @brief returns required by plugin hooks. Required.
 /// @param hooks a pointer to an array given by engine.
@@ -142,7 +132,7 @@ void tprHookShutdown(void* ctx) __noexcept;
 /// 1st time with *hooks set to NULL to obtain the number of hooks;
 /// 2nd time with *hooks pointing to an array of size, obtained with the first call.
 /// Returned hooks must not have any required hook listed
-uint32_t tprHookGetNeededHooks(void* ctx, TprHook* hooks) __noexcept;
+uint32_t tprHookGetNeededHooks(void* ctx, TprHook* hooks) NOEXCEPT;
 
 
 // ----------- optional hooks -----------
@@ -151,13 +141,13 @@ uint32_t tprHookGetNeededHooks(void* ctx, TprHook* hooks) __noexcept;
 
 /// @brief is being called at the start of every frame.
 /// @returns exit code
-int32_t tprHookUpdatePerFrame(void* ctx) __noexcept;
+int32_t tprHookUpdatePerFrame(void* ctx) NOEXCEPT;
 
 /// @brief is being called every frame right before rendering started
-int32_t tprHookRenderBegin(void* ctx) __noexcept;
+int32_t tprHookRenderBegin(void* ctx) NOEXCEPT;
 
 /// @brief gives ids of every entity to be drawn
-void tprHookGetEntityDrawDescriptors(void* ctx, TprOArrayEntityDrawDesc oarray) __noexcept;
+void tprHookGetEntityDrawDescriptors(void* ctx, TprOArrayEntityDrawDesc oarray) NOEXCEPT;
 
 
 

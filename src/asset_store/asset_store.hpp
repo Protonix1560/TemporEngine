@@ -67,22 +67,36 @@ struct AssetModel : public Asset {
 
 
 
+// from "logger.hpp"
+class Logger;
+
+// from "resource_registy.hpp"
+class ResourceRegistry;
+
+
+
 class AssetStore {
 
     public:
-        AssetStore();
+        AssetStore(Logger& rLogger, ResourceRegistry& rRegReg);
+        ~AssetStore() noexcept;
 
         void init();
         void update();
         void shutdown() noexcept;
 
-        void validateHandle(TprAsset handle);
-        Expected<TprAsset, TprResult> parseAsset(const TprAssetParseInfo* info) noexcept;
-        Expected<TprAsset, TprResult> loadAsset(const TprAssetLoadInfo* info) noexcept;
+        expected<TprAsset, TprResult> parseAsset(const TprAssetParseInfo* info) noexcept;
+        expected<TprAsset, TprResult> loadAsset(const TprAssetLoadInfo* info) noexcept;
         void destroyAsset(TprAsset asset) noexcept;
 
 
     private:
+
+        Logger& mrLogger;
+        ResourceRegistry& mrResReg;
+
+        [[nodiscard]] TprResult validateHandle(TprAsset handle);
+
         ServiceLocator mLoc;
 
         std::vector<std::variant<
@@ -92,6 +106,8 @@ class AssetStore {
 
 
 };
+
+REGISTER_TYPE_NAME(AssetStore);
 
 
 

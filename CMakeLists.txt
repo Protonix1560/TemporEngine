@@ -5,11 +5,11 @@ project(tempor LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(WANT_DEBUG_ASAN "Enable ASan" OFF)
-option(WANT_DEBUG_LSAN "Enable LSan" OFF)
+option(WANT_DEBUG_ASAN "Enable ASan" ON)
+option(WANT_DEBUG_LSAN "Enable LSan" ON)
 option(WANT_DEBUG_TSAN "Enable TSan" OFF)
 option(WANT_DEBUG_MSAN "Enable MSan" OFF)
-option(WANT_DEBUG_LSAN "Enable UBSan" OFF)
+option(WANT_DEBUG_LSAN "Enable UBSan" ON)
 
 if(${CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT})
     message(FATAL_ERROR "CMAKE_INSTALL_PREFIX is not set")
@@ -25,12 +25,19 @@ target_include_directories(
     ${CMAKE_SOURCE_DIR}/3rd_party
     ${CMAKE_SOURCE_DIR}/include
 )
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    string(TIMESTAMP BUILD_DATETIME "%Y-%m-%dT%H:%M:%SZ" UTC)
+else()
+    set(BUILD_DATETIME "2000-12-20T20:20:20Z")
+endif()
+set(BUILD_VERSION "v0.0.0")
+
 target_compile_options(common INTERFACE -O0)
-string(TIMESTAMP BUILD_DATETIME "%Y-%m-%dT%H:%M:%SZ" UTC)
-target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}")
+target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}")
 
 # main executable
-add_executable(tempor src/main.cpp)
+add_executable(tempor src/bootstrap.cpp)
 target_link_libraries(tempor PRIVATE common)
 set_target_properties(tempor PROPERTIES
     INSTALL_RPATH "$ORIGIN/lib"
@@ -41,18 +48,16 @@ add_subdirectory(src/hardware_layer_interface)
 add_subdirectory(src/hardware_memory_optimizator)
 add_subdirectory(src/tempor_engine)
 add_subdirectory(src/logger)
-add_subdirectory(src/data_bridge)
 add_subdirectory(src/resource_registry)
 add_subdirectory(src/plugin_launcher)
 add_subdirectory(src/window_manager)
-add_subdirectory(src/gui)
-add_subdirectory(src/scene_manager)
+add_subdirectory(src/scene_graph)
 add_subdirectory(src/asset_store)
 
 target_link_libraries(
     tempor PRIVATE
-    tempor_class tempor_api logger plugin_launcher window_manager scene_manager
-    hardware_layer_interface gui data_bridge resource_registry asset_store hardware_memory_optimizator
+    tempor_class logger plugin_launcher window_manager scene_graph asset_store
+    hardware_layer_interface resource_registry hardware_memory_optimizator
 )
 
 # adding sanitizers

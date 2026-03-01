@@ -4,6 +4,7 @@
 #define HARDWARE_MEMORY_OPTIMIZATOR_HWMO_HPP_
 
 
+
 #include "core.hpp"
 
 
@@ -11,15 +12,16 @@
 class HardwareMemoryOptimizator {
 
     public:
-        void init();
+        HardwareMemoryOptimizator();
         void update();
-        void shutdown() noexcept;
+        ~HardwareMemoryOptimizator() noexcept;
 
 
     private:
-        ServiceLocator mLoc;
 
 };
+
+REGISTER_TYPE_NAME(HardwareMemoryOptimizator);
 
 
 #endif  // HARDWARE_MEMORY_OPTIMIZATOR_HWMO_HPP_

@@ -1,6 +1,0 @@
-leak:libSDL2*
-leak:libdbus-1*
-leak:libgtk-3*
-leak:libfontconfig*
-leak:libpangoft2*
-leak:libglib-2.0*

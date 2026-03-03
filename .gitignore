@@ -3,3 +3,4 @@ build
 .vscode
 different-on-windows.txt
 analyze.sh
+test

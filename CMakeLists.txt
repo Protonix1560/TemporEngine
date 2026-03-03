@@ -49,14 +49,14 @@ add_subdirectory(src/hardware_memory_optimizator)
 add_subdirectory(src/tempor_engine)
 add_subdirectory(src/logger)
 add_subdirectory(src/resource_registry)
-add_subdirectory(src/plugin_launcher)
+add_subdirectory(src/plugin_loader)
 add_subdirectory(src/window_manager)
 add_subdirectory(src/scene_graph)
 add_subdirectory(src/asset_store)
 
 target_link_libraries(
     tempor PRIVATE
-    tempor_class logger plugin_launcher window_manager scene_graph asset_store
+    tempor_class logger plugin_loader window_manager scene_graph asset_store
     hardware_layer_interface resource_registry hardware_memory_optimizator
 )
 

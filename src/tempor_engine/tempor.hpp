@@ -7,7 +7,7 @@
 #include "core.hpp"
 #include "plugin.h"
 #include "plugin_core.h"
-#include "plugin_launcher.hpp"
+#include "plugin_loader.hpp"
 #include "scene_graph.hpp"
 #include "hardware_memory_optimizator.hpp"
 #include "logger.hpp"
@@ -174,7 +174,7 @@ class TemporEngine {
 
         service_singleton_holder<
             Logger, ResourceRegistry, WindowManager, std::unique_ptr<HardwareLayer>,
-            HardwareMemoryOptimizator, AssetStore, SceneGraph, PluginLauncher
+            HardwareMemoryOptimizator, AssetStore, SceneGraph, PluginLoader
         > mServHolder;
 
         ResourceRegistry* mpResReg = nullptr;
@@ -182,7 +182,7 @@ class TemporEngine {
         WindowManager* mpWinMan = nullptr;
         HardwareLayer* mpHWLI = nullptr;
         AssetStore* mpAssetStore = nullptr;
-        PluginLauncher* mpPlugLan = nullptr;
+        PluginLoader* mpPlugLd = nullptr;
         SceneGraph* mpSceneGraph = nullptr;
         HardwareMemoryOptimizator* mpHWMO = nullptr;
 

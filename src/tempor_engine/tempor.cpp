@@ -3,16 +3,8 @@
 #include "tempor.hpp"
 #include "hardware_common_structs.hpp"
 #include "core.hpp"
-#include "hardware_layer_interface.hpp"
-#include "hardware_memory_optimizator.hpp"
-#include "logger.hpp"
 #include "plugin.h"
 #include "plugin_core.h"
-#include "plugin_launcher.hpp"
-#include "resource_registry.hpp"
-#include "scene_graph.hpp"
-#include "window_manager.hpp"
-#include "asset_store.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -166,14 +158,14 @@ int TemporEngine::init() {
 
 
     mpAssetStore = &mServHolder.construct<AssetStore>(*mpLogger, *mpResReg);
-    mpPlugLan = &mServHolder.construct<PluginLauncher>(*mpLogger, mpApi);
+    mpPlugLd = &mServHolder.construct<PluginLoader>(*mpLogger, mpApi);
     mpHWMO = &mServHolder.construct<HardwareMemoryOptimizator>();
     mpSceneGraph = &mServHolder.construct<SceneGraph>(*mpLogger);
 
     auto plugins = mpResReg->enumDir("plugins", TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT, 1);
     for (const auto& plugin : plugins) {
         try {
-            mpPlugLan->load(plugin);
+            mpPlugLd->loadPlugin(plugin);
         } catch (...) {}
     }
 
@@ -192,10 +184,10 @@ int TemporEngine::run() {
 
     while (!mpWinMan->lost() && !shouldStop) {
 
-        mpPlugLan->triggerHook<TPR_HOOK_UPDATE_PER_FRAME>();
+        // mpPlugLd->triggerHook<TPR_HOOK_UPDATE_PER_FRAME>();
 
         mpResReg->update();
-        mpPlugLan->update();
+        // mpPlugLd->update();
         mpSceneGraph->update();
         mpAssetStore->update();
         mpHWMO->update();
@@ -231,10 +223,10 @@ void TemporEngine::shutdown() {
 
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down\n";
 
-    mpPlugLan->triggerHook<TPR_HOOK_SHUTDOWN>();
+    // mpPlugLd->triggerHook<TPR_HOOK_SHUTDOWN>();
 
     mServHolder.destruct<SceneGraph>();
-    mServHolder.destruct<PluginLauncher>();
+    mServHolder.destruct<PluginLoader>();
     mServHolder.destruct<HardwareMemoryOptimizator>();
     mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
     mServHolder.destruct<WindowManager>();

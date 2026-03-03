@@ -1,0 +1,9 @@
+[submodule "3rd_party/ELFIO"]
+	path = 3rd_party/ELFIO
+	url = https://github.com/serge1/ELFIO.git
+[submodule "3rd_party/mio"]
+	path = 3rd_party/mio
+	url = https://github.com/vimpunk/mio.git
+[submodule "3rd_party/tinygltf"]
+	path = 3rd_party/tinygltf
+	url = https://github.com/syoyo/tinygltf.git

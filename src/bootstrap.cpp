@@ -204,6 +204,29 @@ namespace {
 
         }
 
+        namespace input {
+            TprResult createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept { return std_handler([=]() {
+                WindowManager win = g_engine->getWindowManager();
+                auto exp = win.createAction(window, pCreateInfo);
+                if (exp.has_value()) {
+                    *pAction = exp.value();
+                } else {
+                    return exp.error();
+                }
+                return TPR_SUCCESS;
+            })(); }
+
+            void destroyAction(TprAction action) noexcept { return std_handler([=]() {
+                WindowManager win = g_engine->getWindowManager();
+                win.destroyAction(action);
+            })(); }
+
+            TprResult getActionState(TprAction action, TprActionState* pState) noexcept { return std_handler([=]() {
+                WindowManager win = g_engine->getWindowManager();
+                return win.getActionState(action, pState);
+            })(); }
+        }
+
     }
 
 }

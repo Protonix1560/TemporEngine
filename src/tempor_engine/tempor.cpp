@@ -38,6 +38,10 @@ ResourceRegistry& TemporEngine::getResourceRegistry() {
     return mServHolder.get<ResourceRegistry>();
 }
 
+WindowManager& TemporEngine::getWindowManager() {
+    return mServHolder.get<WindowManager>();
+}
+
 
 
 TemporEngine::TemporEngine(size_t verboseLevel, const TprEngineAPI* api)

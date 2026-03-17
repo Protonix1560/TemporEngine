@@ -106,6 +106,14 @@ typedef struct TprEngineAPI {
 
     } *wm;
 
+    struct Input {
+
+        TprResult(*createAction)(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) NOEXCEPT_T;
+        void(*destroyAction)(TprAction action) NOEXCEPT_T;
+        TprResult(*getActionState)(TprAction action, TprActionState* pState) NOEXCEPT_T;
+
+    } *input;
+
 } TprEngineAPI;
 
 

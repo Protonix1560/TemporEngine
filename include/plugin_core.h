@@ -81,6 +81,12 @@ typedef enum TprAssetType {
     TPR_ASSET_TYPE_MAX_ENUM = INT32_MAX
 } TprAssetType;
 
+typedef enum TprInputElement {
+    TPR_KEY_W = 1,
+    TPR_MOUSE1 = 2,
+    TPR_KEY_MAX_ENUM = INT32_MAX
+} TprInputElement;
+
 
 
 // flags
@@ -152,6 +158,7 @@ typedef struct TprOArrayEntityDrawDesc_T* TprOArrayEntityDrawDesc;
 typedef struct TprWindow { uint64_t _d; } TprWindow;
 typedef struct TprResource { uint64_t _d; } TprResource;
 typedef struct TprAsset { uint64_t _d; } TprAsset;
+typedef struct TprAction { uint64_t _d; } TprAction;
 
 
 
@@ -183,6 +190,14 @@ typedef struct TprAssetSlot {
 
 } TprAssetSlot;
 
+typedef struct TprActionState {
+    float x;
+    float y;
+    float z;
+    TprBool8 state;
+    uint32_t framesActive;
+} TprActionState;
+
 
 
 // create infos
@@ -210,9 +225,11 @@ typedef struct TprAssetLoadInfo {
     TprResource data;
 } TprAssetLoadInfo;
 
-typedef struct TprContextCreateInfo {
-
-} TprContextCreateInfo;
+typedef struct TprActionCreateInfo {
+    TprInputElement element;
+    float highThreshold;
+    float lowThreshold;
+} TprActionCreateInfo;
 
 
 

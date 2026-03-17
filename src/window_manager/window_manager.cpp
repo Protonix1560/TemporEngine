@@ -262,3 +262,21 @@ TprResult WindowManager::hasWindowResized(TprWindow handle, TprBool8* pValue) no
 }
 
 
+expected<TprAction, TprResult> WindowManager::createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo) noexcept {
+
+    
+}
+
+
+void WindowManager::destroyAction(TprAction action) noexcept {
+
+    
+}
+
+
+TprResult WindowManager::getActionState(TprAction action, TprActionState* pState) noexcept {
+
+    
+}
+
+

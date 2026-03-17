@@ -39,6 +39,10 @@ class WindowManager {
         TprResult getWindowHeight(TprWindow handle, int32_t* pHeight) noexcept;
         TprResult hasWindowResized(TprWindow handle, TprBool8* pValue) noexcept;
 
+        expected<TprAction, TprResult> createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo) noexcept;
+        void destroyAction(TprAction action) noexcept;
+        TprResult getActionState(TprAction action, TprActionState* pState) noexcept;
+
     private:
 
         Logger& mrLogger;

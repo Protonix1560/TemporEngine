@@ -4,6 +4,7 @@
 #define UTILS_LOGGER_LOGGER_HPP_
 
 
+#include "core.hpp"
 #include "plugin_core.h"
 
 #include <mutex>
@@ -34,7 +35,7 @@ struct LogEntry {
         std::mutex mMutex;
         Logger& mrLogger;
         bool mAlways = false;
-        LogEntry(Logger& rLogger, TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
+        LogEntry(Logger& rLogger, TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
         friend class Logger;
 };
 
@@ -42,12 +43,17 @@ struct LogEntry {
 class Logger {
     private:
         std::mutex mMutex;
-        std::atomic<int> verboseLevel{0};
+        std::atomic<int> mStartstampCount{0};
+        std::atomic<size_t> verboseLevel;
         void write(LogEntry& logEntry);
         friend struct LogEntry;
 
     public:
-        void setVerbosityLevel(int level);
+
+        Logger(size_t verbosity)
+            : verboseLevel(verbosity) {}
+
+        void setVerbosityLevel(size_t level);
 
         template <typename T>
         LogEntry operator<<(T msg) {
@@ -56,15 +62,17 @@ class Logger {
             return logEntry;
         }
 
-        LogEntry operator()(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry log(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry error(TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry warn( TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry info(TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry debug(TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry trace(TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
-        LogEntry always(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_2IDENT);
+        LogEntry operator()(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry log(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry error(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry warn( TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry info(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry debug(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry trace(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry always(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
 };
+
+REGISTER_TYPE_NAME(Logger);
 
 
 #endif  // UTILS_LOGGER_LOGGER_HPP_

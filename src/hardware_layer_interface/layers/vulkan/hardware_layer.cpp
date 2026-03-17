@@ -1,6 +1,8 @@
 
 #include "hardware_layer.hpp"
 #include "core.hpp"
+#include "hardware_common_structs.hpp"
+#include "hardware_layer_interface.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
 #include "resource_registry.hpp"
@@ -18,11 +20,32 @@
 
 
 
+// std::unique_ptr<HardwareLayer> registerHardwareLayerVulkan() {
+//     return std::make_unique<HardwareLayerVulkan>();
+// }
+// FactoryListRegistrar<HardwareLayer> registrar(registerHardwareLayerVulkan);
+
+
+// std::unique_ptr<HardwareLayer> registerLayerVulkan() {
+//     return std::make_unique<HardwareLayerVulkan>();
+// }
+// Registrar<std::vector<HardwareLayer>>::instance()
+
+
+
 // registring renderer
-std::unique_ptr<HardwareLayer> registerHardwareLayerVulkan() {
-    return std::make_unique<HardwareLayerVulkan>();
+std::unique_ptr<HardwareLayer> registerLayerVulkan(HWLCreateInfo& createInfo) {
+    return std::make_unique<HardwareLayerVulkan>(createInfo);
 }
-FactoryListRegistrar<HardwareLayer> registrar(registerHardwareLayerVulkan);
+
+HardwareLayerManifest vulkanManifest {
+    GraphicsBackend::Vulkan,
+    registerLayerVulkan,
+    "Standart Vulkan HWL"
+};
+
+static_registry<HardwareLayerManifest, 0>::registrar registrar(vulkanManifest);
+
 
 
 
@@ -39,13 +62,11 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 
-void HardwareLayerVulkan::init() {
+HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
+    : mrLogger(createInfo.rLogger), mrResReg(createInfo.rResReg), mrWinMan(createInfo.rWinMan)
+{
 
-    Settings& settings = gGetServiceLocator()->get<Settings>();
-    Logger& log = gGetServiceLocator()->get<Logger>();
     mMaxFramesInFlight = 3;
-
-    log.info(TPR_LOG_STYLE_STARTSTAMP1) << "Trying RendererVulkan...\n";
 
     // max api version
     {
@@ -70,9 +91,8 @@ void HardwareLayerVulkan::init() {
         // layers
         std::vector<const char*> layers;
 
-        if (settings.vulkanBackendDebugUseKhronosValidationLayer) {
-            layers.push_back("VK_LAYER_KHRONOS_validation");
-        }
+        // TODO: add settings registry or smth
+        layers.push_back("VK_LAYER_KHRONOS_validation");
 
         uint32_t layerCount;
         TOF(vkEnumerateInstanceLayerProperties(&layerCount, nullptr));
@@ -95,19 +115,19 @@ void HardwareLayerVulkan::init() {
         tmpWindowCreateInfo.prefferedWidth = 0;
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
-        log.debug() << logPrxHWLR() + "Opening a hidden temporary window\n";
+        mrLogger.debug() << logPrxPHWL() + "Opening a hidden temporary window\n";
         if (gGetServiceLocator()->get<WindowManager>().openWindow(&tmpHandle, &tmpWindowCreateInfo) < 0) {
-            throw Exception(ErrCode::InternalError, logPrxHWLR() + "Failed to open tmp window");
+            throw Exception(ErrCode::InternalError, logPrxPHWL() + "Failed to open tmp window");
         }
 
-        log.trace() << logPrxHWLR() + "Getting Vulkan Instance extension list\n";
+        mrLogger.trace() << logPrxPHWL() + "Getting Vulkan Instance extension list\n";
         // extensions
         std::vector<const char*> extensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(tmpHandle);
         mInstanceExtensions.clear();
         mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
-        if (settings.vulkanBackendDebugUseKhronosValidationLayer) {
-            extensions.push_back("VK_EXT_debug_utils");
-        }
+        
+        // TODO: settings registry!
+        extensions.push_back("VK_EXT_debug_utils");
 
         gGetServiceLocator()->get<WindowManager>().closeWindow(tmpHandle);
 
@@ -123,7 +143,7 @@ void HardwareLayerVulkan::init() {
                     break;
                 }
             }
-            if (!supported) throw Exception(ErrCode::NoSupportError, logPrxHWLR() + "No support for crucial vulkan instance extension: " + ext);
+            if (!supported) throw Exception(ErrCode::NoSupportError, logPrxPHWL() + "No support for crucial vulkan instance extension: " + ext);
         }
 
         VkInstanceCreateInfo instanceCreateInfo{};
@@ -136,11 +156,12 @@ void HardwareLayerVulkan::init() {
 
         TOF(vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance));
 
-        log.debug() << logPrxHWLR() + "Created instance\n";
+        mrLogger.debug() << logPrxPHWL() + "Created instance\n";
     }
 
     // debug utils messenger
-    if (settings.vulkanBackendDebugUseKhronosValidationLayer) {
+    // TODO: settings registry!
+    {
         auto vkCreateDebugUtilsMessengerEXT = LOAD_PFN(vkCreateDebugUtilsMessengerEXT, mInstance);
         if (vkCreateDebugUtilsMessengerEXT) {
 
@@ -177,7 +198,7 @@ void HardwareLayerVulkan::init() {
 
             vkCreateDebugUtilsMessengerEXT(mInstance, &createInfo, nullptr, &mDebugMessenger);
         }
-        log.debug() << logPrxHWLR() + "Created debug utils messenger\n";
+        mrLogger.debug() << logPrxPHWL() + "Created debug utils messenger\n";
     }
 
     // physical device
@@ -194,7 +215,7 @@ void HardwareLayerVulkan::init() {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(mPhysicalDevice, &props);
 
-        log.debug() << logPrxHWLR() + "Picked physical device: " << props.deviceName << "\n";
+        mrLogger.debug() << logPrxPHWL() + "Picked physical device: " << props.deviceName << "\n";
     }
 
     // device
@@ -226,7 +247,7 @@ void HardwareLayerVulkan::init() {
 
         vkGetDeviceQueue(mDevice, 0, 0, &mRenderQueue);
 
-        log.debug() << logPrxHWLR() + "Created device\n";
+        mrLogger.debug() << logPrxPHWL() + "Created device\n";
     }
 
     // buffers
@@ -236,33 +257,28 @@ void HardwareLayerVulkan::init() {
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
         mDebugLinesBuffer.mapMemory();
-        log.debug() << logPrxHWLR() + "Created debug lines buffer\n";
+        mrLogger.debug() << logPrxPHWL() + "Created debug lines buffer\n";
 
         mGUIVertexBuffer.allocate(
             mDevice, mPhysicalDevice, 64,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
         mGUIVertexBuffer.mapMemory();
-        log.debug() << logPrxHWLR() + "Created gui vertex buffer\n";
+        mrLogger.debug() << logPrxPHWL() + "Created gui vertex buffer\n";
 
         mGUIIndexBuffer.allocate(
             mDevice, mPhysicalDevice, 64,
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
         mGUIIndexBuffer.mapMemory();
-        log.debug() << logPrxHWLR() + "Created gui index buffer\n";
+        mrLogger.debug() << logPrxPHWL() + "Created gui index buffer\n";
     }
-
-    log.info(TPR_LOG_STYLE_ENDSTAMP1) << logPrxHWLR() + "Vulkan backend initialization finished\n";
 
 }
 
 
 
-void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
-
-    auto& logger = gGetServiceLocator()->get<Logger>();
-    auto& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, Swapchain& swapchain) {
 
     mDevice = device;
 
@@ -315,7 +331,7 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
 
         TOF(vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &mRenderPass));
 
-        logger.debug() << logPrxHWLR() + "Created render pass\n";
+        rLogger.debug() << logPrxPHWL() + "Created render pass\n";
 
     }
 
@@ -370,12 +386,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         VkPipelineShaderStageCreateInfo stages[2] = {};
 
         VkShaderModule fragShader;
-        TprResource fragRes = resReg.openResource("shaders/vulkan/debug_lines.frag.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
-        if (resReg.sizeofResource(fragRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource fragRes = rResReg.openResource("shaders/vulkan/debug_lines.frag.spv", 0, 4).value();
+        if (rResReg.sizeofResource(fragRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo fragModuleCreateInfo{};
         fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(fragRes));
-        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(fragRes));
+        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(fragRes).value());
+        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(fragRes).value());
         TOF(vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader));
         
         VkPipelineShaderStageCreateInfo& fragStage = stages[1];
@@ -385,12 +401,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         fragStage.pName = "main";
 
         VkShaderModule vertShader;
-        TprResource vertRes = resReg.openResource("shaders/vulkan/debug_lines.vert.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
-        if (resReg.sizeofResource(vertRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource vertRes = rResReg.openResource("shaders/vulkan/debug_lines.vert.spv", 0, 4).value();
+        if (rResReg.sizeofResource(vertRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo vertModuleCreateInfo{};
         vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(vertRes));
-        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(vertRes));
+        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(vertRes).value());
+        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(vertRes).value());
         TOF(vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader));
 
         VkPipelineShaderStageCreateInfo& vertStage = stages[0];
@@ -447,7 +463,7 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         vkDestroyShaderModule(mDevice, fragShader, nullptr);
         vkDestroyShaderModule(mDevice, vertShader, nullptr);
 
-        logger.debug() << logPrxHWLR() + "Created debug lines pipeline\n";
+        rLogger.debug() << logPrxPHWL() + "Created debug lines pipeline\n";
     }
 
     // gui pipeline
@@ -507,12 +523,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         VkPipelineShaderStageCreateInfo stages[2] = {};
 
         VkShaderModule fragShader;
-        TprResource fragRes = resReg.openResource("shaders/vulkan/gui.frag.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
-        if (resReg.sizeofResource(fragRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource fragRes = rResReg.openResource("shaders/vulkan/gui.frag.spv", 0, 4).value();
+        if (rResReg.sizeofResource(fragRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo fragModuleCreateInfo{};
         fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(fragRes));
-        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(fragRes));
+        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(fragRes).value());
+        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(fragRes).value());
         TOF(vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader));
         
         VkPipelineShaderStageCreateInfo& fragStage = stages[1];
@@ -522,12 +538,12 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         fragStage.pName = "main";
 
         VkShaderModule vertShader;
-        TprResource vertRes = resReg.openResource("shaders/vulkan/gui.vert.spv", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 4);
-        if (resReg.sizeofResource(vertRes) > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
+        TprResource vertRes = rResReg.openResource("shaders/vulkan/gui.vert.spv", 0, 4).value();
+        if (rResReg.sizeofResource(vertRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
         VkShaderModuleCreateInfo vertModuleCreateInfo{};
         vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(resReg.sizeofResource(vertRes));
-        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(resReg.getResourceRawRODataPointer(vertRes));
+        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(vertRes).value());
+        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(vertRes).value());
         TOF(vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader));
 
         VkPipelineShaderStageCreateInfo& vertStage = stages[0];
@@ -584,7 +600,7 @@ void RenderPass::construct(VkDevice device, Swapchain& swapchain) {
         vkDestroyShaderModule(mDevice, fragShader, nullptr);
         vkDestroyShaderModule(mDevice, vertShader, nullptr);
 
-        logger.debug() << logPrxHWLR() + "Created GUI pipeline\n";
+        rLogger.debug() << logPrxPHWL() + "Created GUI pipeline\n";
     }
 
 }
@@ -619,7 +635,7 @@ void RenderPass::destroy() noexcept {
 TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
     try {
 
-        WindowContext& ctx = mWindowContexts.emplace(getBasicHandleIndex(handle), WindowContext{}).first->second;
+        WindowContext& ctx = mWindowContexts.emplace(get_basic_handle_index(handle), WindowContext{}).first->second;
 
         // checking if instance has all required extensions
         std::vector<const char*> requiredExtensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(handle);
@@ -645,7 +661,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
                 otherCtx.swapchain.depthFormat() == ctx.swapchain.depthFormat()
             ) {
                 // can borrow the render pass from already existing window
-                gGetServiceLocator()->get<Logger>().debug() << logPrxHWLR() + "Sharing already existing render pass\n";
+                gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Sharing already existing render pass\n";
                 ctx.renderPass = otherCtx.renderPass;
                 goto have_valid_render_pass;
             }
@@ -653,9 +669,9 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
 
         // need to create it's own
         // because no existing windows have the exact same formats choosed
-        gGetServiceLocator()->get<Logger>().debug() << logPrxHWLR() + "Creating a new render pass\n";
+        gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Creating a new render pass\n";
         ctx.renderPass = std::make_shared<RenderPass>();
-        ctx.renderPass->construct(mDevice, ctx.swapchain);
+        ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx.swapchain);
 
         have_valid_render_pass: ;
 
@@ -663,7 +679,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
         ctx.handle = handle;
 
     } catch (const Exception& e) {
-        gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << logPrxHWLR() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
+        gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -676,7 +692,7 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
     try {
 
         TOF(vkDeviceWaitIdle(mDevice));
-        auto& ctx = mWindowContexts[getBasicHandleIndex(handle)];
+        auto& ctx = mWindowContexts[get_basic_handle_index(handle)];
         for (auto& frame : ctx.frames) {
             frame.destroy();
         }
@@ -695,7 +711,7 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
 }
 
 
-void HardwareLayerVulkan::shutdown() noexcept {
+HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
 
     vkDeviceWaitIdle(mDevice);
 
@@ -853,7 +869,7 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
 
     for (auto& [handle, conf] : graph.windows) {
 
-        auto& ctx = mWindowContexts[getBasicHandleIndex(handle)];
+        auto& ctx = mWindowContexts[get_basic_handle_index(handle)];
         Frame& frame = ctx.frames[mFrameCounter];
 
         uint32_t swapchainImageIndex;
@@ -870,7 +886,7 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
             TprBool8 resized;
             if (auto r = windowManager.hasWindowResized(handle, &resized) < 0) {
-                throw Exception(ErrCode::InternalError, logPrxHWLR() + "WindowManager::hasWindowResized returned error code "s + std::to_string(r));
+                throw Exception(ErrCode::InternalError, logPrxPHWL() + "WindowManager::hasWindowResized returned error code "s + std::to_string(r));
             }
             // if (resized) {
             //     TOF(vkDeviceWaitIdle(mDevice));

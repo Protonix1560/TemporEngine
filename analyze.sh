@@ -32,7 +32,7 @@ echo "non-empty lines: $nonempty_lines"
 useful_lines=0
 while IFS= read -r -d '' file; do
     if is_text_file "$file"; then
-        count=$(grep -Pv '^\s*(\}|$)' "$file" | wc -l)
+        count=$(grep -P '[a-zA-Z]' "$file" | wc -l)
         useful_lines=$((useful_lines + count))
     fi
 done < <(find "$dir_path" -type f -print0)

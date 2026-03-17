@@ -1,8 +1,6 @@
 
 #include "plugin.h"
-#include "plugin_core.h"
 
-#include <cstring>
 #include <string>  // IWYU pragma: keep
 
 
@@ -22,7 +20,7 @@ class Plugin {
     public:
         const TprEngineAPI* api;
         TprWindow window;
-        TprEntityHandle entity;
+        TprEntity entity;
         TprAsset model;
 };
 
@@ -32,7 +30,7 @@ extern "C" {
 
 
 
-int32_t tprHookInit(void** ctx, const TprEngineAPI* api) noexcept {
+int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
 
     Plugin* plugin = new Plugin;
     if (!plugin) return -1;
@@ -40,16 +38,16 @@ int32_t tprHookInit(void** ctx, const TprEngineAPI* api) noexcept {
     *ctx = reinterpret_cast<void*>(plugin);
     plugin->api = api;
 
-    plugin->api->logInfoStyled(TPR_LOG_STYLE_STANDART, "TEST PLUGIN INITIALIZATION\n");
+    plugin->api->log->info("TEST PLUGIN INITIALIZATION\n");
 
     // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entA));
     // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entB));
 
-    TprWindowCreateInfo windowCreateInfo{};
-    windowCreateInfo.name = "Tempor Testing Initiative";
-    windowCreateInfo.prefferedHeight = 800;
-    windowCreateInfo.prefferedWidth = 800;
-    ROF(plugin->api->wm.openWindow(&plugin->window, &windowCreateInfo));
+    // TprWindowCreateInfo windowCreateInfo{};
+    // windowCreateInfo.name = "Tempor Testing Initiative";
+    // windowCreateInfo.prefferedHeight = 800;
+    // windowCreateInfo.prefferedWidth = 800;
+    // ROF(plugin->api->wm.openWindow(&plugin->window, &windowCreateInfo));
 
     /*
 
@@ -106,57 +104,32 @@ int32_t tprHookInit(void** ctx, const TprEngineAPI* api) noexcept {
     */
 
     TprResource modelResource;
-    ROF(plugin->api->vfs.openPathResource("plugins/test/model.glb", TPR_OPEN_PATH_RESOURCE_READ_FLAG_BIT, 1, &modelResource));
-    TprAssetParseInfo parseInfo{};
-    parseInfo.resource = modelResource;
-    parseInfo.type = TPR_ASSET_TYPE_MODEL;
-    ROF(plugin->api->geo.parseAsset(&parseInfo, &plugin->model));
-    plugin->api->vfs.closeResource(modelResource);
+    ROF(plugin->api->vfs->openPathResource("plugins/test/model.glb", 0, 1, &modelResource));
+    // TprAssetParseInfo parseInfo{};
+    // parseInfo.resource = modelResource;
+    // parseInfo.type = TPR_ASSET_TYPE_MODEL;
+    // ROF(plugin->api->geo.parseAsset(&parseInfo, &plugin->model));
+    plugin->api->vfs->closeResource(modelResource);
 
     return 0;
 }
 
 
 
-void tprHookShutdown(void* ctx) noexcept {
+void pluginShutdown(void* ctx) noexcept {
     Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
-
-    // plugin->api->geo.destroyAsset(plugin->model);
-    plugin->api->wm.closeWindow(plugin->window);
-
+    plugin->api->log->info("TEST PLUGIN SHUTDOWN\n");
     delete plugin;
 }
 
 
 
-uint32_t tprHookGetNeededHooks(void* ctx, TprHook* hooks) noexcept {
-    
-    TprHook h[] = {
-        // TPR_HOOK_GET_ENTITY_DRAW_ARRAY
-    };
+int32_t getPluginCallbacks(TprPluginCallbacks *pCallbacks) noexcept {
 
-    if (hooks) {
-        std::memcpy(hooks, h, sizeof(h));
-    }
+    pCallbacks->init = init;
+    pCallbacks->shutdown = pluginShutdown;
 
     return 0;
-}
-
-
-
-void tprHookGetEntityDrawDescriptors(void *ctx, TprOArrayEntityDrawDesc oarray) noexcept {
-    Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
-
-    uint32_t size;
-    if (plugin->api->render.sizeofEntityDrawOArray(oarray, &size) < 0) return;
-    
-    TprEntityDrawDesc* arr;
-    if (plugin->api->render.growEntityDrawOArray(oarray, 2, &arr) < 0) return;
-
-    arr[0 + size].flags = TPR_ENTITY_DRAW_DESC_VISIBLE_FLAG_BIT;
-    arr[0 + size].entityHandle = plugin->entity;
-
-    if (plugin->api->render.endEntityDrawOArray(oarray, 2) < 0) return;
 }
 
 

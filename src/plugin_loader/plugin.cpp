@@ -1,0 +1,54 @@
+
+#include "plugin.hpp"
+#include "core.hpp"
+#include "plugin_common_structs.hpp"
+#include "plugin.h"
+#include "logger.hpp"
+#include "plugin_core.h"
+#include <cstdint>
+
+
+PluginInThread::PluginInThread(Logger& rLogger) : mrLogger(rLogger) {}
+
+
+TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
+
+    mrLogger.debug() << logPrxPlLd() << "Loading plugin \"" << pLoadInfo->path.string() << "\" in-thread aliased as " << pLoadInfo->name << "\n";
+
+    mName = pLoadInfo->name;
+
+    mPluginLib.open(pLoadInfo->path).value();
+
+    auto callbacksHook = mPluginLib.sym<decltype(getPluginCallbacks)*>("getPluginCallbacks").value();
+
+    int32_t getCallbacksRet = callbacksHook(&mCallbacks);
+    if (getCallbacksRet < 0) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLd() << "getPluginCallbacks of " << mName << " returned negative exit code [" << getCallbacksRet << "]\n";
+        return TPR_USER_CODE_ERROR;
+    }
+    mrLogger.trace() << logPrxPlLd() << "getPluginCallbacks of " << mName << " returned non-negative exit code [" << getCallbacksRet << "]\n";
+
+    if (mCallbacks.init) {
+        int32_t initRet = mCallbacks.init(&mCtx, pLoadInfo->pAPI);
+        if (initRet < 0) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLd() << "init callback of " << mName << " returned negative exit code [" << initRet << "]\n";
+        }
+        mrLogger.trace() << logPrxPlLd() << "init callback of " << mName << " returned non-negative exit code [" << initRet << "]\n";
+    }
+
+    mrLogger.debug() << logPrxPlLd() << "Loaded plugin " << mName << "\n";
+
+    return TPR_SUCCESS;
+}
+
+
+void PluginInThread::preShutdown() noexcept {
+    if (mCallbacks.preShutdown) mCallbacks.preShutdown(mCtx);
+}
+
+
+void PluginInThread::shutdown() noexcept {
+    if (mCallbacks.shutdown) mCallbacks.shutdown(mCtx);
+    mPluginLib.close();
+}
+

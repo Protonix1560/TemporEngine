@@ -5,10 +5,79 @@
 #include "tempor_api.hpp"
 #include "plugin_core.h"
 #include "resource_registry.hpp"
-#include "scene_manager.hpp"
+#include "scene_graph.hpp"
 #include "window_manager.hpp"
 #include "hardware_layer_interface.hpp"
 #include "asset_store.hpp"
+
+
+
+
+template <typename T>
+struct StandartHandler {
+    T operator()(std::function<T() noexcept(false)> func) {
+        static_assert(false, "StandartHandler: unsupported type");
+    }
+};
+
+
+template <>
+struct StandartHandler<TprResult> {
+    TprResult operator()(std::function<TprResult() noexcept(false)> func) {
+
+        auto err = gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1);
+        TprResult res;
+
+        try {
+            res = func();
+
+        } catch (const std::bad_alloc& e) {
+            err << "Bad alloc: "<< e.what() << "\n";
+            return TPR_BAD_ALLOC;
+
+        } catch (const Exception& e) {
+            err << "Centralized exception [" << e.code() << "]: " << e.what() << "\n";
+            return TPR_UNKNOWN_ERROR;
+
+        } catch (const std::exception& e) {
+            err << "Uncentralized exception: " << e.what() << "\n";
+            return TPR_UNKNOWN_ERROR;
+
+        } catch (...) {
+            err << "Unknown exception\n";
+            return TPR_UNKNOWN_ERROR;
+        }
+
+        return res;
+    }
+};
+
+
+
+template <>
+struct StandartHandler<void> {
+    void operator()(std::function<void() noexcept(false)> func) {
+
+        auto err = gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1);
+
+        try {
+            func();
+
+        } catch (const std::bad_alloc& e) {
+            err << "Bad alloc: "<< e.what() << "\n";
+
+        } catch (const Exception& e) {
+            err << "Centralized exception [" << e.code() << "]: " << e.what() << "\n";
+
+        } catch (const std::exception& e) {
+            err << "Uncentralized exception: " << e.what() << "\n";
+
+        } catch (...) {
+            err << "Unknown exception\n";
+        }
+    }
+};
+
 
 
 
@@ -81,77 +150,77 @@ namespace tpr_api {
     namespace scene {
 
         TprResult registerComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.registerComponent(componentSize, componentName, pNewComponentId);
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.registerComponent(componentSize, componentName, pNewComponentId);
         }
 
         TprResult acquireComponent(const char* componentName, uint32_t* pComponentId) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.acquireComponent(componentName, pComponentId);
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.acquireComponent(componentName, pComponentId);
         }
 
-        TprResult createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntityHandle* pEntityHandle) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.createEntity(componentIdCount, pComponentIds, pEntityHandle);
+        TprResult createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntity* pEntityHandle) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.createEntity(componentIdCount, pComponentIds, pEntityHandle);
         }
 
-        void destroyEntity(const TprEntityHandle* entityHandle) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            sceneManager.destroyEntity(entityHandle);
+        void destroyEntity(const TprEntity* entityHandle) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            sceneGraph.destroyEntity(entityHandle);
         }
 
-        TprResult modifyEntityComponentSet(const TprEntityHandle* entityHandle, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) noexcept {
+        TprResult modifyEntityComponentSet(const TprEntity* entityHandle, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) noexcept {
             return TPR_UNKNOWN_ERROR;
         }
 
-        TprResult copyEntityComponentData(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.copyEntityComponentData(entityHandle, componentId, start, end, componentData);
+        TprResult copyEntityComponentData(const TprEntity* entityHandle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.copyEntityComponentData(entityHandle, componentId, start, end, componentData);
         }
 
-        TprResult readEntityComponent8bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.readEntityComponent8bit(entityHandle, componentId, offset, data);
+        TprResult readEntityComponent8bit(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.readEntityComponent8bit(entityHandle, componentId, offset, data);
         }
 
-        TprResult readEntityComponent16bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.readEntityComponent16bit(entityHandle, componentId, offset, data);
+        TprResult readEntityComponent16bit(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.readEntityComponent16bit(entityHandle, componentId, offset, data);
         }
 
-        TprResult readEntityComponent32bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.readEntityComponent32bit(entityHandle, componentId, offset, data);
+        TprResult readEntityComponent32bit(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.readEntityComponent32bit(entityHandle, componentId, offset, data);
         }
 
-        TprResult readEntityComponent64bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.readEntityComponent64bit(entityHandle, componentId, offset, data);
+        TprResult readEntityComponent64bit(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.readEntityComponent64bit(entityHandle, componentId, offset, data);
         }
 
-        TprResult writeEntityComponentData(const TprEntityHandle* entityHandle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.writeEntityComponentData(entityHandle, componentId, componentData, start, end);
+        TprResult writeEntityComponentData(const TprEntity* entityHandle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.writeEntityComponentData(entityHandle, componentId, componentData, start, end);
         }
 
-        TprResult writeEntityComponent8bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint8_t data, uint32_t offset) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.writeEntityComponent8bit(entityHandle, componentId, data, offset);
+        TprResult writeEntityComponent8bit(const TprEntity* entityHandle, uint32_t componentId, uint8_t data, uint32_t offset) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.writeEntityComponent8bit(entityHandle, componentId, data, offset);
         }
 
-        TprResult writeEntityComponent16bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint16_t data, uint32_t offset) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.writeEntityComponent16bit(entityHandle, componentId, data, offset);
+        TprResult writeEntityComponent16bit(const TprEntity* entityHandle, uint32_t componentId, uint16_t data, uint32_t offset) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.writeEntityComponent16bit(entityHandle, componentId, data, offset);
         }
 
-        TprResult writeEntityComponent32bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint32_t data, uint32_t offset) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.writeEntityComponent32bit(entityHandle, componentId, data, offset);
+        TprResult writeEntityComponent32bit(const TprEntity* entityHandle, uint32_t componentId, uint32_t data, uint32_t offset) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.writeEntityComponent32bit(entityHandle, componentId, data, offset);
         }
 
-        TprResult writeEntityComponent64bit(const TprEntityHandle* entityHandle, uint32_t componentId, uint64_t data, uint32_t offset) noexcept {
-            SceneManager& sceneManager = gGetServiceLocator()->get<SceneManager>();
-            return sceneManager.writeEntityComponent64bit(entityHandle, componentId, data, offset);
+        TprResult writeEntityComponent64bit(const TprEntity* entityHandle, uint32_t componentId, uint64_t data, uint32_t offset) noexcept {
+            SceneGraph& sceneGraph = gGetServiceLocator()->get<SceneGraph>();
+            return sceneGraph.writeEntityComponent64bit(entityHandle, componentId, data, offset);
         }
 
     }
@@ -160,7 +229,7 @@ namespace tpr_api {
         TprResult parseAsset(const TprAssetParseInfo* pInfo, TprAsset* pAsset) noexcept {
             AssetStore& store = gGetServiceLocator()->get<AssetStore>();
             auto exp = store.parseAsset(pInfo);
-            if (exp.hasValue()) {
+            if (exp.has_value()) {
                 *pAsset = exp.value();
                 return TPR_SUCCESS;
             }
@@ -185,332 +254,6 @@ namespace tpr_api {
         }
     }
 
-    namespace vfs {
-
-        TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-            try {
-                if (!pResource) return TPR_INVALID_VALUE;
-                if (!path) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(path, flags, alignment);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openRefResource(char* begin, char* end, TprOpenRefResourceFlags flags, TprResource* pResource) noexcept {
-            try {
-                if (!pResource) return TPR_INVALID_VALUE;
-                if (!begin) return TPR_INVALID_VALUE;
-                if (!end) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags);
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-            try {
-                if (!pResource) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(size, flags, alignment);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openCapabilityResource(TprResource resource, TprOpenCapabilityResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept {
-            try {
-                if (!pResource) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(resource, flags, protectFlags);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openPathResourceLifetimed(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, const TprLifetime* lifetime, TprResource* pResource) noexcept {
-            try {
-                if (!lifetime) return TPR_INVALID_VALUE;
-                if (!pResource) return TPR_INVALID_VALUE;
-                if (!path) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(path, flags, alignment, lifetime);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openRefResourceLifetimed(char* begin, char* end, TprOpenRefResourceFlags flags, const TprLifetime* lifetime, TprResource* pResource) noexcept {
-            try {
-                if (!lifetime) return TPR_INVALID_VALUE;
-                if (!pResource) return TPR_INVALID_VALUE;
-                if (!begin) return TPR_INVALID_VALUE;
-                if (!end) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags, lifetime);
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openEmptyResourceLifetimed(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, const TprLifetime* lifetime, TprResource* pResource) noexcept {
-            try {
-                if (!lifetime) return TPR_INVALID_VALUE;
-                if (!pResource) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(size, flags, alignment, lifetime);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult openCapabilityResourceLifetimed(TprResource resource, TprOpenCapabilityResourceFlags flags, TprProtectResourceFlags protectFlags, const TprLifetime* lifetime, TprResource* pResource) noexcept {
-            try {
-                if (!lifetime) return TPR_INVALID_VALUE;
-                if (!pResource) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pResource = resReg.openResource(resource, flags, protectFlags, lifetime);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult resetResourceLifetime(TprResource resource, const TprLifetime* lifetime) noexcept {
-            try {
-                if (!lifetime) return TPR_INVALID_VALUE;
-                
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                resReg.resetResourceLifetime(resource, lifetime);
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept {
-            try {
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                resReg.resizeResource(resource, newSize);
-
-            } catch (std::bad_alloc) {
-                return TPR_BAD_ALLOC;
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult sizeofResource(TprResource resource, uint64_t* pSize) noexcept {
-            try {
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pSize = static_cast<uint64_t>(resReg.sizeofResource(resource));
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult getResourceRawRWDataPointer(TprResource resource, char** pData) noexcept {
-            try {
-                if (!pData) return TPR_UNKNOWN_ERROR;
-
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pData = reinterpret_cast<char*>(resReg.getResourceRawRWDataPointer(resource));
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        TprResult getResourceRawRODataPointer(TprResource resource, const char** pData) noexcept {
-            try {
-                if (!pData) return TPR_UNKNOWN_ERROR;
-
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                *pData = reinterpret_cast<const char*>(resReg.getResourceRawRODataPointer(resource));
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-                return TPR_UNKNOWN_ERROR;
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                return TPR_UNKNOWN_ERROR;
-            }
-            return TPR_SUCCESS;
-        }
-
-        void closeResource(TprResource resource) noexcept {
-            try {
-                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
-                resReg.closeResource(resource);
-
-            } catch (const Exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-            } catch (const std::exception& e) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1)
-                    << "Unexpected exception: " << e.what() << "\n";
-            } catch (...) {
-                gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-            }
-        }
-
-    }
-
     namespace wm {
         TprResult openWindow(TprWindow* pHandle, const TprWindowCreateInfo* createInfo) noexcept {
             TprResult r;
@@ -525,6 +268,154 @@ namespace tpr_api {
             gGetServiceLocator()->get<HardwareLayer>().unregisterWindow(handle);
             gGetServiceLocator()->get<WindowManager>().closeWindow(handle);
         }
+    }
+
+    namespace vfs {
+
+        TprResult openPathResource(TprContext context, const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pResource) return TPR_INVALID_VALUE;
+                if (!path) return TPR_INVALID_VALUE;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.openResource(context, path, flags, alignment);
+                if (exp.has_value()) {
+                    *pResource = exp.value();
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        TprResult openReferenceResource(TprContext context, char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pResource) return TPR_INVALID_VALUE;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.openResource(context, reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags);
+                if (exp.has_value()) {
+                    *pResource = exp.value();
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        TprResult openEmptyResource(TprContext context, uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pResource) return TPR_INVALID_VALUE;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.openResource(context, size, flags, alignment);
+                if (exp.has_value()) {
+                    *pResource = exp.value();
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        TprResult openCapabilityResource(TprContext context, TprResource resource, TprOpenCapabilityResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pResource) return TPR_INVALID_VALUE;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.openResource(context, resource, flags, protectFlags);
+                if (exp.has_value()) {
+                    *pResource = exp.value();
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                return resReg.resizeResource(resource, newSize);
+            });
+        }
+
+        TprResult sizeofResource(TprResource resource, uint64_t* pSize) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pSize) return TPR_INVALID_VALUE;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.sizeofResource(resource);
+                if (exp.has_value()) {
+                    *pSize = exp.value();
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        TprResult getResourceRawDataPointer(TprResource resource, char** pData) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pData) return TPR_UNKNOWN_ERROR;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.getResourceRawDataPointer(resource);
+                if (exp.has_value()) {
+                    *pData = reinterpret_cast<char*>(exp.value());
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        TprResult getResourceConstPointer(TprResource resource, const char** pData) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                if (!pData) return TPR_UNKNOWN_ERROR;
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                auto exp = resReg.getResourceConstPointer(resource);
+                if (exp.has_value()) {
+                    *pData = reinterpret_cast<const char*>(exp.value());
+                    return TPR_SUCCESS;
+                } else {
+                    return exp.error();
+                }
+            });
+        }
+
+        void closeResource(TprResource resource) noexcept {
+            StandartHandler<void>()([=]() {
+                ResourceRegistry& resReg = gGetServiceLocator()->get<ResourceRegistry>();
+                resReg.closeResource(resource);
+            });
+        }
+
+    }
+
+    namespace ctx {
+
+        TprResult createRootContext(TprContext* pContext) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                ContextManager& ctxMan = gGetServiceLocator()->get<ContextManager>();
+                auto exp = ctxMan.createContext();
+                if (!exp.has_value()) return exp.error();
+                *pContext = exp.value();
+                return TPR_SUCCESS;
+            });
+        }
+
+        TprResult createContext(TprContext parentContext, TprContext* pContext) noexcept {
+            return StandartHandler<TprResult>()([=]() {
+                ContextManager& ctxMan = gGetServiceLocator()->get<ContextManager>();
+                auto exp = ctxMan.createContext(parentContext);
+                if (!exp.has_value()) return exp.error();
+                *pContext = exp.value();
+                return TPR_SUCCESS;
+            });
+        }
+
+        void destroyContext(TprContext context) noexcept {
+            StandartHandler<void>()([=]() {
+                ContextManager& ctxMan = gGetServiceLocator()->get<ContextManager>();
+                ctxMan.destroyContext(context);
+            });
+        }
+
     }
 
 }

@@ -1,0 +1,45 @@
+
+#ifndef PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
+#define PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
+
+#include "plugin.h"
+#include "plugin_common_structs.hpp"
+#include "core.hpp"
+#include "plugin_core.h"
+
+#ifdef LINUX
+    #include "linux_helper.hpp"
+#endif
+
+
+class Plugin {
+    public:
+        virtual ~Plugin() noexcept = default;
+        virtual TprResult init(const PluginLoadInfo* pLoadInfo) = 0;
+        virtual void preShutdown() noexcept = 0;
+        virtual void shutdown() noexcept = 0;
+};
+
+
+// from "logger.hpp"
+class Logger;
+
+
+class PluginInThread : public Plugin {
+    public:
+        PluginInThread(Logger& rLogger);
+        TprResult init(const PluginLoadInfo* pLoadInfo) override;
+        void preShutdown() noexcept override;
+        void shutdown() noexcept override;
+    private:
+        Logger& mrLogger;
+        Lib mPluginLib;
+        std::string mName;
+        TprPluginCallbacks mCallbacks{};
+        void* mCtx;
+};
+
+
+#endif  // PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
+
+

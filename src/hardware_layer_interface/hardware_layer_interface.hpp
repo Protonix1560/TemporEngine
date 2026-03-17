@@ -5,10 +5,32 @@
 
 
 
+#include "core.hpp"
 #include "hardware_common_structs.hpp"
 #include "plugin_core.h"
 
 #include <glm/glm.hpp>
+
+#include <memory>
+#include <string>
+
+
+// from "window_manager.hpp"
+class WindowManager;
+
+// from "resource_registry.hpp"
+class ResourceRegistry;
+
+// from "logger.hpp"
+class Logger;
+
+
+
+struct HWLCreateInfo {
+    WindowManager& rWinMan;
+    Logger& rLogger;
+    ResourceRegistry& rResReg;
+};
 
 
 
@@ -16,11 +38,11 @@ class HardwareLayer {
 
     public:
 
-        virtual void init() = 0;
-        virtual void shutdown() noexcept = 0;
+        HardwareLayer() = default;
+        virtual ~HardwareLayer() noexcept = default;
+
         virtual void update() = 0;
 
-        virtual GraphicsBackend getGraphicsBackend() const = 0;
         virtual uint32_t getFrameWidth(TprWindow handle) const = 0;
         virtual uint32_t getFrameHeight(TprWindow handle) const = 0;
         
@@ -35,7 +57,23 @@ class HardwareLayer {
 
         virtual void render(const RenderGraph& renderGraph) = 0;
 
-        virtual ~HardwareLayer() = default;
+};
+
+REGISTER_TYPE_NAME_S(HardwareLayer, "PHWL");
+
+template <>
+struct type_name<std::unique_ptr<HardwareLayer>> {
+    static constexpr comptime_string<sizeof("PHardwareLayer")> value{"PHardwareLayer"};
+    static constexpr comptime_string<sizeof("PHWL")> value_short{"PHWL"};
+};
+
+
+
+struct HardwareLayerManifest {
+
+    GraphicsBackend graphicsBackend;
+    std::function<std::unique_ptr<HardwareLayer>(HWLCreateInfo& createInfo)> factory;
+    std::string name;
 
 };
 

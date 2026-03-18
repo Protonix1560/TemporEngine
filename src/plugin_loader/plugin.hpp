@@ -18,6 +18,7 @@ class Plugin {
         virtual TprResult init(const PluginLoadInfo* pLoadInfo) = 0;
         virtual void preShutdown() noexcept = 0;
         virtual void shutdown() noexcept = 0;
+        virtual int32_t updatePerFrame() noexcept = 0;
 };
 
 
@@ -27,12 +28,14 @@ class Logger;
 
 class PluginInThread : public Plugin {
     public:
-        PluginInThread(Logger& rLogger);
+        PluginInThread(Logger& rLogger, std::atomic<int32_t>& rAliveTokens);
         TprResult init(const PluginLoadInfo* pLoadInfo) override;
         void preShutdown() noexcept override;
         void shutdown() noexcept override;
+        int32_t updatePerFrame() noexcept override;
     private:
         Logger& mrLogger;
+        std::atomic<int32_t>& mrAliveTokens;
         Lib mPluginLib;
         std::string mName;
         TprPluginCallbacks mCallbacks{};

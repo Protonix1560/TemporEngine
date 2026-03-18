@@ -1,5 +1,6 @@
 
 #include "plugin.h"
+#include "plugin_core.h"
 
 #include <string>  // IWYU pragma: keep
 
@@ -43,11 +44,11 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entA));
     // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entB));
 
-    // TprWindowCreateInfo windowCreateInfo{};
-    // windowCreateInfo.name = "Tempor Testing Initiative";
-    // windowCreateInfo.prefferedHeight = 800;
-    // windowCreateInfo.prefferedWidth = 800;
-    // ROF(plugin->api->wm.openWindow(&plugin->window, &windowCreateInfo));
+    TprWindowCreateInfo windowCreateInfo{};
+    windowCreateInfo.name = "Tempor Testing Initiative";
+    windowCreateInfo.prefferedHeight = 800;
+    windowCreateInfo.prefferedWidth = 400;
+    ROF(plugin->api->wm->openWindow(&windowCreateInfo, &plugin->window));
 
     /*
 
@@ -124,10 +125,21 @@ void pluginShutdown(void* ctx) noexcept {
 
 
 
+int32_t updatePerFrame(void* ctx) noexcept {
+    Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
+    TprInputElementVector v;
+    plugin->api->input->getInputElementVector(TPR_KEY_A, &v);
+    plugin->api->log->info((std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + "\n").c_str());
+    return 0;
+}
+
+
+
 int32_t getPluginCallbacks(TprPluginCallbacks *pCallbacks) noexcept {
 
     pCallbacks->init = init;
     pCallbacks->shutdown = pluginShutdown;
+    pCallbacks->updatePerFrame = updatePerFrame;
 
     return 0;
 }

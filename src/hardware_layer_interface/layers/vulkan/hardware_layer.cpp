@@ -17,6 +17,7 @@
 #include <vulkan/vulkan.h>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <vulkan/vulkan_core.h>
 
 
 
@@ -65,6 +66,8 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
     : mrLogger(createInfo.rLogger), mrResReg(createInfo.rResReg), mrWinMan(createInfo.rWinMan)
 {
+
+    mrWinMan.setHWLI(this);
 
     mMaxFramesInFlight = 3;
 
@@ -116,20 +119,22 @@ HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
         mrLogger.debug() << logPrxPHWL() + "Opening a hidden temporary window\n";
-        if (gGetServiceLocator()->get<WindowManager>().openWindow(&tmpHandle, &tmpWindowCreateInfo) < 0) {
+        auto exp = mrWinMan.openWindow(&tmpWindowCreateInfo);
+        if (!exp.has_value()) {
             throw Exception(ErrCode::InternalError, logPrxPHWL() + "Failed to open tmp window");
         }
+        tmpHandle = exp.value();
 
         mrLogger.trace() << logPrxPHWL() + "Getting Vulkan Instance extension list\n";
         // extensions
-        std::vector<const char*> extensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(tmpHandle);
+        std::vector<const char*> extensions = mrWinMan.getExtensionsVk(tmpHandle);
         mInstanceExtensions.clear();
         mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
         
         // TODO: settings registry!
         extensions.push_back("VK_EXT_debug_utils");
 
-        gGetServiceLocator()->get<WindowManager>().closeWindow(tmpHandle);
+        mrWinMan.closeWindow(tmpHandle);
 
         uint32_t extCount;
         TOF(vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr));
@@ -633,85 +638,91 @@ void RenderPass::destroy() noexcept {
 
 
 TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
-    try {
+    if (mInstance != VK_NULL_HANDLE) {
+        try {
 
-        WindowContext& ctx = mWindowContexts.emplace(get_basic_handle_index(handle), WindowContext{}).first->second;
+            WindowContext& ctx = mWindowContexts.emplace(get_basic_handle_index(handle), WindowContext{}).first->second;
 
-        // checking if instance has all required extensions
-        std::vector<const char*> requiredExtensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(handle);
-        for (const auto& reqExt : requiredExtensions) {
-            for (const auto& preExt : mInstanceExtensions) {
-                if (std::strcmp(reqExt, preExt) == 0) goto found_match;
+            // checking if instance has all required extensions
+            std::vector<const char*> requiredExtensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(handle);
+            for (const auto& reqExt : requiredExtensions) {
+                for (const auto& preExt : mInstanceExtensions) {
+                    if (std::strcmp(reqExt, preExt) == 0) goto found_match;
+                }
+                // loop ended, didn't find a matching name
+                return TPR_INSUFFICIENT_INIT;
+                found_match: ;
             }
-            // loop ended, didn't find a matching name
-            return TPR_INSUFFICIENT_INIT;
-            found_match: ;
-        }
 
-        ctx.surface = gGetServiceLocator()->get<WindowManager>().createSurfaceVk(handle, mInstance);
-        ctx.frames.resize(mMaxFramesInFlight);
-        for (auto& frame : ctx.frames) {
-            frame.construct(mDevice, 0);
-        }
-        ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
-        for (const auto& [otherWindow, otherCtx] : mWindowContexts) {
-            if (
-                &otherCtx != &ctx && 
-                otherCtx.swapchain.chainFormat() == ctx.swapchain.chainFormat() &&
-                otherCtx.swapchain.depthFormat() == ctx.swapchain.depthFormat()
-            ) {
-                // can borrow the render pass from already existing window
-                gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Sharing already existing render pass\n";
-                ctx.renderPass = otherCtx.renderPass;
-                goto have_valid_render_pass;
+            ctx.surface = gGetServiceLocator()->get<WindowManager>().createSurfaceVk(handle, mInstance);
+            ctx.frames.resize(mMaxFramesInFlight);
+            for (auto& frame : ctx.frames) {
+                frame.construct(mDevice, 0);
             }
+            ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+            for (const auto& [otherWindow, otherCtx] : mWindowContexts) {
+                if (
+                    &otherCtx != &ctx && 
+                    otherCtx.swapchain.chainFormat() == ctx.swapchain.chainFormat() &&
+                    otherCtx.swapchain.depthFormat() == ctx.swapchain.depthFormat()
+                ) {
+                    // can borrow the render pass from already existing window
+                    gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Sharing already existing render pass\n";
+                    ctx.renderPass = otherCtx.renderPass;
+                    goto have_valid_render_pass;
+                }
+            }
+
+            // need to create it's own
+            // because no existing windows have the exact same formats choosed
+            gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Creating a new render pass\n";
+            ctx.renderPass = std::make_shared<RenderPass>();
+            ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx.swapchain);
+
+            have_valid_render_pass: ;
+
+            ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+            ctx.handle = handle;
+
+        } catch (const Exception& e) {
+            gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
+            return TPR_UNKNOWN_ERROR;
+        } catch (...) {
+            return TPR_UNKNOWN_ERROR;
         }
-
-        // need to create it's own
-        // because no existing windows have the exact same formats choosed
-        gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Creating a new render pass\n";
-        ctx.renderPass = std::make_shared<RenderPass>();
-        ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx.swapchain);
-
-        have_valid_render_pass: ;
-
-        ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
-        ctx.handle = handle;
-
-    } catch (const Exception& e) {
-        gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
-    } catch (...) {
-        return TPR_UNKNOWN_ERROR;
     }
     return TPR_SUCCESS;
 }
 
 
 void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
-    try {
+    if (mInstance != VK_NULL_HANDLE) {
+        try {
 
-        TOF(vkDeviceWaitIdle(mDevice));
-        auto& ctx = mWindowContexts[get_basic_handle_index(handle)];
-        for (auto& frame : ctx.frames) {
-            frame.destroy();
-        }
-        ctx.framebuffers.destroy();
-        if (ctx.renderPass) {
-            ctx.renderPass->destroy();
-            ctx.renderPass.reset();
-        }
-        ctx.swapchain.destroy();
-        if (ctx.surface) {
-            vkDestroySurfaceKHR(mInstance, ctx.surface, nullptr);
-            ctx.surface = VK_NULL_HANDLE;
-        }
+            TOF(vkDeviceWaitIdle(mDevice));
+            auto& ctx = mWindowContexts[get_basic_handle_index(handle)];
+            for (auto& frame : ctx.frames) {
+                frame.destroy();
+            }
+            ctx.framebuffers.destroy();
+            if (ctx.renderPass) {
+                ctx.renderPass->destroy();
+                ctx.renderPass.reset();
+            }
+            ctx.swapchain.destroy();
+            if (ctx.surface) {
+                vkDestroySurfaceKHR(mInstance, ctx.surface, nullptr);
+                ctx.surface = VK_NULL_HANDLE;
+            }
 
-    } catch (...) {}
+        } catch (...) {}
+    }
 }
 
 
 HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
+
+    mrWinMan.setHWLI(nullptr);
 
     vkDeviceWaitIdle(mDevice);
 
@@ -885,9 +896,11 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             // auto resizing the swapchain if size changed
             // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
             TprBool8 resized;
-            if (auto r = windowManager.hasWindowResized(handle, &resized) < 0) {
-                throw Exception(ErrCode::InternalError, logPrxPHWL() + "WindowManager::hasWindowResized returned error code "s + std::to_string(r));
+            auto exp = windowManager.hasWindowResized(handle);
+            if (!exp.has_value()) {
+                throw Exception(ErrCode::InternalError, logPrxPHWL() + "WindowManager::hasWindowResized returned error code "s + std::to_string(exp.error()));
             }
+            resized = exp.value();
             // if (resized) {
             //     TOF(vkDeviceWaitIdle(mDevice));
             //     ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
@@ -899,12 +912,13 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             result = vkAcquireNextImageKHR(mDevice, ctx.swapchain.swapchain(), UINT64_MAX, frame.imageAvailableSemaphore, VK_NULL_HANDLE, &swapchainImageIndex);
             switch (result) {
                 case VK_ERROR_OUT_OF_DATE_KHR:
-                case VK_SUBOPTIMAL_KHR:
+                    mrLogger << "SWAPCHAIN ACQUIRED\n";
                     TOF(vkDeviceWaitIdle(mDevice));
                     ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
                     ctx.framebuffers.destroy();
                     ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
                     return;
+                case VK_SUBOPTIMAL_KHR: break;
                 case VK_SUCCESS: break;
                 default: throw Exception(ErrCode::InternalError, "Failed to acquire swapchain image");
             }
@@ -987,6 +1001,7 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             switch (result) {
                 case VK_ERROR_OUT_OF_DATE_KHR:
                 case VK_SUBOPTIMAL_KHR:
+                    mrLogger << "SWAPCHAIN PRESENT\n";
                     TOF(vkDeviceWaitIdle(mDevice));
                     ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
                     ctx.framebuffers.destroy();

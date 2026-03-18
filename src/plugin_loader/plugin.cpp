@@ -8,10 +8,12 @@
 #include <cstdint>
 
 
-PluginInThread::PluginInThread(Logger& rLogger) : mrLogger(rLogger) {}
+PluginInThread::PluginInThread(Logger& rLogger, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrAliveTokens(rAliveTokens) {}
 
 
 TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
+
+    mrAliveTokens++;
 
     mrLogger.debug() << logPrxPlLd() << "Loading plugin \"" << pLoadInfo->path.string() << "\" in-thread aliased as " << pLoadInfo->name << "\n";
 
@@ -38,6 +40,8 @@ TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
 
     mrLogger.debug() << logPrxPlLd() << "Loaded plugin " << mName << "\n";
 
+    mrAliveTokens--;
+
     return TPR_SUCCESS;
 }
 
@@ -50,5 +54,11 @@ void PluginInThread::preShutdown() noexcept {
 void PluginInThread::shutdown() noexcept {
     if (mCallbacks.shutdown) mCallbacks.shutdown(mCtx);
     mPluginLib.close();
+}
+
+
+int32_t PluginInThread::updatePerFrame() noexcept {
+    if (mCallbacks.updatePerFrame) return mCallbacks.updatePerFrame(mCtx);
+    return 0;
 }
 

@@ -101,8 +101,8 @@ typedef struct TprEngineAPI {
 
     struct WM {
 
-        TprResult(*openWindow)(TprWindow* pHandle, const TprWindowCreateInfo* pCreateInfo) NOEXCEPT_T;
-        void(*closeWindow)(TprWindow handle) NOEXCEPT_T;
+        TprResult(*openWindow)(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) NOEXCEPT_T;
+        void(*closeWindow)(TprWindow windo) NOEXCEPT_T;
 
     } *wm;
 
@@ -111,6 +111,7 @@ typedef struct TprEngineAPI {
         TprResult(*createAction)(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) NOEXCEPT_T;
         void(*destroyAction)(TprAction action) NOEXCEPT_T;
         TprResult(*getActionState)(TprAction action, TprActionState* pState) NOEXCEPT_T;
+        TprResult(*getInputElementVector)(TprInputElement element, TprInputElementVector* pVector) NOEXCEPT_T;
 
     } *input;
 
@@ -123,6 +124,7 @@ typedef struct TprPluginCallbacks {
     int32_t(*init)(void** ctx, const TprEngineAPI* pEngineAPI) NOEXCEPT_T;
     void(*preShutdown)(void* ctx) NOEXCEPT_T;
     void(*shutdown)(void* ctx) NOEXCEPT_T;
+    int32_t(*updatePerFrame)(void* ctx) NOEXCEPT_T;
 
 } TprPluginCallbacks;
 

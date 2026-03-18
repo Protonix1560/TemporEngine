@@ -120,7 +120,7 @@ int TemporEngine::init() {
 
             mpLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend=" << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "...\n";
 
-            WindowManager* localWinMan = &mServHolder.construct<WindowManager>(manifest.graphicsBackend, *mpLogger);
+            WindowManager* localWinMan = &mServHolder.construct<WindowManager>(manifest.graphicsBackend, *mpLogger, mAliveTokens);
             gGetServiceLocator()->provide(localWinMan);
             HWLCreateInfo hWLCreateInfo = {
                 *localWinMan, *mpLogger, *mpResReg
@@ -147,7 +147,7 @@ int TemporEngine::init() {
 
     if (!mpHWLI) {
         mpLogger->warn(TPR_LOG_STYLE_WARN1) << "Failed to initialize any hardware layer. Continuing without it\n";
-        mpWinMan = &mServHolder.construct<WindowManager>(GraphicsBackend::None, *mpLogger);
+        mpWinMan = &mServHolder.construct<WindowManager>(GraphicsBackend::None, *mpLogger, mAliveTokens);
     }
 
     auto readyOpeningWindowTimepoint = std::chrono::steady_clock::now();
@@ -163,7 +163,7 @@ int TemporEngine::init() {
 
 
     mpAssetStore = &mServHolder.construct<AssetStore>(*mpLogger, *mpResReg);
-    mpPlugLd = &mServHolder.construct<PluginLoader>(*mpLogger);
+    mpPlugLd = &mServHolder.construct<PluginLoader>(*mpLogger, mAliveTokens);
     mpHWMO = &mServHolder.construct<HardwareMemoryOptimizator>();
     mpSceneGraph = &mServHolder.construct<SceneGraph>(*mpLogger);
 
@@ -192,9 +192,11 @@ int TemporEngine::run() {
 
     mClock.begin();
 
-    while (!mpWinMan->lost() && !shouldStop) {
+    mAliveTokens++;
 
-        // mpPlugLd->triggerHook<TPR_HOOK_UPDATE_PER_FRAME>();
+    while (mAliveTokens > 0 && !mMustShutdown) {
+
+        mpPlugLd->triggerCallback(PluginCallback::UpdatePerFrame);
 
         mpResReg->update();
         // mpPlugLd->update();
@@ -203,6 +205,21 @@ int TemporEngine::run() {
         mpHWMO->update();
         mpWinMan->update();
         if (mpHWLI) mpHWLI->update();
+
+        if (mpHWLI) {
+            RenderGraph graph{};
+            for (auto window : mpWinMan->getWindows()) {
+                RenderGraph::WindowConfig cfg{};
+                cfg.scissor.width = mpWinMan->getWindowWidth(window).value();
+                cfg.scissor.height = mpWinMan->getWindowHeight(window).value();
+                cfg.viewport.width = 1.0f;
+                cfg.viewport.height = 1.0f;
+                cfg.viewport.minDepth = 0.0f;
+                cfg.viewport.maxDepth = 1.0f;
+                graph.windows.emplace_back(window, cfg);
+            }
+            mpHWLI->render(graph);
+        }
 
         if (mSigInt || mSigTerm) {
             if (mSigInt) {
@@ -216,7 +233,7 @@ int TemporEngine::run() {
                 l << "SIG_TERM";
             }
             l << " signal\n";
-            shouldStop = true;
+            mMustShutdown = true;
         }
 
         mClock.tick();

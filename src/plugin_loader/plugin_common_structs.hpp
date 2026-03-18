@@ -10,7 +10,7 @@
 
 
 enum class PluginCallback {
-    PreShutdown, Shutdown
+    PreShutdown, Shutdown, UpdatePerFrame
 };
 
 

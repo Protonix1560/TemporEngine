@@ -190,7 +190,8 @@ class TemporEngine {
 
         volatile sig_atomic_t mSigInt = 0;
         volatile sig_atomic_t mSigTerm = 0;
-        bool shouldStop = false;
+        std::atomic<int32_t> mAliveTokens = 0;
+        bool mMustShutdown = false;
 
 };
 

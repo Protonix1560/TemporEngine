@@ -226,9 +226,9 @@ namespace {
                 return win.getActionState(action, pState);
             })(); }
 
-            TprResult getInputElementVector(TprInputElement element, TprInputElementVector* pVector) noexcept { return std_handler([=]() {
+            TprResult getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept { return std_handler([=]() {
                 WindowManager& win = g_engine->getWindowManager();
-                return win.getInputElementVector(element, pVector);
+                return win.getInputElementVector(window, element, pVector);
             })(); }
         }
 

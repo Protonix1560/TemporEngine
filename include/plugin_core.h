@@ -134,7 +134,7 @@ typedef enum TprInputElement {
     TPR_KEY_TAB = 50,
     TPR_KEY_CAPS_LOCK = 51,
     TPR_KEY_TILDE = 52,
-    TPR_KEY_ESC = 53,
+    TPR_KEY_ESCAPE = 53,
     TPR_KEY_F1 = 54,
     TPR_KEY_F2 = 55,
     TPR_KEY_F3 = 56,

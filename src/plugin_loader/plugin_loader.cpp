@@ -28,7 +28,12 @@ TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
         default: return TPR_UNKNOWN_ERROR;
     }
 
-    pPlugin->init(pLoadInfo);
+    TprResult initRes = pPlugin->init(pLoadInfo);
+    if (initRes < 0) {
+        pPlugin->shutdown();
+        mPlugins.pop_back();
+        return initRes;
+    }
 
     return TPR_SUCCESS;
 }

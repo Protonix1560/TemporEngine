@@ -10,6 +10,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <exception>
 #include <string>
 #include <vector>
 #include <memory>
@@ -644,7 +645,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
             WindowContext& ctx = mWindowContexts.emplace(get_basic_handle_index(handle), WindowContext{}).first->second;
 
             // checking if instance has all required extensions
-            std::vector<const char*> requiredExtensions = gGetServiceLocator()->get<WindowManager>().getExtensionsVk(handle);
+            std::vector<const char*> requiredExtensions = mrWinMan.getExtensionsVk(handle);
             for (const auto& reqExt : requiredExtensions) {
                 for (const auto& preExt : mInstanceExtensions) {
                     if (std::strcmp(reqExt, preExt) == 0) goto found_match;
@@ -654,7 +655,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
                 found_match: ;
             }
 
-            ctx.surface = gGetServiceLocator()->get<WindowManager>().createSurfaceVk(handle, mInstance);
+            ctx.surface = mrWinMan.createSurfaceVk(handle, mInstance);
             ctx.frames.resize(mMaxFramesInFlight);
             for (auto& frame : ctx.frames) {
                 frame.construct(mDevice, 0);
@@ -685,9 +686,13 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
             ctx.handle = handle;
 
         } catch (const Exception& e) {
-            gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
+            return TPR_UNKNOWN_ERROR;
+        } catch (const std::exception& e) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unxpected exception: " << e.what() << "\n";
             return TPR_UNKNOWN_ERROR;
         } catch (...) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unknowm exception\n";
             return TPR_UNKNOWN_ERROR;
         }
     }

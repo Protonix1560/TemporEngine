@@ -52,9 +52,18 @@ class WindowManager {
         expected<TprAction, TprResult> createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo) noexcept;
         void destroyAction(TprAction action) noexcept;
         TprResult getActionState(TprAction action, TprActionState* pState) noexcept;
-        TprResult getInputElementVector(TprInputElement inputElement, TprInputElementVector* pVector) noexcept;
+        TprResult getInputElementVector(TprWindow window, TprInputElement inputElement, TprInputElementVector* pVector) noexcept;
 
     private:
+
+        struct Action {
+            TprInputElement element;
+            float highThreshold;
+            float lowThreshold;
+            uint32_t windowIndex;
+            TprBool8 state = false;
+            uint32_t frames = 0;
+        };
 
         struct Window {
             SDL_Window* window;
@@ -62,24 +71,9 @@ class WindowManager {
             Uint32 id;
             TprWindow handle;
             uint32_t index;
-        };
 
-        struct Action {
-            TprInputElement element;
-            float highThreshold;
-            float lowThreshold;
-        };
-
-        struct Key {
-            TprInputElementVector vector;
-        };
-
-        struct MouseButton {
-            TprInputElementVector vector;
-        };
-
-        struct MouseMotion {
-            TprInputElementVector vector;
+            std::unordered_map<TprInputElement, TprInputElementVector> elements;
+            std::unordered_map<uint32_t, Action> actions;
         };
 
         Logger& mrLogger;
@@ -90,16 +84,16 @@ class WindowManager {
         uint32_t mWindowCounter = 0;
         std::unordered_map<uint32_t, Window> mWindows;
 
-        uint32_t mActionCounter = 0;
-        std::unordered_map<uint32_t, Action> mActions;
+        Window mSentinelWindow;
 
-        std::vector<Key> mKeys;
+        uint32_t mActionCounter = 0;
+        std::unordered_map<uint32_t, uint32_t> mActionMap;
+
         std::unordered_map<SDL_Scancode, TprInputElement> mKeyMap;
-        std::vector<MouseButton> mMouseButtons;
         std::unordered_map<uint32_t, TprInputElement> mMouseButtonMap;
-        MouseMotion mMouseMotion;
 
         void destroyWindow(Window& window) noexcept;
+        void updateWindowActions(Window& window, TprInputElement element, const TprInputElementVector& vector);
 
 };
 

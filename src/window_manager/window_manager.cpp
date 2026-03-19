@@ -10,15 +10,8 @@
 #include <SDL_events.h>
 #include <SDL_scancode.h>
 
-#include <stdexcept>
+#include <cmath>
 #include <algorithm>
-
-
-
-#define KEYS_COUNT 104
-#define KEYS_START 0
-#define MOUSE_BUTTONS_COUNT 7
-#define MOUSE_BUTTONS_START 1000
 
 
 
@@ -42,10 +35,6 @@ WindowManager::WindowManager(GraphicsBackend backend, Logger& logger, std::atomi
             mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with Vulkan\n";
             break;
     }
-
-    mKeys.reserve(KEYS_COUNT);
-    mKeys.resize(KEYS_COUNT);
-    mKeyMap.reserve(KEYS_COUNT);
 
     mKeyMap = {
         {SDL_SCANCODE_A, TPR_KEY_A},
@@ -96,7 +85,7 @@ WindowManager::WindowManager(GraphicsBackend backend, Logger& logger, std::atomi
         {SDL_SCANCODE_TAB, TPR_KEY_TAB},
         {SDL_SCANCODE_CAPSLOCK, TPR_KEY_CAPS_LOCK},
         {SDL_SCANCODE_GRAVE, TPR_KEY_TILDE},
-        {SDL_SCANCODE_ESCAPE, TPR_KEY_ESC},
+        {SDL_SCANCODE_ESCAPE, TPR_KEY_ESCAPE},
         {SDL_SCANCODE_RETURN, TPR_KEY_ENTER},
         {SDL_SCANCODE_BACKSPACE, TPR_KEY_BACKSPACE},
         {SDL_SCANCODE_LCTRL, TPR_KEY_LEFT_CTRL},
@@ -154,16 +143,12 @@ WindowManager::WindowManager(GraphicsBackend backend, Logger& logger, std::atomi
         {SDL_SCANCODE_PERIOD, TPR_KEY_DOT}
     };
 
-    mMouseButtons.reserve(MOUSE_BUTTONS_COUNT);
-    mMouseButtons.resize(MOUSE_BUTTONS_COUNT);
-    mMouseButtonMap.reserve(MOUSE_BUTTONS_COUNT);
-
-    mMouseButtons = {
+    mMouseButtonMap = {
         {SDL_BUTTON_LEFT, TPR_MOUSE_BUTTON1},
-        {SDL_BUTTON_MIDDLE, TPR_MOUSE_BUTTON1},
-        {SDL_BUTTON_RIGHT, TPR_MOUSE_BUTTON1},
-        {SDL_BUTTON_X1, TPR_MOUSE_BUTTON1},
-        {SDL_BUTTON_X2, TPR_MOUSE_BUTTON1}
+        {SDL_BUTTON_MIDDLE, TPR_MOUSE_BUTTON2},
+        {SDL_BUTTON_RIGHT, TPR_MOUSE_BUTTON3},
+        {SDL_BUTTON_X1, TPR_MOUSE_BUTTON4},
+        {SDL_BUTTON_X2, TPR_MOUSE_BUTTON5}
     };
 
 }
@@ -221,20 +206,28 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
             return unexpected(TPR_UNKNOWN_ERROR);
         }
 
+        window.elements.reserve(mKeyMap.size() + mMouseButtonMap.size());
+
         window.handle = construct_basic_handle<TprWindow>(index, 0, handle_type::window);
+
 
     } catch (...) {
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "Failed to create window\n";
         return unexpected(TPR_UNKNOWN_ERROR);
     }
 
-    mWindows.emplace(index, window);
+    auto it = mWindows.emplace(index, window).first;
+
+    TprResult regRes = mpHWLI->registerWindow(window.handle);
+    if (regRes < 0) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "Failed to create window: failed to register window in HWLI\n";
+        mWindows.erase(it);
+        return unexpected(regRes);
+    }
 
     mrAliveTokens++;
 
-    mpHWLI->registerWindow(window.handle);
-
-    mrLogger.debug() << logPrxWinM() << "Opened window " << index << "\n";
+    mrLogger.debug() << logPrxWinM() << "Opened window " << index << " width SDL WindowID " << window.id << "\n";
 
     return window.handle;
 }
@@ -252,27 +245,68 @@ void WindowManager::closeWindow(TprWindow handle) noexcept {
 
 
 void WindowManager::destroyWindow(Window& window) noexcept {
-    assert(mpHWLI != nullptr);
     SDL_DestroyWindow(window.window);
-    mpHWLI->unregisterWindow(window.handle);
+    if (mpHWLI) mpHWLI->unregisterWindow(window.handle);
+    for (auto& [index, action] : window.actions) {
+        mActionMap.erase(index);
+    }
     mrLogger.debug() << logPrxWinM() << "Closed window " << window.index << "\n";
     mrAliveTokens--;
 }
 
 
+void WindowManager::updateWindowActions(Window& window, TprInputElement element, const TprInputElementVector& vector) {
+    for (auto& [actionIndex, action] : window.actions) {
+        if (action.element == element) {
+            float length = std::sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+            // mrLogger << "LENGTH: " << length << "\n";
+            if (action.state == TPR_TRUE && length < action.lowThreshold) {
+                action.state = TPR_FALSE;
+                action.frames = 0;
+            } else if (action.state == TPR_FALSE && length > action.highThreshold) {
+                action.state = TPR_TRUE;
+                action.frames = 0;
+            }
+        }
+    }
+}
+
+
 void WindowManager::update() {
 
-    for (auto& [index, window] : mWindows) {
+    for (auto& [windowIndex, window] : mWindows) {
         window.resized = false;
+        for (auto& [actionIndex, action] : window.actions) {
+            switch (action.element) {
+
+                case TPR_MOUSE_MOTION:
+                case TPR_MOUSE_WHEEL_DOWN:
+                case TPR_MOUSE_WHEEL_UP: {
+                    // setting those events to null
+                    // needed because SDL2 doesn't send event line KEYUP, so WindowMananger has no idea when a sequence of those events ends
+                    TprInputElementVector& vector = window.elements[action.element];
+                    vector = {0.0f, 0.0f, 0.0f};
+                    updateWindowActions(window, action.element, vector);
+                    break;
+                }
+
+                default: 
+                    action.frames++;
+                    break;
+            }
+        }
     }
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
 
-        auto it = std::find_if(mWindows.begin(), mWindows.end(), [event](const auto& pair) {
+        auto it = std::find_if(mWindows.begin(), mWindows.end(), [&event](const auto& pair) {
             return pair.second.id == event.window.windowID;
         });
-        Window& window = it->second;
+        Window* window = &mSentinelWindow;
+        if (it != mWindows.end()) {
+            window = &it->second;
+        }
 
         switch (event.type) {
 
@@ -284,31 +318,66 @@ void WindowManager::update() {
                 mWindows.clear();
                 break;
 
-            case SDL_KEYDOWN:
-                switch (event.key.keysym.scancode) {
-                    case SDL_SCANCODE_ESCAPE:
-                        destroyWindow(window);
-                        mWindows.erase(it);
-
-                    default: break;
-                }
-                mKeys[mKeyMap.at(event.key.keysym.scancode)].vector = {0, 0, 1};
+            case SDL_KEYDOWN: {
+                TprInputElement element = mKeyMap.at(event.key.keysym.scancode);
+                TprInputElementVector& elementVector = window->elements[element];
+                elementVector = {0, 0, 1};
+                updateWindowActions(*window, element, elementVector);
                 break;
+            }
 
-            case SDL_KEYUP:
-                mKeys[mKeyMap.at(event.key.keysym.scancode)].vector = {0, 0, 0};
+            case SDL_KEYUP: {
+                TprInputElement element = mKeyMap.at(event.key.keysym.scancode);
+                TprInputElementVector& elementVector = window->elements[element];
+                elementVector = {0, 0, 0};
+                updateWindowActions(*window, element, elementVector);
                 break;
+            }
+
+            case SDL_MOUSEBUTTONDOWN: {
+                TprInputElement element = mMouseButtonMap.at(event.button.button);
+                TprInputElementVector& elementVector = window->elements[element];
+                elementVector = {0, 0, 1};
+                updateWindowActions(*window, element, elementVector);
+                break;
+            }
+
+            case SDL_MOUSEBUTTONUP: {
+                TprInputElement element = mMouseButtonMap.at(event.button.button);
+                TprInputElementVector& elementVector = window->elements[element];
+                elementVector = {0, 0, 0};
+                updateWindowActions(*window, element, elementVector);
+                break;
+            }
+
+            case SDL_MOUSEWHEEL: {
+                TprInputElement element = event.wheel.y > 0 ? TPR_MOUSE_WHEEL_UP : TPR_MOUSE_WHEEL_DOWN;
+                TprInputElementVector& elementVector = window->elements[element];
+                elementVector = {static_cast<float>(event.wheel.x), static_cast<float>(event.wheel.y), 0};
+                updateWindowActions(*window, element, elementVector);
+                break;
+            }
+
+            case SDL_MOUSEMOTION: {
+                TprInputElement element = TPR_MOUSE_MOTION;
+                TprInputElementVector& elementVector = window->elements[element];
+                elementVector = {static_cast<float>(event.motion.xrel), static_cast<float>(event.motion.yrel), 0};
+                updateWindowActions(*window, element, elementVector);
+                break;
+            }
 
             case SDL_WINDOWEVENT:
                 switch (event.window.event) {
                     case SDL_WINDOWEVENT_RESIZED:
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
-                        window.resized = true;
+                        window->resized = true;
                         break;
 
                     case SDL_WINDOWEVENT_CLOSE:
-                        destroyWindow(window);
-                        mWindows.erase(it);
+                        if (window != &mSentinelWindow) {
+                            destroyWindow(*window);
+                            mWindows.erase(it);
+                        }
                         break;
 
                     default: break;
@@ -409,48 +478,63 @@ expected<TprBool8, TprResult> WindowManager::hasWindowResized(TprWindow handle) 
 }
 
 
-expected<TprAction, TprResult> WindowManager::createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo) noexcept {
+expected<TprAction, TprResult> WindowManager::createAction(TprWindow windowHandle, const TprActionCreateInfo* pCreateInfo) noexcept {
 
     if (!pCreateInfo) return unexpected(TPR_INVALID_VALUE);
 
+    if (get_basic_handle_type(windowHandle) != handle_type::window) return unexpected(TPR_INVALID_VALUE);
+    auto it = mWindows.find(get_basic_handle_index(windowHandle));
+    if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
+    Window& window = it->second;
+
     uint32_t index = mActionCounter++;
     Action action{};
-    TprAction handle;
+    TprAction actionHandle;
 
     action.element = pCreateInfo->element;
     action.highThreshold = pCreateInfo->highThreshold;
     action.lowThreshold = pCreateInfo->lowThreshold;
+    action.windowIndex = window.index;
 
-    handle = construct_basic_handle<TprAction>(index, 0, handle_type::action);
+    actionHandle = construct_basic_handle<TprAction>(index, 0, handle_type::action);
 
-    mActions.emplace(index, action);
+    window.actions.emplace(index, action);
+    mActionMap.emplace(index, get_basic_handle_index(windowHandle));
     
-    return handle;
+    return actionHandle;
 }
 
 
 void WindowManager::destroyAction(TprAction handle) noexcept {
     if (get_basic_handle_type(handle) != handle_type::action) return;
-    auto it = mActions.find(get_basic_handle_index(handle));
-    if (it == mActions.end()) return;
-    mActions.erase(it);
+    auto it = mActionMap.find(get_basic_handle_index(handle));
+    if (it == mActionMap.end()) return;
+    mWindows.at(it->second).actions.erase(get_basic_handle_index(handle));
+    mActionMap.erase(it);
 }
 
 
-TprResult WindowManager::getActionState(TprAction action, TprActionState* pState) noexcept {
-
+TprResult WindowManager::getActionState(TprAction handle, TprActionState* pState) noexcept {
+    if (!pState) return TPR_INVALID_VALUE;
+    if (get_basic_handle_type(handle) != handle_type::action) return TPR_INVALID_VALUE;
+    auto it = mActionMap.find(get_basic_handle_index(handle));
+    if (it == mActionMap.end()) return TPR_INVALID_VALUE;
+    Window& window = mWindows.at(it->second);
+    Action& action = window.actions.at(get_basic_handle_index(handle));
+    pState->vector = window.elements[action.element];
+    pState->framesActive = action.frames;
+    pState->state = action.state;
     return TPR_SUCCESS;
 }
 
 
-TprResult WindowManager::getInputElementVector(TprInputElement inputElement, TprInputElementVector* pVector) noexcept {
-
+TprResult WindowManager::getInputElementVector(TprWindow handle, TprInputElement inputElement, TprInputElementVector* pVector) noexcept {
     if (!pVector) return TPR_INVALID_VALUE;
-
-    if (inputElement >= KEYS_START && inputElement < KEYS_START + KEYS_COUNT) {
-        *pVector = mKeys[inputElement - KEYS_START].vector;
-    }
-
+    if (get_basic_handle_type(handle) != handle_type::window) return TPR_INVALID_VALUE;
+    auto windowIt = mWindows.find(get_basic_handle_index(handle));
+    if (windowIt == mWindows.end()) return TPR_INVALID_VALUE;
+    Window& window = windowIt->second;
+    *pVector = window.elements[inputElement];
     return TPR_SUCCESS;
 }
 

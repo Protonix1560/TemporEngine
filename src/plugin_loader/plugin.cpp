@@ -34,6 +34,7 @@ TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
         int32_t initRet = mCallbacks.init(&mCtx, pLoadInfo->pAPI);
         if (initRet < 0) {
             mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLd() << "init callback of " << mName << " returned negative exit code [" << initRet << "]\n";
+            return TPR_USER_CODE_ERROR;
         }
         mrLogger.trace() << logPrxPlLd() << "init callback of " << mName << " returned non-negative exit code [" << initRet << "]\n";
     }

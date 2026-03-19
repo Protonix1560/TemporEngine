@@ -192,7 +192,7 @@ int TemporEngine::run() {
 
     mClock.begin();
 
-    mAliveTokens++;
+    // mAliveTokens++;
 
     while (mAliveTokens > 0 && !mMustShutdown) {
 

@@ -52,31 +52,37 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 
-HardwareLayerVulkan::HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg) : mrLogger(rLogger), mrResReg(rResReg) {
+HardwareLayerVulkan::HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg) : mrLogger(rLogger), mrResReg(rResReg) {}
+
+
+TprResult HardwareLayerVulkan::init(
+    WindowManager* pWinMan, uint8_t engineVersionVariant, uint8_t engineVersionMajor,
+    uint8_t engineVersionMinor, uint8_t engineVersionPatch
+) {
+
+    VkResult result;
+    mpWinMan = pWinMan;
     mMaxFramesInFlight = 3;
 
     SYM_LOAD_PFN(mSym, vkEnumerateInstanceVersion, nullptr);
+    SYM_LOAD_PFN(mSym, vkEnumerateInstanceLayerProperties, nullptr);
 
     if (mSym.vkEnumerateInstanceVersion) {
-        VkResult r = mSym.vkEnumerateInstanceVersion(&mApiVer);
-        if (r != VK_SUCCESS) throw std::runtime_error(logPrxPHWL() + "vkEnumerateInstanceVersion failed")
+        result = mSym.vkEnumerateInstanceVersion(&mApiVer);
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << result << "]\n";
+            return TPR_UNKNOWN_ERROR;
+        }
     } else {
         mApiVer = VK_API_VERSION_1_0;
     }
-
-}
-
-
-void HardwareLayerVulkan::init(WindowManager* pWinMan) {
-
-    mpWinMan = pWinMan;
 
     // instance
     {
         VkApplicationInfo appInfo{};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         appInfo.applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
-        appInfo.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
+        appInfo.engineVersion = VK_MAKE_API_VERSION(engineVersionVariant, engineVersionMajor,engineVersionMinor, engineVersionPatch);
         appInfo.apiVersion = mApiVer;
         appInfo.pEngineName = "Tempor Engine";
         appInfo.pApplicationName = "";
@@ -88,9 +94,13 @@ void HardwareLayerVulkan::init(WindowManager* pWinMan) {
         layers.push_back("VK_LAYER_KHRONOS_validation");
 
         uint32_t layerCount;
-        TOF(vkEnumerateInstanceLayerProperties(&layerCount, nullptr));
+        result = mSym.vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << result << "]\n";
+            return TPR_UNKNOWN_ERROR;
+        }
         std::vector<VkLayerProperties> layerProps(layerCount);
-        TOF(vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data()));
+        TOF(mSym.vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data()));
         for (const auto& layer : layers) {
             bool supported = false;
             for (const auto& prop : layerProps) {
@@ -99,32 +109,35 @@ void HardwareLayerVulkan::init(WindowManager* pWinMan) {
                     break;
                 }
             }
-            if (!supported) throw Exception(ErrCode::NoSupportError, "No support for crucial vulkan instance layer: "s + layer);
+            if (!supported) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "layer " << layer << " is not supported" << "\n";
+                return TPR_UNKNOWN_ERROR;
+            }
         }
 
-        TprWindow tmpHandle;
+        TprWindow tmpWindow;
         TprWindowCreateInfo tmpWindowCreateInfo{};
         tmpWindowCreateInfo.name = "tmp tempor window";
         tmpWindowCreateInfo.prefferedWidth = 0;
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
-        mrLogger.debug() << logPrxPHWL() + "Opening a hidden temporary window\n";
+        mrLogger.trace() << logPrxPHWL() << "Opening a hidden temporary window\n";
         auto exp = mpWinMan->openWindow(&tmpWindowCreateInfo);
         if (!exp.has_value()) {
-            throw Exception(ErrCode::InternalError, logPrxPHWL() + "Failed to open tmp window");
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Failed to open temporary window\n";
+            return exp.error();
         }
-        tmpHandle = exp.value();
+        tmpWindow = exp.value();
 
-        mrLogger.trace() << logPrxPHWL() + "Getting Vulkan Instance extension list\n";
+        mrLogger.trace() << logPrxPHWL() << "Getting Vulkan Instance extension list\n";
         // extensions
-        std::vector<const char*> extensions = mpWinMan->getExtensionsVk(tmpHandle);
-        mInstanceExtensions.clear();
+        std::vector<const char*> extensions = mpWinMan->getExtensionsVk(tmpWindow);
         mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
         
         // TODO: settings registry!
         extensions.push_back("VK_EXT_debug_utils");
 
-        mpWinMan->closeWindow(tmpHandle);
+        mpWinMan->closeWindow(tmpWindow);
 
         uint32_t extCount;
         TOF(vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr));
@@ -628,6 +641,9 @@ void RenderPass::destroy() noexcept {
 
 
 TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
+
+    // mInstance is null only when a temporary window is created in ::init
+
     if (mInstance != VK_NULL_HANDLE) {
         try {
 

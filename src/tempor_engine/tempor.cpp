@@ -125,7 +125,11 @@ int TemporEngine::init() {
             // 2. creating HWLI independently
             HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(*mpLogger, *mpResReg)).get();
 
-            // 3. passing 
+            // 3. passing pointer to HWLI to window manager
+            localWinMan->setHWLI(localHWLI);
+
+            // 4. HWLI init
+            localHWLI->init(localWinMan, 0, 1, 0, 0);
 
             mpWinMan = localWinMan;
             mpHWLI = localHWLI;
@@ -142,6 +146,8 @@ int TemporEngine::init() {
         }
 
     }
+
+    constexpr auto i = logPrxPHWL() + "Hello!";
 
     if (!mpHWLI) {
         mpLogger->warn(TPR_LOG_STYLE_WARN1) << "Failed to initialize any hardware layer. Continuing without it\n";

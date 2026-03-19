@@ -308,6 +308,8 @@ struct WindowContext {
 
 struct VulkanSymbols {
     SYM_FIELD(vkEnumerateInstanceVersion);
+    SYM_FIELD(vkEnumerateInstanceLayerProperties);
+    SYM_FIELD(vkEnumerateInstanceExtensionProperties);
 };
 
 
@@ -316,7 +318,10 @@ class HardwareLayerVulkan : public HardwareLayer {
     public:
 
         HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg);
-        void init(WindowManager* pWinMan) override;
+        TprResult init(
+            WindowManager* pWinMan, uint8_t engineVersionVariant, uint8_t engineVersionMajor,
+            uint8_t engineVersionMinor, uint8_t engineVersionPatch
+        ) override;
 
         ~HardwareLayerVulkan() noexcept;
 

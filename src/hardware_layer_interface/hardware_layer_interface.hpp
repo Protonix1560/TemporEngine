@@ -30,7 +30,10 @@ class HardwareLayer {
 
     public:
 
-        virtual void init(WindowManager* pWinMan) = 0;
+        virtual TprResult init(
+            WindowManager* pWinMan, uint8_t engineVersionVariant, uint8_t engineVersionMajor,
+            uint8_t engineVersionMinor, uint8_t engineVersionPatch
+        ) = 0;
 
         virtual ~HardwareLayer() noexcept = default;
 
@@ -56,8 +59,8 @@ REGISTER_TYPE_NAME_S(HardwareLayer, "HWLI");
 
 template <>
 struct type_name<std::unique_ptr<HardwareLayer>> {
-    static constexpr comptime_string<sizeof("PHardwareLayer")> value{"PHardwareLayer"};
-    static constexpr comptime_string<sizeof("PHWL")> value_short{"PHWL"};
+    static constexpr consteval_string<sizeof("PHardwareLayer")> value{"PHardwareLayer"};
+    static constexpr consteval_string<sizeof("PHWL")> value_short{"PHWL"};
 };
 
 

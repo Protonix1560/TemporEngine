@@ -12,6 +12,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <format>
+#include <array>
 
 #ifdef HAVE_UNISTD_H
     #include "unistd.h"
@@ -65,75 +67,129 @@ template <typename> inline constexpr bool dependent_false_v = false;
 
 // recursive constexpr byte-by-byte copy function
 
-template <size_t I, size_t N, size_t O = 0UL>
-constexpr void constexpr_copy(const char* strsrc, char* strdst) {
-    static_assert(O <= I, "constexpr_copy: O > I");
-    if constexpr (I < N) {
-        strdst[I] = strsrc[I - O];
-        constexpr_copy<I + 1, N, O>(strsrc, strdst);
-    }
-}
+// template <size_t I, size_t N, size_t O = 0UL>
+// consteval void consteval_copy(const char* strsrc, char* strdst) {
+//     static_assert(O <= I, "consteval_copy: O > I");
+//     if constexpr (I < N) {
+//         strdst[I] = strsrc[I - O];
+//         consteval_copy<I + 1, N, O>(strsrc, strdst);
+//     }
+// }
 
 
 
-// comptime string
+// converter from something to string
+
+template <typename T, typename Enable = void>
+class string_converter {
+    public:
+        static constexpr bool is_convertable() { return false; };
+        static std::string convert(const T& value) { static_assert(false, "string_converter: not convertable"); return {}; }
+};
+
+template <>
+class string_converter<const char*> {
+    public:
+        static constexpr bool is_convertable() { return true; };
+        static std::string convert(const char* value) { return std::string(value); }
+};
+
+template <typename T>
+class string_converter<T, typename std::enable_if_t<std::is_integral_v<T>>> {
+    public:
+        static constexpr bool is_convertable() { return true; };
+        static std::string convert(T value) { return std::to_string(value); }
+};
+
+template <typename T>
+class string_converter<T, typename std::enable_if_t<std::is_integral_v<std::underlying_type_t<T>>>> {
+    public:
+        static constexpr bool is_convertable() { return true; };
+        static std::string convert(T value) { return std::to_string(static_cast<std::underlying_type_t<T>>(value)); }
+};
+
+
+
+// consteval string
 // a string type that supports compile-time operations and that doesn't allocate any memory
 
 template <size_t N>
-class comptime_string {
+class consteval_string {
 
     public:
 
-        constexpr comptime_string() : m_str{} {}
+        consteval consteval_string() : m_str{} {}
 
-        constexpr comptime_string(const char (&str)[N]) : m_str{} {
-            constexpr_copy<0, N>(str, m_str);
+        consteval consteval_string(const char (&str)[N]) : m_str{} {
+            for (size_t i = 0; i < N; i++) {
+                m_str[i] = str[i];
+            }
         }
 
         template <size_t M>
-        constexpr comptime_string<N + M - 1UL> operator+(const comptime_string<M>& other) const {
-            comptime_string<N + M - 1UL> concat{};
-            constexpr_copy<0, N - 1>(c_str(), concat.m_str);
-            constexpr_copy<N - 1, M + N - 1, N - 1>(other.m_str, concat.m_str);
+        consteval consteval_string<N + M - 1UL> operator+(const consteval_string<M>& other) const {
+            consteval_string<N + M - 1UL> concat{};
+            for (size_t i = 0; i < N - 1; i++) {
+                concat.m_str[i] = m_str[i];
+            }
+            for (size_t i = 0; i < M - 1; i++) {
+                concat.m_str[i + N - 1] = other.m_str[i];
+            }
+            // concat[N + M - 1] = '\0';  // concat is already nulled-out
             return concat;
         }
 
         template <size_t M>
-        constexpr comptime_string<N + M - 1UL> operator+(const char (&str)[M]) const {
-            return *this + comptime_string<M>(str);
+        consteval consteval_string<N + M - 1UL> operator+(const char (&str)[M]) const {
+            return this->operator+(consteval_string<M>(str));
         }
 
-        constexpr char& operator[](size_t index) { return index < N ? m_str[index] : throw "expr_string: Index out of range"; }
-        constexpr const char& operator[](size_t index) const { return index < N ? m_str[index] : throw "expr_string: Index out of range"; }
-        constexpr const char* c_str() const { return m_str; }
-        constexpr operator const char*() const { return m_str; }
-
-        std::string string() const { return std::string(m_str); }
-
-        template <typename T, typename = std::enable_if_t<!std::is_array_v<T> && std::is_constructible_v<std::string, T>>>
-        std::string operator+(T str) const {
-            return string() + std::string(str);
+        consteval char& operator[](size_t index) {
+            if (index >= N) throw "consteval_string: Index out of range";
+            return m_str[index];
         }
+        consteval const char& operator[](size_t index) const {
+            if (index >= N) throw "consteval_string: Index out of range";
+            return m_str[index];
+        }
+        
+        constexpr const char* c_str() const { return m_str.data(); }
+        constexpr operator const char*() const { return m_str.data(); }
+
+        std::string string() const { return std::string(m_str.data()); }
 
         std::string operator+(std::string str) const { return string() + str; }
 
         template <size_t C>
-        constexpr comptime_string<C + 1UL> clamped() const {
-            comptime_string<C + 1UL> clamped{};
-            constexpr_copy<0, C>(m_str, clamped.m_str);
+        requires (C < N)
+        consteval consteval_string<C + 1UL> clamped() const {
+            consteval_string<C + 1UL> clamped{};
+            for (size_t i = 0; i < C; i++) {
+                clamped.m_str[i] = m_str[i];
+            }
             clamped.m_str[C] = '\0';
             return clamped;
         }
+
+        consteval std::string_view view() const {
+            return std::string_view(m_str, N - 1);
+        }
+
+        template <typename... Args>
+        std::string format(Args&&... args) const {
+            constexpr auto str = m_str;
+            return std::format(str.data(), std::forward<Args>(args)...);
+        }
         
     private:
-        char m_str[N];
-        template <size_t> friend class comptime_string;
+        std::array<char, N> m_str;
+        template <size_t> friend class consteval_string;
     
 };
 
 template <size_t N, size_t M>
-constexpr auto operator+(const char (&conststr)[N], const comptime_string<M>& constexprstr) {
-    return comptime_string<N>(conststr) + constexprstr;
+consteval auto operator+(const char (&const_str)[N], const consteval_string<M>& comptime_str) {
+    return consteval_string<N>(const_str) + comptime_str;
 }
 
 
@@ -145,24 +201,24 @@ constexpr auto operator+(const char (&conststr)[N], const comptime_string<M>& co
 #define TYPE_NAME_UNKNOWN_SHORT "UNKN"
 
 template <typename T> struct type_name {
-    static constexpr comptime_string<sizeof(TYPE_NAME_UNKNOWN)> value = {TYPE_NAME_UNKNOWN};
-    static constexpr comptime_string<sizeof(TYPE_NAME_UNKNOWN_SHORT)> value_short = {TYPE_NAME_UNKNOWN_SHORT};
+    static constexpr consteval_string<sizeof(TYPE_NAME_UNKNOWN)> value{TYPE_NAME_UNKNOWN};
+    static constexpr consteval_string<sizeof(TYPE_NAME_UNKNOWN_SHORT)> value_short{TYPE_NAME_UNKNOWN_SHORT};
 };
 
 #define REGISTER_TYPE_NAME(T)                                                                                 \
     template <>                                                                                               \
     struct type_name<T> {                                                                                     \
         public:                                                                                               \
-            static constexpr comptime_string<sizeof(#T)> value{#T};                                           \
-            static constexpr comptime_string<5> value_short{comptime_string<sizeof(#T)>(#T).clamped<4>()};    \
+            static constexpr consteval_string<sizeof(#T)> value{#T};                                          \
+            static constexpr consteval_string<5> value_short{consteval_string<sizeof(#T)>(#T).clamped<4>()};  \
     };
 
 #define REGISTER_TYPE_NAME_S(T, S)                                                                            \
     template <>                                                                                               \
     struct type_name<T> {                                                                                     \
         public:                                                                                               \
-            static constexpr comptime_string<sizeof(#T)> value{#T};                                           \
-            static constexpr comptime_string<sizeof(S)> value_short{S};                                       \
+            static constexpr consteval_string<sizeof(#T)> value{#T};                                          \
+            static constexpr consteval_string<sizeof(S)> value_short{S};                                      \
     };
 
 template <typename T>
@@ -295,85 +351,53 @@ inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, h
 
 // log names
 
-constexpr auto logPHWLName() {
+consteval auto logPHWLName() {
     const char name[] = "PHWL";
-    return comptime_string<std::size(name)>(name);
+    return consteval_string<std::size(name)>(name);
 }
-constexpr auto logPrxPHWL() {
+consteval auto logPrxPHWL() {
     return logPHWLName() + ": ";
 }
 
-constexpr auto logHWMOName() {
+consteval auto logHWMOName() {
     const char name[] = "HWMO";
-    return comptime_string<std::size(name)>(name);
+    return consteval_string<std::size(name)>(name);
 }
-constexpr auto logPrxHWMO() {
+consteval auto logPrxHWMO() {
     return logHWMOName() + ": ";
 }
 
-constexpr auto logRRegName() {
+consteval auto logRRegName() {
     const char name[] = "RReg";
-    return comptime_string<std::size(name)>(name);
+    return consteval_string<std::size(name)>(name);
 }
-constexpr auto logPrxRReg() {
+consteval auto logPrxRReg() {
     return logRRegName() + ": ";
 }
 
-constexpr auto logPlLdName() {
+consteval auto logPlLdName() {
     const char name[] = "PlLd";
-    return comptime_string<std::size(name)>(name);
+    return consteval_string<std::size(name)>(name);
 }
-constexpr auto logPrxPlLd() {
+consteval auto logPrxPlLd() {
     return logPlLdName() + ": ";
 }
 
-constexpr auto logAStrName() {
+consteval auto logAStrName() {
     const char name[] = "AStr";
-    return comptime_string<std::size(name)>(name);
+    return consteval_string<std::size(name)>(name);
 }
-constexpr auto logPrxAStr() {
+consteval auto logPrxAStr() {
     return logAStrName() + ": ";
 }
 
-constexpr auto logWinMName() {
+consteval auto logWinMName() {
     const char name[] = "WinM";
-    return comptime_string<std::size(name)>(name);
+    return consteval_string<std::size(name)>(name);
 }
-constexpr auto logPrxWinM() {
+consteval auto logPrxWinM() {
     return logWinMName() + ": ";
 }
-
-
-
-// converter from something to string
-
-template <typename T, typename Enable = void>
-class string_converter {
-    public:
-        static constexpr bool is_convertable() { return false; };
-        static std::string convert(const T& value) { static_assert(false, "string_converter: not convertable"); return {}; }
-};
-
-template <>
-class string_converter<const char*> {
-    public:
-        static constexpr bool is_convertable() { return true; };
-        static std::string convert(const char* value) { return std::string(value); }
-};
-
-template <typename T>
-class string_converter<T, typename std::enable_if_t<std::is_integral_v<T>>> {
-    public:
-        static constexpr bool is_convertable() { return true; };
-        static std::string convert(T value) { return std::to_string(value); }
-};
-
-template <typename T>
-class string_converter<T, typename std::enable_if_t<std::is_integral_v<std::underlying_type_t<T>>>> {
-    public:
-        static constexpr bool is_convertable() { return true; };
-        static std::string convert(T value) { return std::to_string(static_cast<std::underlying_type_t<T>>(value)); }
-};
 
 
 
@@ -598,7 +622,7 @@ struct Exception : public std::exception {
             : errCode(c), message(std::move(msg)) {}
 
         template <size_t N>
-        explicit Exception(ErrCode c, comptime_string<N> msg = {})
+        explicit Exception(ErrCode c, consteval_string<N> msg = {})
             : errCode(c), message(msg) {}
 
         const char* what() const noexcept override {

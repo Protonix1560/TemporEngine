@@ -5,7 +5,7 @@ project(tempor LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(WANT_DEBUG_ASAN "Enable ASan" OFF)
+option(WANT_DEBUG_ASAN "Enable ASan" ON)
 option(WANT_DEBUG_LSAN "Enable LSan" OFF)
 option(WANT_DEBUG_TSAN "Enable TSan" OFF)
 option(WANT_DEBUG_MSAN "Enable MSan" OFF)

@@ -244,7 +244,8 @@ enum class handle_type : uint8_t {
     undefined = 0,
     window = 1,
     resource = 2,
-    asset = 3
+    asset = 3,
+    action = 4
 };
 
 

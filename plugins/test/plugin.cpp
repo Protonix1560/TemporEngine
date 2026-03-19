@@ -1,7 +1,9 @@
 
 #include "plugin.h"
+#include "plugin_core.h"
 
 #include <string>  // IWYU pragma: keep
+#include <vulkan/vulkan_core.h>
 
 
 using namespace std::string_literals;
@@ -10,7 +12,7 @@ using namespace std::string_literals;
 
 #define ROF(__expr) do {            \
     auto __r = (__expr);            \
-    if (__r < 0) return -1;         \
+    if (__r < 0) return __r;         \
 } while (0)
 
 
@@ -20,6 +22,8 @@ class Plugin {
     public:
         const TprEngineAPI* api;
         TprWindow window;
+        TprAction quitAction;
+        TprAction mouseAction;
         TprEntity entity;
         TprAsset model;
 };
@@ -43,11 +47,23 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entA));
     // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entB));
 
-    // TprWindowCreateInfo windowCreateInfo{};
-    // windowCreateInfo.name = "Tempor Testing Initiative";
-    // windowCreateInfo.prefferedHeight = 800;
-    // windowCreateInfo.prefferedWidth = 800;
-    // ROF(plugin->api->wm.openWindow(&plugin->window, &windowCreateInfo));
+    TprWindowCreateInfo windowCreateInfo{};
+    windowCreateInfo.name = "Tempor Testing Initiative";
+    windowCreateInfo.prefferedWidth = 1300;
+    windowCreateInfo.prefferedHeight = 800;
+    ROF(plugin->api->wm->openWindow(&windowCreateInfo, &plugin->window));
+
+    TprActionCreateInfo quitActionInfo{};
+    quitActionInfo.element = TPR_KEY_ESCAPE;
+    quitActionInfo.lowThreshold = 0.3f;
+    quitActionInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &quitActionInfo, &plugin->quitAction));
+
+    TprActionCreateInfo mouseActionInfo{};
+    mouseActionInfo.element = TPR_MOUSE_WHEEL_DOWN;
+    mouseActionInfo.lowThreshold = 0.3f;
+    mouseActionInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &mouseActionInfo, &plugin->mouseAction));
 
     /*
 
@@ -119,7 +135,29 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
 void pluginShutdown(void* ctx) noexcept {
     Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
     plugin->api->log->info("TEST PLUGIN SHUTDOWN\n");
+    plugin->api->input->destroyAction(plugin->quitAction);
+    plugin->api->wm->closeWindow(plugin->window);
     delete plugin;
+}
+
+
+
+int32_t updatePerFrame(void* ctx) noexcept {
+    Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
+
+    TprActionState quitActionState;
+    ROF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
+    if (quitActionState.state) {
+        plugin->api->wm->closeWindow(plugin->window);
+    }
+
+    TprActionState mouseActionState;
+    ROF(plugin->api->input->getActionState(plugin->mouseAction, &mouseActionState));
+    if (mouseActionState.state) {
+        plugin->api->log->info((std::to_string(mouseActionState.framesActive) + ": " + std::to_string(mouseActionState.vector.x) + ", " + std::to_string(mouseActionState.vector.y) + "\n").c_str());
+    }
+
+    return 0;
 }
 
 
@@ -128,6 +166,7 @@ int32_t getPluginCallbacks(TprPluginCallbacks *pCallbacks) noexcept {
 
     pCallbacks->init = init;
     pCallbacks->shutdown = pluginShutdown;
+    pCallbacks->updatePerFrame = updatePerFrame;
 
     return 0;
 }

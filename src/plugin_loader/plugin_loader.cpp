@@ -9,7 +9,7 @@
 
 
 
-PluginLoader::PluginLoader(Logger& rLogger) : mrLogger(rLogger) {}
+PluginLoader::PluginLoader(Logger& rLogger, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrAliveTokens(rAliveTokens) {}
 
 PluginLoader::~PluginLoader() noexcept {}
 
@@ -21,14 +21,19 @@ TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
 
     switch (pLoadInfo->loadType) {
         case PluginLoadType::InThread: {
-            pPlugin = mPlugins.emplace_back(std::make_unique<PluginInThread>(mrLogger)).get();
+            pPlugin = mPlugins.emplace_back(std::make_unique<PluginInThread>(mrLogger, mrAliveTokens)).get();
             break;
         }
 
         default: return TPR_UNKNOWN_ERROR;
     }
 
-    pPlugin->init(pLoadInfo);
+    TprResult initRes = pPlugin->init(pLoadInfo);
+    if (initRes < 0) {
+        pPlugin->shutdown();
+        mPlugins.pop_back();
+        return initRes;
+    }
 
     return TPR_SUCCESS;
 }
@@ -52,6 +57,12 @@ expected<std::vector<TprResult>, TprResult> PluginLoader::triggerCallback(Plugin
                 plugin->shutdown();
                 returns.push_back(TPR_SUCCESS);
                 break;
+
+            case PluginCallback::UpdatePerFrame: {
+                int32_t ret = plugin->updatePerFrame();
+                returns.push_back(ret > 0 ? TPR_SUCCESS : TPR_USER_CODE_ERROR);
+                break;
+            }
 
             default:
                 return unexpected(TPR_INVALID_VALUE);

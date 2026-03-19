@@ -8,10 +8,12 @@
 #include <cstdint>
 
 
-PluginInThread::PluginInThread(Logger& rLogger) : mrLogger(rLogger) {}
+PluginInThread::PluginInThread(Logger& rLogger, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrAliveTokens(rAliveTokens) {}
 
 
 TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
+
+    mrAliveTokens++;
 
     mrLogger.debug() << logPrxPlLd() << "Loading plugin \"" << pLoadInfo->path.string() << "\" in-thread aliased as " << pLoadInfo->name << "\n";
 
@@ -32,11 +34,14 @@ TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
         int32_t initRet = mCallbacks.init(&mCtx, pLoadInfo->pAPI);
         if (initRet < 0) {
             mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLd() << "init callback of " << mName << " returned negative exit code [" << initRet << "]\n";
+            return TPR_USER_CODE_ERROR;
         }
         mrLogger.trace() << logPrxPlLd() << "init callback of " << mName << " returned non-negative exit code [" << initRet << "]\n";
     }
 
     mrLogger.debug() << logPrxPlLd() << "Loaded plugin " << mName << "\n";
+
+    mrAliveTokens--;
 
     return TPR_SUCCESS;
 }
@@ -50,5 +55,11 @@ void PluginInThread::preShutdown() noexcept {
 void PluginInThread::shutdown() noexcept {
     if (mCallbacks.shutdown) mCallbacks.shutdown(mCtx);
     mPluginLib.close();
+}
+
+
+int32_t PluginInThread::updatePerFrame() noexcept {
+    if (mCallbacks.updatePerFrame) return mCallbacks.updatePerFrame(mCtx);
+    return 0;
 }
 

@@ -17,14 +17,15 @@ void Swapchain::construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSu
     mDevice = device;
     mSurface = surface;
 
+    gGetServiceLocator()->get<Logger>() << "RESIZED SWAPCHAIN\n";
+
     {
         VkSurfaceCapabilitiesKHR surfaceCaps;
         TOF(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCaps));
 
         if (surfaceCaps.currentExtent.width == UINT32_MAX && surfaceCaps.currentExtent.height == UINT32_MAX) {
-            int32_t width, height;
-            gGetServiceLocator()->get<WindowManager>().getWindowWidth(handle, &width);
-            gGetServiceLocator()->get<WindowManager>().getWindowHeight(handle, &height);
+            int32_t width = gGetServiceLocator()->get<WindowManager>().getWindowWidth(handle).value();
+            int32_t height = gGetServiceLocator()->get<WindowManager>().getWindowHeight(handle).value();
             mExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
             mExtent.width = std::clamp(
                 mExtent.width,

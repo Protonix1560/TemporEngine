@@ -6,26 +6,36 @@
 
 
 #include "core.hpp"
+#include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "hardware_common_structs.hpp"
 #include "logger.hpp"
 
+#include <SDL2/SDL_events.h>
+#include <SDL2/SDL_keycode.h>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
 
 
 
+// from "hardware_layer_interface.hpp"
+class HardwareLayer;
+
+
+
 class WindowManager {
 
     public:
-        WindowManager(GraphicsBackend graphicsBackend, Logger& logger);
+        WindowManager(GraphicsBackend graphicsBackend, Logger& logger, std::atomic<int32_t>& rAliveTokens);
         ~WindowManager() noexcept;
+        WindowManager(const WindowManager& other) = delete;
         void update();
+        void setHWLI(HardwareLayer* pHWLI);
 
-        bool lost() const;
         std::vector<TprWindow> getWindows();
 
         // vulkan-specific functional
@@ -33,32 +43,57 @@ class WindowManager {
         VkSurfaceKHR createSurfaceVk(TprWindow handle, VkInstance instance) const;
 
         // plugin API
-        TprResult openWindow(TprWindow* pHandle, const TprWindowCreateInfo* createInfo) noexcept;
-        void closeWindow(TprWindow handle) noexcept;
-        TprResult getWindowWidth(TprWindow handle, int32_t* pWidth) noexcept;
-        TprResult getWindowHeight(TprWindow handle, int32_t* pHeight) noexcept;
-        TprResult hasWindowResized(TprWindow handle, TprBool8* pValue) noexcept;
+        expected<TprWindow, TprResult> openWindow(const TprWindowCreateInfo* pCreateInfo) noexcept;
+        void closeWindow(TprWindow window) noexcept;
+        expected<int32_t, TprResult> getWindowWidth(TprWindow window) noexcept;
+        expected<int32_t, TprResult> getWindowHeight(TprWindow window) noexcept;
+        expected<TprBool8, TprResult> hasWindowResized(TprWindow window) noexcept;
+
+        expected<TprAction, TprResult> createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo) noexcept;
+        void destroyAction(TprAction action) noexcept;
+        TprResult getActionState(TprAction action, TprActionState* pState) noexcept;
+        TprResult getInputElementVector(TprWindow window, TprInputElement inputElement, TprInputElementVector* pVector) noexcept;
 
     private:
 
-        Logger& mrLogger;
+        struct Action {
+            TprInputElement element;
+            float highThreshold;
+            float lowThreshold;
+            uint32_t windowIndex;
+            TprBool8 state = false;
+            uint32_t frames = 0;
+        };
 
         struct Window {
             SDL_Window* window;
-            Uint32 id;
-            uint32_t generation;
-            bool actual = true;
-            Uint8 flags;
-            TprWindow handle;
             bool resized = false;
+            Uint32 id;
+            TprWindow handle;
+            uint32_t index;
+
+            std::unordered_map<TprInputElement, TprInputElementVector> elements;
+            std::unordered_map<uint32_t, Action> actions;
         };
 
+        Logger& mrLogger;
+        std::atomic<int32_t>& mrAliveTokens;
+        HardwareLayer* mpHWLI = nullptr;
+
         Uint32 mWindowFlags = 0;
-        uint32_t mActualWindowCount = 0;
-        bool mLost = false;
-        std::vector<Window> mWindows;
-        std::vector<size_t> mFreeWindows;
-        std::unordered_map<Uint32, size_t> mWindowIDToWindow;
+        uint32_t mWindowCounter = 0;
+        std::unordered_map<uint32_t, Window> mWindows;
+
+        Window mSentinelWindow;
+
+        uint32_t mActionCounter = 0;
+        std::unordered_map<uint32_t, uint32_t> mActionMap;
+
+        std::unordered_map<SDL_Scancode, TprInputElement> mKeyMap;
+        std::unordered_map<uint32_t, TprInputElement> mMouseButtonMap;
+
+        void destroyWindow(Window& window) noexcept;
+        void updateWindowActions(Window& window, TprInputElement element, const TprInputElementVector& vector);
 
 };
 

@@ -204,6 +204,52 @@ namespace {
 
         }
 
+        namespace input {
+            TprResult createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept { return std_handler([=]() {
+                WindowManager& win = g_engine->getWindowManager();
+                auto exp = win.createAction(window, pCreateInfo);
+                if (exp.has_value()) {
+                    *pAction = exp.value();
+                } else {
+                    return exp.error();
+                }
+                return TPR_SUCCESS;
+            })(); }
+
+            void destroyAction(TprAction action) noexcept { return std_handler([=]() {
+                WindowManager& win = g_engine->getWindowManager();
+                win.destroyAction(action);
+            })(); }
+
+            TprResult getActionState(TprAction action, TprActionState* pState) noexcept { return std_handler([=]() {
+                WindowManager& win = g_engine->getWindowManager();
+                return win.getActionState(action, pState);
+            })(); }
+
+            TprResult getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept { return std_handler([=]() {
+                WindowManager& win = g_engine->getWindowManager();
+                return win.getInputElementVector(window, element, pVector);
+            })(); }
+        }
+
+        namespace wm {
+            TprResult openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept { return std_handler([=]() {
+                WindowManager& win = g_engine->getWindowManager();
+                auto exp = win.openWindow(pCreateInfo);
+                if (exp.has_value()) {
+                    *pWindow = exp.value();
+                } else {
+                    return exp.error();
+                }
+                return TPR_SUCCESS;
+            })(); }
+
+            void closeWindow(TprWindow window) noexcept { return std_handler([=]() {
+                WindowManager& win = g_engine->getWindowManager();
+                win.closeWindow(window);
+            })(); }
+        }
+
     }
 
 }
@@ -263,6 +309,14 @@ int main(int argc, char* argv[]) {
     TprEngineAPI::Geo apiGeo;
     
     TprEngineAPI::WM apiWM;
+    apiWM.openWindow = api::wm::openWindow;
+    apiWM.closeWindow = api::wm::closeWindow;
+
+    TprEngineAPI::Input apiInput;
+    apiInput.getInputElementVector = api::input::getInputElementVector;
+    apiInput.createAction = api::input::createAction;
+    apiInput.destroyAction = api::input::destroyAction;
+    apiInput.getActionState = api::input::getActionState;
 
     TprEngineAPI api;
     api.log = &apiLog;
@@ -270,6 +324,7 @@ int main(int argc, char* argv[]) {
     api.vfs = &apiVFS;
     api.scene = &apiScene;
     api.geo = &apiGeo;
+    api.input = &apiInput;
 
     try {
 

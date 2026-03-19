@@ -81,6 +81,126 @@ typedef enum TprAssetType {
     TPR_ASSET_TYPE_MAX_ENUM = INT32_MAX
 } TprAssetType;
 
+typedef enum TprInputElement {
+    TPR_KEY_A = 1,
+    TPR_KEY_B = 2,
+    TPR_KEY_C = 3,
+    TPR_KEY_D = 4,
+    TPR_KEY_E = 5,
+    TPR_KEY_F = 6,
+    TPR_KEY_G = 7,
+    TPR_KEY_H = 8,
+    TPR_KEY_I = 9,
+    TPR_KEY_J = 10,
+    TPR_KEY_K = 11,
+    TPR_KEY_L = 12,
+    TPR_KEY_M = 13,
+    TPR_KEY_N = 14,
+    TPR_KEY_O = 15,
+    TPR_KEY_P = 16,
+    TPR_KEY_Q = 17,
+    TPR_KEY_R = 18,
+    TPR_KEY_S = 19,
+    TPR_KEY_T = 20,
+    TPR_KEY_U = 21,
+    TPR_KEY_V = 22,
+    TPR_KEY_W = 23,
+    TPR_KEY_X = 24,
+    TPR_KEY_Y = 25,
+    TPR_KEY_Z = 26,
+    TPR_KEY_1 = 27,
+    TPR_KEY_2 = 28,
+    TPR_KEY_3 = 29,
+    TPR_KEY_4 = 30,
+    TPR_KEY_5 = 31,
+    TPR_KEY_6 = 32,
+    TPR_KEY_7 = 33,
+    TPR_KEY_8 = 34,
+    TPR_KEY_9 = 35,
+    TPR_KEY_0 = 36,
+    TPR_KEY_MINUS = 37,
+    TPR_KEY_EQUAL = 38,
+    TPR_KEY_BACKSLASH = 39,
+    TPR_KEY_SLASH = 40,
+    TPR_KEY_BRACKET_LEFT = 41,
+    TPR_KEY_BRACKET_RIGHT = 42,
+    TPR_KEY_SEMICOLON = 43,
+    TPR_KEY_QUOTE = 44,
+    TPR_KEY_SPACE = 45,
+    TPR_KEY_LEFT_CTRL = 46,
+    TPR_KEY_LEFT_SHIFT = 47,
+    TPR_KEY_LEFT_SUPER = 48,
+    TPR_KEY_LEFT_ALT = 49,
+    TPR_KEY_TAB = 50,
+    TPR_KEY_CAPS_LOCK = 51,
+    TPR_KEY_TILDE = 52,
+    TPR_KEY_ESCAPE = 53,
+    TPR_KEY_F1 = 54,
+    TPR_KEY_F2 = 55,
+    TPR_KEY_F3 = 56,
+    TPR_KEY_F4 = 57,
+    TPR_KEY_F5 = 58,
+    TPR_KEY_F6 = 59,
+    TPR_KEY_F7 = 60,
+    TPR_KEY_F8 = 61,
+    TPR_KEY_F9 = 62,
+    TPR_KEY_F10 = 63,
+    TPR_KEY_F11 = 64,
+    TPR_KEY_F12 = 65,
+    TPR_KEY_RIGHT_CTRL = 66,
+    TPR_KEY_RIGHT_SHIFT = 67,
+    TPR_KEY_RIGHT_SUPER = 68,
+    TPR_KEY_RIGHT_ALT = 69,
+    TPR_KEY_ENTER = 70,
+    TPR_KEY_BACKSPACE = 71,
+    TPR_KEY_PRINT_SCREEN = 72,
+    TPR_KEY_SCROLL_LOCK = 73,
+    TPR_KEY_PAUSE_BREAK = 74,
+    TPR_KEY_INSERT = 75,
+    TPR_KEY_DELETE = 76,
+    TPR_KEY_END = 77,
+    TPR_KEY_HOME = 78,
+    TPR_KEY_PAGE_UP = 79,
+    TPR_KEY_PAGE_DOWN = 80,
+    TPR_KEY_ARROW_UP = 81,
+    TPR_KEY_ARROW_DOWN = 82,
+    TPR_KEY_ARROW_LEFT = 83,
+    TPR_KEY_ARROW_RIGHT = 84,
+    TPR_KEY_NUM_LOCK = 85,
+    TPR_KEY_NUMPAD_SLASH = 86,
+    TPR_KEY_NUMPAD_STAR = 87,
+    TPR_KEY_NUMPAD_MINUS = 88,
+    TPR_KEY_NUMPAD_PLUS = 89,
+    TPR_KEY_NUMPAD_EQUAL = 90,
+    TPR_KEY_NUMPAD_ENTER = 91,
+    TPR_KEY_NUMPAD_DOT = 92,
+    TPR_KEY_NUMPAD_0 = 93,
+    TPR_KEY_NUMPAD_1 = 94,
+    TPR_KEY_NUMPAD_2 = 95,
+    TPR_KEY_NUMPAD_3 = 96,
+    TPR_KEY_NUMPAD_4 = 97,
+    TPR_KEY_NUMPAD_5 = 98,
+    TPR_KEY_NUMPAD_6 = 99,
+    TPR_KEY_NUMPAD_7 = 100,
+    TPR_KEY_NUMPAD_8 = 101,
+    TPR_KEY_NUMPAD_9 = 102,
+    TPR_KEY_COMMA = 103,
+    TPR_KEY_DOT = 104,
+
+    TPR_MOUSE_BUTTON1 = 1001,
+    TPR_MOUSE_BUTTON2 = 1002,
+    TPR_MOUSE_BUTTON3 = 1003,
+    TPR_MOUSE_BUTTON4 = 1004,
+    TPR_MOUSE_BUTTON5 = 1005,
+
+    TPR_MOUSE_WHEEL_UP = 10001,
+    TPR_MOUSE_WHEEL_DOWN = 10002,
+
+    TPR_MOUSE_MOTION = 100000,
+
+    TPR_KEY_MAX_ENUM = INT32_MAX
+} TprInputElement;
+
 
 
 // flags
@@ -152,6 +272,7 @@ typedef struct TprOArrayEntityDrawDesc_T* TprOArrayEntityDrawDesc;
 typedef struct TprWindow { uint64_t _d; } TprWindow;
 typedef struct TprResource { uint64_t _d; } TprResource;
 typedef struct TprAsset { uint64_t _d; } TprAsset;
+typedef struct TprAction { uint64_t _d; } TprAction;
 
 
 
@@ -183,6 +304,18 @@ typedef struct TprAssetSlot {
 
 } TprAssetSlot;
 
+typedef struct TprElementVector {
+    float x;
+    float y;
+    float z;
+} TprInputElementVector;
+
+typedef struct TprActionState {
+    TprInputElementVector vector;
+    TprBool8 state;
+    uint32_t framesActive;
+} TprActionState;
+
 
 
 // create infos
@@ -210,9 +343,11 @@ typedef struct TprAssetLoadInfo {
     TprResource data;
 } TprAssetLoadInfo;
 
-typedef struct TprContextCreateInfo {
-
-} TprContextCreateInfo;
+typedef struct TprActionCreateInfo {
+    TprInputElement element;
+    float highThreshold;
+    float lowThreshold;
+} TprActionCreateInfo;
 
 
 

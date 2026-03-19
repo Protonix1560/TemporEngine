@@ -11,6 +11,7 @@
 #include <cassert>
 #include <cstring>
 #include <exception>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <memory>
@@ -22,31 +23,16 @@
 
 
 
-// std::unique_ptr<HardwareLayer> registerHardwareLayerVulkan() {
-//     return std::make_unique<HardwareLayerVulkan>();
-// }
-// FactoryListRegistrar<HardwareLayer> registrar(registerHardwareLayerVulkan);
-
-
-// std::unique_ptr<HardwareLayer> registerLayerVulkan() {
-//     return std::make_unique<HardwareLayerVulkan>();
-// }
-// Registrar<std::vector<HardwareLayer>>::instance()
-
-
-
 // registring renderer
-std::unique_ptr<HardwareLayer> registerLayerVulkan(HWLCreateInfo& createInfo) {
-    return std::make_unique<HardwareLayerVulkan>(createInfo);
+std::unique_ptr<HardwareLayer> registerLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg) {
+    return std::make_unique<HardwareLayerVulkan>(rLogger, rResReg);
 }
-
-HardwareLayerManifest vulkanManifest {
+HardwareLayerManifest manifestVulkanHWL {
     GraphicsBackend::Vulkan,
     registerLayerVulkan,
     "Standart Vulkan HWL"
 };
-
-static_registry<HardwareLayerManifest, 0>::registrar registrar(vulkanManifest);
+static_registry<HardwareLayerManifest, 0>::registrar registrar(manifestVulkanHWL);
 
 
 
@@ -62,25 +48,28 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 #define LOAD_PFN(func, ctx) loadPFN<PFN_##func>(ctx, #func);
 
+#define SYM_LOAD_PFN(sym, func, ctx) sym.func = loadPFN<PFN_##func>(ctx, #func)
 
 
-HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
-    : mrLogger(createInfo.rLogger), mrResReg(createInfo.rResReg), mrWinMan(createInfo.rWinMan)
-{
 
-    mrWinMan.setHWLI(this);
-
+HardwareLayerVulkan::HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg) : mrLogger(rLogger), mrResReg(rResReg) {
     mMaxFramesInFlight = 3;
 
-    // max api version
-    {
-        auto vkEnumerateInstanceVersion = LOAD_PFN(vkEnumerateInstanceVersion, nullptr);
-        if (vkEnumerateInstanceVersion) {
-            TOF(vkEnumerateInstanceVersion(&mApiVer));
-        } else {
-            mApiVer = VK_API_VERSION_1_0;
-        }
+    SYM_LOAD_PFN(mSym, vkEnumerateInstanceVersion, nullptr);
+
+    if (mSym.vkEnumerateInstanceVersion) {
+        VkResult r = mSym.vkEnumerateInstanceVersion(&mApiVer);
+        if (r != VK_SUCCESS) throw std::runtime_error(logPrxPHWL() + "vkEnumerateInstanceVersion failed")
+    } else {
+        mApiVer = VK_API_VERSION_1_0;
     }
+
+}
+
+
+void HardwareLayerVulkan::init(WindowManager* pWinMan) {
+
+    mpWinMan = pWinMan;
 
     // instance
     {
@@ -120,7 +109,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
         mrLogger.debug() << logPrxPHWL() + "Opening a hidden temporary window\n";
-        auto exp = mrWinMan.openWindow(&tmpWindowCreateInfo);
+        auto exp = mpWinMan->openWindow(&tmpWindowCreateInfo);
         if (!exp.has_value()) {
             throw Exception(ErrCode::InternalError, logPrxPHWL() + "Failed to open tmp window");
         }
@@ -128,14 +117,14 @@ HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
 
         mrLogger.trace() << logPrxPHWL() + "Getting Vulkan Instance extension list\n";
         // extensions
-        std::vector<const char*> extensions = mrWinMan.getExtensionsVk(tmpHandle);
+        std::vector<const char*> extensions = mpWinMan->getExtensionsVk(tmpHandle);
         mInstanceExtensions.clear();
         mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
         
         // TODO: settings registry!
         extensions.push_back("VK_EXT_debug_utils");
 
-        mrWinMan.closeWindow(tmpHandle);
+        mpWinMan->closeWindow(tmpHandle);
 
         uint32_t extCount;
         TOF(vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr));
@@ -188,11 +177,11 @@ HardwareLayerVulkan::HardwareLayerVulkan(HWLCreateInfo& createInfo)
                 HardwareLayerVulkan* This = reinterpret_cast<HardwareLayerVulkan*>(userData);
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-                    gGetServiceLocator()->get<Logger>().warn(TPR_LOG_STYLE_WARN1) << callback->pMessage << "\n";
+                    This->mrLogger.warn(TPR_LOG_STYLE_WARN1) << callback->pMessage << "\n";
                 } else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                    gGetServiceLocator()->get<Logger>().error(TPR_LOG_STYLE_ERROR1) << callback->pMessage << "\n";
+                    This->mrLogger.error(TPR_LOG_STYLE_ERROR1) << callback->pMessage << "\n";
                 } else {
-                    gGetServiceLocator()->get<Logger>() << callback->pMessage << "\n";
+                    This->mrLogger << callback->pMessage << "\n";
                 }
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
@@ -645,7 +634,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
             WindowContext& ctx = mWindowContexts.emplace(get_basic_handle_index(handle), WindowContext{}).first->second;
 
             // checking if instance has all required extensions
-            std::vector<const char*> requiredExtensions = mrWinMan.getExtensionsVk(handle);
+            std::vector<const char*> requiredExtensions = mpWinMan->getExtensionsVk(handle);
             for (const auto& reqExt : requiredExtensions) {
                 for (const auto& preExt : mInstanceExtensions) {
                     if (std::strcmp(reqExt, preExt) == 0) goto found_match;
@@ -655,7 +644,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
                 found_match: ;
             }
 
-            ctx.surface = mrWinMan.createSurfaceVk(handle, mInstance);
+            ctx.surface = mpWinMan->createSurfaceVk(handle, mInstance);
             ctx.frames.resize(mMaxFramesInFlight);
             for (auto& frame : ctx.frames) {
                 frame.construct(mDevice, 0);
@@ -668,7 +657,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
                     otherCtx.swapchain.depthFormat() == ctx.swapchain.depthFormat()
                 ) {
                     // can borrow the render pass from already existing window
-                    gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Sharing already existing render pass\n";
+                    mrLogger.debug() << logPrxPHWL() + "Sharing already existing render pass\n";
                     ctx.renderPass = otherCtx.renderPass;
                     goto have_valid_render_pass;
                 }
@@ -676,7 +665,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
 
             // need to create it's own
             // because no existing windows have the exact same formats choosed
-            gGetServiceLocator()->get<Logger>().debug() << logPrxPHWL() + "Creating a new render pass\n";
+            mrLogger.debug() << logPrxPHWL() + "Creating a new render pass\n";
             ctx.renderPass = std::make_shared<RenderPass>();
             ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx.swapchain);
 
@@ -727,7 +716,7 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
 
 HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
 
-    mrWinMan.setHWLI(nullptr);
+    mpWinMan->setHWLI(nullptr);
 
     vkDeviceWaitIdle(mDevice);
 
@@ -880,8 +869,6 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
 
     mFrameCounter = (mFrameCounter + 1) % mMaxFramesInFlight;
     VkResult result;
-    auto& logger = gGetServiceLocator()->get<Logger>();
-    auto& windowManager = gGetServiceLocator()->get<WindowManager>();
 
     for (auto& [handle, conf] : graph.windows) {
 
@@ -901,7 +888,7 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             // auto resizing the swapchain if size changed
             // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
             TprBool8 resized;
-            auto exp = windowManager.hasWindowResized(handle);
+            auto exp = mpWinMan->hasWindowResized(handle);
             if (!exp.has_value()) {
                 throw Exception(ErrCode::InternalError, logPrxPHWL() + "WindowManager::hasWindowResized returned error code "s + std::to_string(exp.error()));
             }

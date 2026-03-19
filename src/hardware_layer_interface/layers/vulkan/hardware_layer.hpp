@@ -304,11 +304,20 @@ struct WindowContext {
 };
 
 
+#define SYM_FIELD(func) PFN_##func func
+
+struct VulkanSymbols {
+    SYM_FIELD(vkEnumerateInstanceVersion);
+};
+
+
 class HardwareLayerVulkan : public HardwareLayer {
 
     public:
 
-        HardwareLayerVulkan(HWLCreateInfo& createInfo);
+        HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg);
+        void init(WindowManager* pWinMan) override;
+
         ~HardwareLayerVulkan() noexcept;
 
         void update() override;
@@ -327,10 +336,12 @@ class HardwareLayerVulkan : public HardwareLayer {
 
     private:
 
-        // deps
         Logger& mrLogger;
         ResourceRegistry& mrResReg;
-        WindowManager& mrWinMan;
+
+        WindowManager* mpWinMan;
+
+        VulkanSymbols mSym;
 
         VkInstance mInstance = VK_NULL_HANDLE;
         uint32_t mApiVer;

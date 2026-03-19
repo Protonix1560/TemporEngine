@@ -26,19 +26,12 @@ class Logger;
 
 
 
-struct HWLCreateInfo {
-    WindowManager& rWinMan;
-    Logger& rLogger;
-    ResourceRegistry& rResReg;
-};
-
-
-
 class HardwareLayer {
 
     public:
 
-        HardwareLayer() = default;
+        virtual void init(WindowManager* pWinMan) = 0;
+
         virtual ~HardwareLayer() noexcept = default;
 
         virtual void update() = 0;
@@ -59,7 +52,7 @@ class HardwareLayer {
 
 };
 
-REGISTER_TYPE_NAME_S(HardwareLayer, "PHWL");
+REGISTER_TYPE_NAME_S(HardwareLayer, "HWLI");
 
 template <>
 struct type_name<std::unique_ptr<HardwareLayer>> {
@@ -72,7 +65,7 @@ struct type_name<std::unique_ptr<HardwareLayer>> {
 struct HardwareLayerManifest {
 
     GraphicsBackend graphicsBackend;
-    std::function<std::unique_ptr<HardwareLayer>(HWLCreateInfo& createInfo)> factory;
+    std::function<std::unique_ptr<HardwareLayer>(Logger& rLogger, ResourceRegistry& rResReg)> factory;
     std::string name;
 
 };

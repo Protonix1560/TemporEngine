@@ -49,7 +49,6 @@ TemporEngine::TemporEngine(size_t verboseLevel, const TprEngineAPI* api)
 
     mpLogger = &mServHolder.construct<Logger>(5);
     mpLogger->setVerbosityLevel(verboseLevel);
-    gGetServiceLocator()->provide(mpLogger);
 
     mpLogger->info(TPR_LOG_STYLE_STANDART) << "Tempor Engine " << BUILD_VERSION << " (build datetime: " << BUILD_DATETIME << ")\n";
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Infrastructure service initialization now\n";
@@ -120,25 +119,24 @@ int TemporEngine::init() {
 
             mpLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend=" << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "...\n";
 
+            // 1. creating window manager independently with manifest's info
             WindowManager* localWinMan = &mServHolder.construct<WindowManager>(manifest.graphicsBackend, *mpLogger, mAliveTokens);
-            gGetServiceLocator()->provide(localWinMan);
-            HWLCreateInfo hWLCreateInfo = {
-                *localWinMan, *mpLogger, *mpResReg
-            };
-            HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(hWLCreateInfo)).get();
+
+            // 2. creating HWLI independently
+            HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(*mpLogger, *mpResReg)).get();
+
+            // 3. passing 
 
             mpWinMan = localWinMan;
             mpHWLI = localHWLI;
 
         } catch (const std::exception& e) {
             mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << ":\n" << e.what() << "\n";
-            gGetServiceLocator()->provide<WindowManager>(nullptr);
             mServHolder.destruct<WindowManager>();
             mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
 
         } catch (...) {
             mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << "\n";
-            gGetServiceLocator()->provide<WindowManager>(nullptr);
             mServHolder.destruct<WindowManager>();
             mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
         }

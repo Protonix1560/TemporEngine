@@ -23,8 +23,11 @@ add_custom_target(vulkan_shaders ALL DEPENDS ${SPV_OUTPUTS})
 # renderer
 add_library(
     hardware_layer_vulkan SHARED
-    hardware_layer.cpp
+    lifecycle.cpp
+    buffer.cpp
+    utility.cpp
     swapchain.cpp
+    frame.cpp
 )
 add_dependencies(hardware_layer_vulkan vulkan_shaders)
 target_link_libraries(
@@ -34,7 +37,7 @@ target_link_libraries(
 )
 target_include_directories(hardware_layer_vulkan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# linking to irenderer
+# linking to hardware_layer_interface
 target_link_libraries(hardware_layer_interface INTERFACE hardware_layer_vulkan)
 
 # installment

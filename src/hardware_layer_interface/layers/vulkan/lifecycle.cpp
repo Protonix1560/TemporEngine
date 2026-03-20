@@ -11,7 +11,6 @@
 #include <cassert>
 #include <cstring>
 #include <exception>
-#include <stdexcept>
 #include <string>
 #include <vector>
 #include <memory>
@@ -24,8 +23,11 @@
 
 
 // registring renderer
-std::unique_ptr<HardwareLayer> registerLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg) {
-    return std::make_unique<HardwareLayerVulkan>(rLogger, rResReg);
+std::unique_ptr<HardwareLayer> registerLayerVulkan(
+    Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, uint8_t engineVersionVariant,
+    uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+) {
+    return std::make_unique<HardwareLayerVulkan>(rLogger, rResReg, rWinMan, engineVersionVariant, engineVersionMajor, engineVersionMinor, engineVersionPatch);
 }
 HardwareLayerManifest manifestVulkanHWL {
     GraphicsBackend::Vulkan,
@@ -52,26 +54,25 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 
-HardwareLayerVulkan::HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg) : mrLogger(rLogger), mrResReg(rResReg) {}
-
-
-TprResult HardwareLayerVulkan::init(
-    WindowManager* pWinMan, uint8_t engineVersionVariant, uint8_t engineVersionMajor,
-    uint8_t engineVersionMinor, uint8_t engineVersionPatch
-) {
-
+HardwareLayerVulkan::HardwareLayerVulkan(
+    Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, uint8_t engineVersionVariant,
+    uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+) : mrLogger(rLogger), mrResReg(rResReg), mrWinMan(rWinMan)
+{
+    
     VkResult result;
-    mpWinMan = pWinMan;
     mMaxFramesInFlight = 3;
 
     SYM_LOAD_PFN(mSym, vkEnumerateInstanceVersion, nullptr);
     SYM_LOAD_PFN(mSym, vkEnumerateInstanceLayerProperties, nullptr);
+    SYM_LOAD_PFN(mSym, vkEnumerateInstanceExtensionProperties, nullptr);
+    SYM_LOAD_PFN(mSym, vkCreateInstance, nullptr);
 
     if (mSym.vkEnumerateInstanceVersion) {
         result = mSym.vkEnumerateInstanceVersion(&mApiVer);
         if (result != VK_SUCCESS) {
             mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << result << "]\n";
-            return TPR_UNKNOWN_ERROR;
+            throw TPR_UNKNOWN_ERROR;
         }
     } else {
         mApiVer = VK_API_VERSION_1_0;
@@ -97,10 +98,14 @@ TprResult HardwareLayerVulkan::init(
         result = mSym.vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
         if (result != VK_SUCCESS) {
             mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << result << "]\n";
-            return TPR_UNKNOWN_ERROR;
+            throw TPR_UNKNOWN_ERROR;
         }
         std::vector<VkLayerProperties> layerProps(layerCount);
-        TOF(mSym.vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data()));
+        result = mSym.vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data());
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << result << "]\n";
+            throw TPR_UNKNOWN_ERROR;
+        }
         for (const auto& layer : layers) {
             bool supported = false;
             for (const auto& prop : layerProps) {
@@ -110,8 +115,8 @@ TprResult HardwareLayerVulkan::init(
                 }
             }
             if (!supported) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "layer " << layer << " is not supported" << "\n";
-                return TPR_UNKNOWN_ERROR;
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "No support for crucial vulkan instance layer: " << layer << "\n";
+                throw TPR_NOT_SUPPORTED;
             }
         }
 
@@ -122,27 +127,37 @@ TprResult HardwareLayerVulkan::init(
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
         mrLogger.trace() << logPrxPHWL() << "Opening a hidden temporary window\n";
-        auto exp = mpWinMan->openWindow(&tmpWindowCreateInfo);
+        auto exp = mrWinMan.openWindow(&tmpWindowCreateInfo);
         if (!exp.has_value()) {
             mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Failed to open temporary window\n";
-            return exp.error();
+            throw exp.error();
         }
         tmpWindow = exp.value();
 
         mrLogger.trace() << logPrxPHWL() << "Getting Vulkan Instance extension list\n";
         // extensions
-        std::vector<const char*> extensions = mpWinMan->getExtensionsVk(tmpWindow);
+        auto extExp = mrWinMan.getExtensionsVk(tmpWindow);
+        if (!extExp.has_value()) throw extExp.error();
+        std::vector<const char*> extensions = extExp.value();
         mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
         
         // TODO: settings registry!
         extensions.push_back("VK_EXT_debug_utils");
 
-        mpWinMan->closeWindow(tmpWindow);
+        mrWinMan.closeWindow(tmpWindow);
 
         uint32_t extCount;
-        TOF(vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr));
+        result = mSym.vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceExtensionProperties failed [" << result << "]\n";
+            throw TPR_UNKNOWN_ERROR;
+        }
         std::vector<VkExtensionProperties> extProps(extCount);
-        TOF(vkEnumerateInstanceExtensionProperties(nullptr, &extCount, extProps.data()));
+        result = mSym.vkEnumerateInstanceExtensionProperties(nullptr, &extCount, extProps.data());
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceExtensionProperties failed [" << result << "]\n";
+            throw TPR_UNKNOWN_ERROR;
+        }
         for (auto ext : extensions) {
             bool supported = false;
             for (const auto& prop : extProps) {
@@ -151,7 +166,10 @@ TprResult HardwareLayerVulkan::init(
                     break;
                 }
             }
-            if (!supported) throw Exception(ErrCode::NoSupportError, logPrxPHWL() + "No support for crucial vulkan instance extension: " + ext);
+            if (!supported) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "No support for crucial vulkan instance extension: " << ext << "\n";
+                throw TPR_NOT_SUPPORTED;
+            }
         }
 
         VkInstanceCreateInfo instanceCreateInfo{};
@@ -164,14 +182,24 @@ TprResult HardwareLayerVulkan::init(
 
         TOF(vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance));
 
-        mrLogger.debug() << logPrxPHWL() + "Created instance\n";
+        mrLogger.debug() << logPrxPHWL() << "Created instance\n";
     }
+
+    SYM_LOAD_PFN(mSym, vkCreateDebugUtilsMessengerEXT, mInstance);
+    SYM_LOAD_PFN(mSym, vkEnumeratePhysicalDevices, mInstance);
+    SYM_LOAD_PFN(mSym, vkGetPhysicalDeviceProperties, mInstance);
+    SYM_LOAD_PFN(mSym, vkCreateDevice, mInstance);
+    SYM_LOAD_PFN(mSym, vkGetPhysicalDeviceMemoryProperties, mInstance);
+    SYM_LOAD_PFN(mSym, vkDestroySurfaceKHR, mInstance);
+    SYM_LOAD_PFN(mSym, vkGetPhysicalDeviceSurfaceFormatsKHR, mInstance);
+    SYM_LOAD_PFN(mSym, vkGetPhysicalDeviceSurfacePresentModesKHR, mInstance);
+    SYM_LOAD_PFN(mSym, vkGetPhysicalDeviceSurfaceCapabilitiesKHR, mInstance);
 
     // debug utils messenger
     // TODO: settings registry!
     {
-        auto vkCreateDebugUtilsMessengerEXT = LOAD_PFN(vkCreateDebugUtilsMessengerEXT, mInstance);
-        if (vkCreateDebugUtilsMessengerEXT) {
+        if (mSym.vkCreateDebugUtilsMessengerEXT) {
+            mrLogger.debug() << logPrxPHWL() << "vkCreateDebugUtilsMessengerEXT is available\n";
 
             VkDebugUtilsMessengerCreateInfoEXT createInfo{};
             createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -204,31 +232,43 @@ TprResult HardwareLayerVulkan::init(
             };
             createInfo.pUserData = this;
 
-            vkCreateDebugUtilsMessengerEXT(mInstance, &createInfo, nullptr, &mDebugMessenger);
+            mSym.vkCreateDebugUtilsMessengerEXT(mInstance, &createInfo, nullptr, &mDebugMessenger);
+
+            mrLogger.debug() << logPrxPHWL() << "Created debug utils messenger\n";
+
+        } else {
+            mrLogger.debug() << logPrxPHWL() << "vkCreateDebugUtilsMessengerEXT is not available\n";
         }
-        mrLogger.debug() << logPrxPHWL() + "Created debug utils messenger\n";
     }
 
     // physical device
     {
         uint32_t count;
-        TOF(vkEnumeratePhysicalDevices(mInstance, &count, nullptr));
+        result = mSym.vkEnumeratePhysicalDevices(mInstance, &count, nullptr);
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumeratePhysicalDevices failed [" << result << "]";
+            throw TPR_UNKNOWN_ERROR;
+        }
         std::vector<VkPhysicalDevice> physicalDevices(count);
-        TOF(vkEnumeratePhysicalDevices(mInstance, &count, physicalDevices.data()));
+        result = mSym.vkEnumeratePhysicalDevices(mInstance, &count, physicalDevices.data());
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumeratePhysicalDevices failed [" << result << "]";
+            throw TPR_UNKNOWN_ERROR;
+        }
 
         // TODO: add proper physical device test
 
         mPhysicalDevice = physicalDevices[0];
 
         VkPhysicalDeviceProperties props;
-        vkGetPhysicalDeviceProperties(mPhysicalDevice, &props);
+        mSym.vkGetPhysicalDeviceProperties(mPhysicalDevice, &props);
 
-        mrLogger.debug() << logPrxPHWL() + "Picked physical device: " << props.deviceName << "\n";
+        mrLogger.debug() << logPrxPHWL() << "Picked physical device " << props.deviceName << "\n";
     }
 
     // device
     {
-        // TODO: add queue analysys
+        // TODO: add queue analysis
 
         float priority = 1.0f;
 
@@ -251,42 +291,80 @@ TprResult HardwareLayerVulkan::init(
         createInfo.ppEnabledExtensionNames = extensions.data();
         createInfo.enabledExtensionCount = extensions.size();
 
-        TOF(vkCreateDevice(mPhysicalDevice, &createInfo, nullptr, &mDevice));
+        result = mSym.vkCreateDevice(mPhysicalDevice, &createInfo, nullptr, &mDevice);
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateDevice failed [" << result << "]\n";
+            throw result;
+        }
 
-        vkGetDeviceQueue(mDevice, 0, 0, &mRenderQueue);
-
-        mrLogger.debug() << logPrxPHWL() + "Created device\n";
+        mrLogger.debug() << logPrxPHWL() << "Created device\n";
     }
+
+    SYM_LOAD_PFN(mSym, vkCreateSemaphore, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateFence, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateCommandPool, mDevice);
+    SYM_LOAD_PFN(mSym, vkAllocateCommandBuffers, mDevice);
+    SYM_LOAD_PFN(mSym, vkGetDeviceQueue, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateBuffer, mDevice);
+    SYM_LOAD_PFN(mSym, vkGetBufferMemoryRequirements, mDevice);
+    SYM_LOAD_PFN(mSym, vkAllocateMemory, mDevice);
+    SYM_LOAD_PFN(mSym, vkBindBufferMemory, mDevice);
+    SYM_LOAD_PFN(mSym, vkMapMemory, mDevice);
+    SYM_LOAD_PFN(mSym, vkUnmapMemory, mDevice);
+    SYM_LOAD_PFN(mSym, vkFreeMemory, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroyBuffer, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroyCommandPool, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroyFence, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroySemaphore, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroySwapchainKHR, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateSwapchainKHR, mDevice);
+    SYM_LOAD_PFN(mSym, vkGetSwapchainImagesKHR, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateImageView, mDevice);
+    SYM_LOAD_PFN(mSym, vkGetImageMemoryRequirements, mDevice);
+    SYM_LOAD_PFN(mSym, vkBindImageMemory, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroyImageView, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroyImage, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateFramebuffer, mDevice);
+    SYM_LOAD_PFN(mSym, vkDestroyFramebuffer, mDevice);
+
+    mSym.vkGetDeviceQueue(mDevice, 0, 0, &mRenderQueue);
 
     // buffers
     {
-        mDebugLinesBuffer.allocate(
-            mDevice, mPhysicalDevice, sizeof(DebugLineVertexVk) * 200,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mDebugLinesBuffer.mapMemory();
-        mrLogger.debug() << logPrxPHWL() + "Created debug lines buffer\n";
-
-        mGUIVertexBuffer.allocate(
-            mDevice, mPhysicalDevice, 64,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mGUIVertexBuffer.mapMemory();
-        mrLogger.debug() << logPrxPHWL() + "Created gui vertex buffer\n";
-
-        mGUIIndexBuffer.allocate(
-            mDevice, mPhysicalDevice, 64,
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mGUIIndexBuffer.mapMemory();
-        mrLogger.debug() << logPrxPHWL() + "Created gui index buffer\n";
+        allocateBuffer(mDebugLinesBuffer, sizeof(DebugLineVertexVk) * 200,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        mapBufferMemory(mDebugLinesBuffer);
+        mrLogger.debug() << logPrxPHWL() << "Created debug lines buffer\n";
     }
 
 }
 
 
+HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
 
-void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, Swapchain& swapchain) {
+    vkDeviceWaitIdle(mDevice);
+
+    freeBuffer(mDebugLinesBuffer);
+
+    for (auto& [index, ctx] : mWindowContexts) {
+        unregisterWindow(ctx.windowHandle);
+    }
+
+    if (mDevice) vkDestroyDevice(mDevice, nullptr);
+
+    if (mDebugMessenger) {
+        auto vkDestroyDebugUtilsMessengerEXT = LOAD_PFN(vkDestroyDebugUtilsMessengerEXT, mInstance);
+        if (vkDestroyDebugUtilsMessengerEXT) {
+            vkDestroyDebugUtilsMessengerEXT(mInstance, mDebugMessenger, nullptr);
+        }
+    }
+
+    if (mInstance) vkDestroyInstance(mInstance, nullptr);
+}
+
+
+
+void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, WindowContext& windowContext) {
 
     mDevice = device;
 
@@ -300,7 +378,7 @@ void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice 
         swapchainAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         swapchainAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         swapchainAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        swapchainAttachment.format = swapchain.chainFormat();
+        swapchainAttachment.format = windowContext.chainImageFormat;
 
         VkAttachmentDescription& depthAttachment = attachments[1];
         depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -308,7 +386,7 @@ void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice 
         depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthAttachment.format = swapchain.depthFormat();
+        depthAttachment.format = windowContext.depthImageFormat;
 
         VkSubpassDescription subpasses[1] = {};
         VkSubpassDescription& subpass = subpasses[0];
@@ -474,156 +552,11 @@ void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice 
         rLogger.debug() << logPrxPHWL() + "Created debug lines pipeline\n";
     }
 
-    // gui pipeline
-    {
-
-        VkPushConstantRange pushConst{};
-        pushConst.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        pushConst.offset = 0;
-        pushConst.size = sizeof(GUIPushConst);  
-
-        VkPipelineLayoutCreateInfo layoutCreateInfo{};
-        layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        layoutCreateInfo.pPushConstantRanges = &pushConst;
-        layoutCreateInfo.pushConstantRangeCount = 1;
-        
-        TOF(vkCreatePipelineLayout(mDevice, &layoutCreateInfo, nullptr, &mGUIPipelineLayout));
-
-        VkPipelineColorBlendAttachmentState colourBlendAttach{};
-        colourBlendAttach.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colourBlendAttach.blendEnable = VK_TRUE;
-        colourBlendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_DST_ALPHA;
-        colourBlendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        colourBlendAttach.colorBlendOp = VK_BLEND_OP_ADD;
-        colourBlendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        colourBlendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        colourBlendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
-
-        VkPipelineColorBlendStateCreateInfo colourBlend{};
-        colourBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colourBlend.attachmentCount = 1;
-        colourBlend.pAttachments = &colourBlendAttach;
-
-        VkPipelineRasterizationStateCreateInfo raster{};
-        raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        raster.polygonMode = VK_POLYGON_MODE_FILL;
-        raster.cullMode = VK_CULL_MODE_NONE;
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
-        raster.lineWidth = 1.0f;
-
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-        
-        VkDynamicState dynamics[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dynamicState.pDynamicStates = dynamics;
-        dynamicState.dynamicStateCount = std::size(dynamics);
-
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-        VkPipelineShaderStageCreateInfo stages[2] = {};
-
-        VkShaderModule fragShader;
-        TprResource fragRes = rResReg.openResource("shaders/vulkan/gui.frag.spv", 0, 4).value();
-        if (rResReg.sizeofResource(fragRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
-        VkShaderModuleCreateInfo fragModuleCreateInfo{};
-        fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(fragRes).value());
-        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(fragRes).value());
-        TOF(vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader));
-        
-        VkPipelineShaderStageCreateInfo& fragStage = stages[1];
-        fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        fragStage.module = fragShader;
-        fragStage.pName = "main";
-
-        VkShaderModule vertShader;
-        TprResource vertRes = rResReg.openResource("shaders/vulkan/gui.vert.spv", 0, 4).value();
-        if (rResReg.sizeofResource(vertRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
-        VkShaderModuleCreateInfo vertModuleCreateInfo{};
-        vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(vertRes).value());
-        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(vertRes).value());
-        TOF(vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader));
-
-        VkPipelineShaderStageCreateInfo& vertStage = stages[0];
-        vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertStage.module = vertShader;
-        vertStage.pName = "main";
-
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount = 1;
-        viewportState.scissorCount = 1;
-        viewportState.pViewports = nullptr;
-        viewportState.pScissors = nullptr;
-
-        VkVertexInputBindingDescription vertexBinding = GUIRectVertex::getBindDesc();
-        auto vertexAttribs = GUIRectVertex::getAttrDesc();
-
-        VkPipelineVertexInputStateCreateInfo vertexInput{};
-        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInput.pVertexBindingDescriptions = &vertexBinding;
-        vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexAttributeDescriptions = vertexAttribs.data();
-        vertexInput.vertexAttributeDescriptionCount = vertexAttribs.size(); 
-        
-        VkPipelineDepthStencilStateCreateInfo depthState{};
-        depthState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthState.depthBoundsTestEnable = VK_FALSE;
-        depthState.depthTestEnable = VK_TRUE;
-        depthState.depthWriteEnable = VK_TRUE;
-        depthState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-        depthState.stencilTestEnable = VK_FALSE;
-        depthState.minDepthBounds = 0.0f;
-        depthState.maxDepthBounds = 1.0f;     
-
-        VkGraphicsPipelineCreateInfo pipelineCreateInfo{};
-        pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipelineCreateInfo.layout = mGUIPipelineLayout;
-        pipelineCreateInfo.pColorBlendState = &colourBlend;
-        pipelineCreateInfo.pRasterizationState = &raster;
-        pipelineCreateInfo.pMultisampleState = &multisampling;
-        pipelineCreateInfo.pDynamicState = &dynamicState;
-        pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
-        pipelineCreateInfo.renderPass = mRenderPass;
-        pipelineCreateInfo.subpass = 0;
-        pipelineCreateInfo.pStages = stages;
-        pipelineCreateInfo.stageCount = std::size(stages);
-        pipelineCreateInfo.pViewportState = &viewportState;
-        pipelineCreateInfo.pVertexInputState = &vertexInput;
-        pipelineCreateInfo.pDepthStencilState = &depthState;
-
-        TOF(vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &mGUIPipeline));
-
-        vkDestroyShaderModule(mDevice, fragShader, nullptr);
-        vkDestroyShaderModule(mDevice, vertShader, nullptr);
-
-        rLogger.debug() << logPrxPHWL() + "Created GUI pipeline\n";
-    }
-
 }
 
 
 
 void RenderPass::destroy() noexcept {
-    if (mGUIPipeline) {
-        vkDestroyPipeline(mDevice, mGUIPipeline, nullptr);
-        mGUIPipeline = VK_NULL_HANDLE;
-    }
-    if (mGUIPipelineLayout) {
-        vkDestroyPipelineLayout(mDevice, mGUIPipelineLayout, nullptr);
-        mGUIPipelineLayout = VK_NULL_HANDLE;
-    }
     if (mDebugLinesPipeline) {
         vkDestroyPipeline(mDevice, mDebugLinesPipeline, nullptr);
         mDebugLinesPipeline = VK_NULL_HANDLE;
@@ -642,65 +575,64 @@ void RenderPass::destroy() noexcept {
 
 TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
 
-    // mInstance is null only when a temporary window is created in ::init
+    TprResult result;
 
-    if (mInstance != VK_NULL_HANDLE) {
-        try {
+    WindowContext ctx = {};
 
-            WindowContext& ctx = mWindowContexts.emplace(get_basic_handle_index(handle), WindowContext{}).first->second;
+    try {
 
-            // checking if instance has all required extensions
-            std::vector<const char*> requiredExtensions = mpWinMan->getExtensionsVk(handle);
-            for (const auto& reqExt : requiredExtensions) {
-                for (const auto& preExt : mInstanceExtensions) {
-                    if (std::strcmp(reqExt, preExt) == 0) goto found_match;
-                }
-                // loop ended, didn't find a matching name
-                return TPR_INSUFFICIENT_INIT;
-                found_match: ;
+        // checking if instance has all required extensions
+        auto extExp = mrWinMan.getExtensionsVk(handle);
+        if (!extExp.has_value()) return extExp.error();
+        std::vector<const char*> requiredExtensions = extExp.value();
+        for (const auto& reqExt : requiredExtensions) {
+            for (const auto& preExt : mInstanceExtensions) {
+                if (std::strcmp(reqExt, preExt) == 0) goto found_match;
             }
-
-            ctx.surface = mpWinMan->createSurfaceVk(handle, mInstance);
-            ctx.frames.resize(mMaxFramesInFlight);
-            for (auto& frame : ctx.frames) {
-                frame.construct(mDevice, 0);
-            }
-            ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
-            for (const auto& [otherWindow, otherCtx] : mWindowContexts) {
-                if (
-                    &otherCtx != &ctx && 
-                    otherCtx.swapchain.chainFormat() == ctx.swapchain.chainFormat() &&
-                    otherCtx.swapchain.depthFormat() == ctx.swapchain.depthFormat()
-                ) {
-                    // can borrow the render pass from already existing window
-                    mrLogger.debug() << logPrxPHWL() + "Sharing already existing render pass\n";
-                    ctx.renderPass = otherCtx.renderPass;
-                    goto have_valid_render_pass;
-                }
-            }
-
-            // need to create it's own
-            // because no existing windows have the exact same formats choosed
-            mrLogger.debug() << logPrxPHWL() + "Creating a new render pass\n";
-            ctx.renderPass = std::make_shared<RenderPass>();
-            ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx.swapchain);
-
-            have_valid_render_pass: ;
-
-            ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
-            ctx.handle = handle;
-
-        } catch (const Exception& e) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-            return TPR_UNKNOWN_ERROR;
-        } catch (const std::exception& e) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unxpected exception: " << e.what() << "\n";
-            return TPR_UNKNOWN_ERROR;
-        } catch (...) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unknowm exception\n";
-            return TPR_UNKNOWN_ERROR;
+            // loop ended, didn't find a matching name
+            return TPR_INSUFFICIENT_INIT;
+            found_match: ;
         }
+
+        result = constructWindowContext(ctx, handle);
+        if (result < 0) return result;
+
+        for (const auto& [otherWindow, otherCtx] : mWindowContexts) {
+            if (
+                &otherCtx != &ctx && 
+                otherCtx.chainImageFormat == ctx.chainImageFormat &&
+                otherCtx.depthImageFormat == ctx.depthImageFormat
+            ) {
+                // can borrow the render pass from already existing window
+                mrLogger.debug() << logPrxPHWL() + "Sharing already existing render pass\n";
+                ctx.renderPass = otherCtx.renderPass;
+                goto have_valid_render_pass;
+            }
+        }
+
+        // need to create it's own
+        // because no existing windows have the exact same formats choosed
+        mrLogger.debug() << logPrxPHWL() + "Creating a new render pass\n";
+        ctx.renderPass = std::make_shared<RenderPass>();
+        ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx);
+
+        have_valid_render_pass: ;
+
+        ctx.windowHandle = handle;
+
+    } catch (const Exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
+        return TPR_UNKNOWN_ERROR;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unxpected exception: " << e.what() << "\n";
+        return TPR_UNKNOWN_ERROR;
+    } catch (...) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unknowm exception\n";
+        return TPR_UNKNOWN_ERROR;
     }
+
+    mWindowContexts.emplace(get_basic_handle_index(handle), ctx);
+
     return TPR_SUCCESS;
 }
 
@@ -712,7 +644,7 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
             TOF(vkDeviceWaitIdle(mDevice));
             auto& ctx = mWindowContexts[get_basic_handle_index(handle)];
             for (auto& frame : ctx.frames) {
-                frame.destroy();
+                destroyFrame(frame);
             }
             ctx.framebuffers.destroy();
             if (ctx.renderPass) {
@@ -728,157 +660,6 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
         } catch (...) {}
     }
 }
-
-
-HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
-
-    mpWinMan->setHWLI(nullptr);
-
-    vkDeviceWaitIdle(mDevice);
-
-    mGUIIndexBuffer.free();
-    mGUIVertexBuffer.free();
-    mDebugLinesBuffer.free();
-
-    for (auto& [index, ctx] : mWindowContexts) {
-        unregisterWindow(ctx.handle);
-    }
-
-    if (mDevice) vkDestroyDevice(mDevice, nullptr);
-
-    if (mDebugMessenger) {
-        auto vkDestroyDebugUtilsMessengerEXT = LOAD_PFN(vkDestroyDebugUtilsMessengerEXT, mInstance);
-        if (vkDestroyDebugUtilsMessengerEXT) {
-            vkDestroyDebugUtilsMessengerEXT(mInstance, mDebugMessenger, nullptr);
-        }
-    }
-
-    if (mInstance) vkDestroyInstance(mInstance, nullptr);
-
-}
-
-
-void FramebuffersHolder::construct(Swapchain& swapchain, VkDevice device, VkRenderPass renderPass) {
-
-    mDevice = device;
-    auto& logger = gGetServiceLocator()->get<Logger>();
-
-    mFramebuffers.assign(swapchain.imageCount(), VK_NULL_HANDLE);
-
-    for (uint32_t i = 0; i < swapchain.imageCount(); i++) {
-
-        VkImageView attachments[] = {
-            swapchain.getChainImageView(i),
-            swapchain.getDepthImageView(i)
-        };
-
-        VkFramebufferCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        createInfo.width = swapchain.extent().width;
-        createInfo.height = swapchain.extent().height;
-        createInfo.attachmentCount = std::size(attachments);
-        createInfo.pAttachments = attachments;
-        createInfo.layers = 1;
-        createInfo.renderPass = renderPass;
-
-        TOF(vkCreateFramebuffer(device, &createInfo, nullptr, &mFramebuffers[i]));
-    
-    }
-
-}
-
-
-void FramebuffersHolder::destroy() noexcept {
-    for (auto& framebuffer : mFramebuffers) {
-        if (framebuffer) {
-            vkDestroyFramebuffer(mDevice, framebuffer, nullptr);
-            framebuffer = VK_NULL_HANDLE;
-        }
-    }
-}
-
-
-
-// void RendererVulkan::renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject) {
-
-//     if (debugLinesVertices.empty()) return;
-
-//     Frame& frame = mFrames[mFrameCounter];
-
-//     // debug lines
-//     mDebugLinesBuffer.resize(debugLinesVertices.size() * sizeof(DebugLineVertex));
-//     std::memcpy(mDebugLinesBuffer.map, debugLinesVertices.data(), debugLinesVertices.size() * sizeof(DebugLineVertex));
-
-//     vkCmdBindPipeline(frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mDebugLinesPipeline);
-
-//     VkDeviceSize debugLinesBufferOffset = 0;
-//     vkCmdBindVertexBuffers(frame.renderCommandBuffer(), 0, 1, &mDebugLinesBuffer.buffer, &debugLinesBufferOffset);
-
-//     glm::mat4 proj;
-//     float screenAspect = static_cast<float>(mSwapchain.extent().width) / static_cast<float>(mSwapchain.extent().height);
-//     if (cameraProject == CameraProject::Ortho) {
-//         float scale = 1.0f;
-//         // changing zNear and zFar order to make camera look in +Z direction
-//         proj = glm::ortho(-screenAspect * scale, screenAspect * scale, -scale, scale, 10000.0f, 0.01f);
-//     } else {
-//         proj = glm::perspective(glm::radians(45.0f), screenAspect, 0.01f, 10000.0f);
-//     }
-//     glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-//     DebugLinesPushConst push{};
-//     push.mvp = proj * view;
-//     vkCmdPushConstants(frame.renderCommandBuffer(), mDebugLinesPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DebugLinesPushConst), &push);
-
-//     vkCmdDraw(frame.renderCommandBuffer(), debugLinesVertices.size(), 1, 0, 0);
-
-// }
-
-
-
-// void RendererVulkan::renderGUI(const GUIDrawDesc& desc) {
-
-//     Frame& frame = mFrames[mFrameCounter];
-
-//     if (!desc.rects.empty()) {
-//         mGUIVertexBuffer.resize(desc.rects.size() * sizeof(GUIRectVertex) * 4);
-//         mGUIIndexBuffer.resize(desc.rects.size() * sizeof(uint32_t) * 6);
-        
-//         for (uint32_t i = 0; i < desc.rects.size(); i++) {
-//             const GUIDrawDesc::Rect& rect = desc.rects[i];
-//             GUIRectVertex v[4];
-//             v[0].pos = glm::vec3(rect.x, rect.y, i + 1.0f);
-//             v[0].colour = rect.bgColour;
-//             v[1].pos = glm::vec3(rect.x + rect.w, rect.y, i + 1.0f);
-//             v[1].colour = rect.bgColour;
-//             v[2].pos = glm::vec3(rect.x + rect.w, rect.y + rect.h, i + 1.0f);
-//             v[2].colour = rect.bgColour;
-//             v[3].pos = glm::vec3(rect.x, rect.y + rect.h, i + 1.0f);
-//             v[3].colour = rect.bgColour;
-//             std::memcpy( static_cast<char*>(mGUIVertexBuffer.map) + i * sizeof(v), v, sizeof(v));
-
-//             uint32_t indices[6] = {i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3};
-//             std::memcpy(static_cast<char*>(mGUIIndexBuffer.map) + i * sizeof(indices), indices, sizeof(indices));
-//         }
-//     }
-
-//     vkCmdBindPipeline(frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mGUIPipeline);
-
-//     VkDeviceSize vertexOffset = 0;
-//     vkCmdBindVertexBuffers(frame.renderCommandBuffer(), 0, 1, &mGUIVertexBuffer.buffer, &vertexOffset);
-
-//     vkCmdBindIndexBuffer(frame.renderCommandBuffer(), mGUIIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-//     glm::mat4 proj;
-//     float screenAspect = static_cast<float>(mSwapchain.extent().width) / static_cast<float>(mSwapchain.extent().height);
-//     proj = glm::ortho(-screenAspect, screenAspect, -1.0f, 1.0f, 1000.0f, 0.01f);
-//     glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-//     DebugLinesPushConst push{};
-//     push.mvp = proj * view;
-//     vkCmdPushConstants(frame.renderCommandBuffer(), mDebugLinesPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DebugLinesPushConst), &push);
-
-//     vkCmdDrawIndexed(frame.renderCommandBuffer(), desc.rects.size() * 6, 1, 0, 0, 0);
-
-// }
-
 
 
 void HardwareLayerVulkan::render(const RenderGraph& graph) {
@@ -904,7 +685,7 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             // auto resizing the swapchain if size changed
             // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
             TprBool8 resized;
-            auto exp = mpWinMan->hasWindowResized(handle);
+            auto exp = mrWinMan.hasWindowResized(handle);
             if (!exp.has_value()) {
                 throw Exception(ErrCode::InternalError, logPrxPHWL() + "WindowManager::hasWindowResized returned error code "s + std::to_string(exp.error()));
             }
@@ -922,9 +703,9 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
                 case VK_ERROR_OUT_OF_DATE_KHR:
                     mrLogger << "SWAPCHAIN ACQUIRED\n";
                     TOF(vkDeviceWaitIdle(mDevice));
-                    ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+                    ctx.swapchain.construct(&mrLogger, &mrWinMan, mPhysicalDevice, mDevice, ctx.surface, handle);
                     ctx.framebuffers.destroy();
-                    ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+                    ctx.framebuffers.construct(&mrLogger, ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
                     return;
                 case VK_SUBOPTIMAL_KHR: break;
                 case VK_SUCCESS: break;
@@ -1011,9 +792,9 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
                 case VK_SUBOPTIMAL_KHR:
                     mrLogger << "SWAPCHAIN PRESENT\n";
                     TOF(vkDeviceWaitIdle(mDevice));
-                    ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
+                    ctx.swapchain.construct(&mrLogger, &mrWinMan, mPhysicalDevice, mDevice, ctx.surface, handle);
                     ctx.framebuffers.destroy();
-                    ctx.framebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
+                    ctx.framebuffers.construct(&mrLogger, ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
                     return;
                 case VK_SUCCESS: break;
                 default: throw Exception(ErrCode::InternalError, "Failed to present");
@@ -1029,53 +810,3 @@ void HardwareLayerVulkan::update() {
 
 }
 
-
-
-
-
-void Frame::construct(VkDevice device, uint32_t queueFamilyIndex) {
-
-    mDevice = device;
-
-    VkSemaphoreCreateInfo imageAvailableSemaphoreCreateInfo{};
-    imageAvailableSemaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    TOF(vkCreateSemaphore(device, &imageAvailableSemaphoreCreateInfo, nullptr, &imageAvailableSemaphore));
-
-    VkFenceCreateInfo fenceCreateInfo{};
-    fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    TOF(vkCreateFence(device, &fenceCreateInfo, nullptr, &inFlightFence));
-
-    VkCommandPoolCreateInfo poolCreateInfo{};
-    poolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolCreateInfo.queueFamilyIndex = queueFamilyIndex;
-    TOF(vkCreateCommandPool(device, &poolCreateInfo, nullptr, &commandPool));
-
-    VkCommandBufferAllocateInfo commandAllocInfo{};
-    commandAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    commandAllocInfo.commandBufferCount = std::size(mCommandBuffers);
-    commandAllocInfo.commandPool = commandPool;
-    commandAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    TOF(vkAllocateCommandBuffers(device, &commandAllocInfo, mCommandBuffers));
-
-}
-
-
-void Frame::destroy() noexcept {
-
-    if (commandPool) {
-        vkDestroyCommandPool(mDevice, commandPool, nullptr);
-        commandPool = VK_NULL_HANDLE;
-    }
-
-    if (inFlightFence) {
-        vkDestroyFence(mDevice, inFlightFence, nullptr);
-        inFlightFence = VK_NULL_HANDLE;
-    }
-
-    if (imageAvailableSemaphore) {
-        vkDestroySemaphore(mDevice, imageAvailableSemaphore, nullptr);
-        imageAvailableSemaphore = VK_NULL_HANDLE;
-    }
-
-}

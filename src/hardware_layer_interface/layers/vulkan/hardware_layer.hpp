@@ -11,7 +11,6 @@
 #include "logger.hpp"
 #include "resource_registry.hpp"
 #include "window_manager.hpp"
-
 #include <SDL2/SDL_vulkan.h>
 #include <array>
 #include <unordered_map>
@@ -29,68 +28,17 @@
 
 
 
-
-struct Swapchain {
-
-    public:
-        void construct(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, TprWindow window);
-        void destroy() noexcept;
-
-        const VkSwapchainKHR& swapchain() const noexcept { return mSwapchain; }
-        const VkSemaphore& getSemaphore(uint32_t index) const { return mSemaphores[index]; }
-        const VkExtent2D& extent() const { return mExtent; }
-        const uint32_t& imageCount() const { return mImageCount; }
-
-        const VkImageView& getChainImageView(uint32_t index) const { return mChainImageViews[index]; }
-        const VkImage& getChainImage(uint32_t index) const { return mChainImages[index]; }
-        const VkFormat& chainFormat() const noexcept { return mChainImageFormat; }
-
-        const VkImageView& getDepthImageView(uint32_t index) const { return mDepthImageViews[index]; }
-        const VkImage& getDepthImage(uint32_t index) const { return mDepthImages[index]; }
-        const VkFormat& depthFormat() const noexcept { return mDepthImageFormat; }
-
-    private:
-        VkDevice mDevice;
-        VkSurfaceKHR mSurface;
-        TprWindow mWindow;
-
-        bool mConstructed = false;
-
-        VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
-        std::vector<VkSemaphore> mSemaphores;
-
-        std::vector<VkImage> mChainImages;
-        std::vector<VkImageView> mChainImageViews;
-        VkFormat mChainImageFormat;
-
-        std::vector<VkImage> mDepthImages;
-        std::vector<VkImageView> mDepthImageViews;
-        std::vector<VkDeviceMemory> mDepthImageMemories;
-        VkFormat mDepthImageFormat;
-
-        VkExtent2D mExtent;
-        uint32_t mImageCount = 0;
-
-};
-
-
 struct Frame {
 
-    public:
-        void construct(VkDevice device, uint32_t queueFamilyIndex);
-        void destroy() noexcept;
+    inline VkCommandBuffer& renderCommandBuffer() noexcept { return commandBuffers[0]; }
+    inline VkCommandBuffer& presentCommandBuffer() noexcept { return commandBuffers[1]; }
 
-        inline VkCommandBuffer& renderCommandBuffer() noexcept { return mCommandBuffers[0]; }
-        inline VkCommandBuffer& presentCommandBuffer() noexcept { return mCommandBuffers[1]; }
-
-        VkCommandPool commandPool = VK_NULL_HANDLE;
-        VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-        VkFence inFlightFence = VK_NULL_HANDLE;
-
-    private:
-        VkDevice mDevice;
-        VkCommandBuffer mCommandBuffers[2] = {};
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
+    VkFence inFlightFence = VK_NULL_HANDLE;
+    VkCommandBuffer commandBuffers[2] = {};
 };
+
 
 
 struct DebugLineVertexVk : public DebugLineVertex {
@@ -127,180 +75,76 @@ struct DebugLinesPushConst {
 
 
 
-struct GUIRectVertex {
-
-    glm::vec3 pos;
-    uint32_t colour;
-
-    static VkVertexInputBindingDescription getBindDesc() {
-        VkVertexInputBindingDescription bindingDesc{};
-        bindingDesc.binding = 0;
-        bindingDesc.stride = sizeof(GUIRectVertex);
-        bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        return bindingDesc;
-    }
-
-    static std::array<VkVertexInputAttributeDescription, 2> getAttrDesc() {
-        std::array<VkVertexInputAttributeDescription, 2> attribs{};
-
-        attribs[0].binding = 0;
-        attribs[0].location = 0;
-        attribs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attribs[0].offset = offsetof(GUIRectVertex, pos);
-
-        attribs[1].binding = 0;
-        attribs[1].location = 1;
-        attribs[1].format = VK_FORMAT_R8G8B8A8_UNORM;
-        attribs[1].offset = offsetof(GUIRectVertex, colour);
-
-        return attribs;
-    }
-};
-
-
-struct GUIPushConst {
-    glm::mat4 mvp;
-};
-
-
-
-inline uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t memType, VkMemoryPropertyFlags property) {
-    VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
-
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((memType & (1 << i)) &&
-            (memProperties.memoryTypes[i].propertyFlags & property) == property) {
-            return i;
-        }
-    }
-
-    throw Exception(ErrCode::InternalError, "Failed to find sufficient physical device memory type");
-}
-
-
-struct Buffer {
-    public:
-        VkBuffer buffer = VK_NULL_HANDLE;
-        VkDeviceMemory memory = VK_NULL_HANDLE;
-        void* map = nullptr;
-
-        void allocate(
-            VkDevice device, VkPhysicalDevice physicalDevice, uint32_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
-            VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE, const uint32_t* pQueueFamilyIndices = nullptr, uint32_t queueFamilyIndexCount = 0
-        ) {
-            mDevice = device;
-            mPhysicalDevice = physicalDevice;
-            mSize = size;
-            mUsage = usage;
-            mProperty = property;
-            mSharingMode = sharingMode;
-            mQueueFamilyIndices.clear();
-            mQueueFamilyIndices.insert(mQueueFamilyIndices.end(), pQueueFamilyIndices, pQueueFamilyIndices + queueFamilyIndexCount);
-            mQueueFamilyIndices.shrink_to_fit();
-            allocateInternal();
-        }
-
-        void mapMemory(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE, VkMemoryMapFlags flags = 0) {
-            mMapOffset = offset;
-            mMapSize = size;
-            mMapFlags = flags;
-            TOF(vkMapMemory(mDevice, memory, offset, size, flags, &map));
-        }
-
-        void unmapMemory() {
-            if (map) {
-                vkUnmapMemory(mDevice, memory);
-                map = nullptr;
-            }
-        }
-
-        void free() {
-            unmapMemory();
-            if (memory) vkFreeMemory(mDevice, memory, nullptr);
-            if (mDevice) vkDestroyBuffer(mDevice, buffer, nullptr);
-        }
-
-        uint32_t size() const { return mSize; }
-
-        int resize(uint32_t newSize) {
-            if (newSize == mSize) return 0;
-            mSize = newSize;
-            bool wasMapped = (map != nullptr);
-            free();
-            allocateInternal();
-            if (wasMapped) mapMemory(mMapOffset, mMapSize, mMapFlags);
-            return 1;
-        }
-
-    private:
-        VkDevice mDevice;
-        VkPhysicalDevice mPhysicalDevice;
-        uint32_t mSize;
-        VkBufferUsageFlags mUsage;
-        VkMemoryPropertyFlags mProperty;
-        VkSharingMode mSharingMode;
-        std::vector<uint32_t> mQueueFamilyIndices;
-        VkDeviceSize mMapOffset;
-        VkDeviceSize mMapSize;
-        VkMemoryMapFlags mMapFlags;
-
-        void allocateInternal() {
-            VkBufferCreateInfo createInfo{};
-            createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            createInfo.size = mSize;
-            createInfo.usage = mUsage;
-            createInfo.sharingMode = mSharingMode;
-            createInfo.pQueueFamilyIndices = mQueueFamilyIndices.data();
-            createInfo.queueFamilyIndexCount = mQueueFamilyIndices.size();
-            
-            TOF(vkCreateBuffer(mDevice, &createInfo, nullptr, &buffer));
-
-            VkMemoryRequirements memReq{};
-            vkGetBufferMemoryRequirements(mDevice, buffer, &memReq);
-
-            VkMemoryAllocateInfo allocInfo{};
-            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocInfo.allocationSize = memReq.size;
-            allocInfo.memoryTypeIndex = findMemoryType(mPhysicalDevice, memReq.memoryTypeBits, mProperty);
-
-            TOF(vkAllocateMemory(mDevice, &allocInfo, nullptr, &memory));
-            TOF(vkBindBufferMemory(mDevice, buffer, memory, 0));
-        }
+struct Swapchain {
 
 };
+
 
 
 class FramebuffersHolder {
     public:
-        void construct(Swapchain& swapchain, VkDevice device, VkRenderPass renderPass);
+        void construct(Logger* pLogger, Swapchain& swapchain, VkDevice device, VkRenderPass renderPass);
         void destroy() noexcept;
         const VkFramebuffer& getFramebuffer(uint32_t index) const { return mFramebuffers[index]; };
     private:
+        Logger* mpLogger;
         std::vector<VkFramebuffer> mFramebuffers;
         VkDevice mDevice;
 };
+
+
+struct WindowContext;
 
 
 struct RenderPass {
     VkRenderPass mRenderPass = VK_NULL_HANDLE;
     VkPipelineLayout mDebugLinesPipelineLayout = VK_NULL_HANDLE;
     VkPipeline mDebugLinesPipeline = VK_NULL_HANDLE;
-    VkPipelineLayout mGUIPipelineLayout = VK_NULL_HANDLE;
-    VkPipeline mGUIPipeline = VK_NULL_HANDLE;
     VkDevice mDevice = VK_NULL_HANDLE;
-    void construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, Swapchain& swapchain);
+    void construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, WindowContext& ctx);
     void destroy() noexcept;
 };
 
 
 struct WindowContext {
+
+    TprWindow windowHandle;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
-    Swapchain swapchain;
-    FramebuffersHolder framebuffers;
-    std::shared_ptr<RenderPass> renderPass;
+
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+
+    std::vector<VkSemaphore> semaphores;
+
+    std::vector<VkImage> chainImages;
+    std::vector<VkImageView> chainImageViews;
+    VkFormat chainImageFormat;
+
+    std::vector<VkImage> depthImages;
+    std::vector<VkImageView> depthImageViews;
+    std::vector<VkDeviceMemory> depthImageMemories;
+    VkFormat depthImageFormat;
+
+    VkExtent2D extent;
+    uint32_t imageCount = 0;
+
+    std::vector<VkFramebuffer> framebuffers;
     std::vector<Frame> frames;
-    TprWindow handle;
+    std::shared_ptr<RenderPass> renderPass;
+};
+
+
+struct Buffer {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    void* map = nullptr;
+    uint32_t size;
+    VkBufferUsageFlags usage;
+    VkMemoryPropertyFlags property;
+    VkSharingMode sharingMode;
+    std::vector<uint32_t> queueFamilyIndices;
+    VkDeviceSize mapOffset;
+    VkDeviceSize mapSize;
+    VkMemoryMapFlags mapFlags;
 };
 
 
@@ -310,6 +154,43 @@ struct VulkanSymbols {
     SYM_FIELD(vkEnumerateInstanceVersion);
     SYM_FIELD(vkEnumerateInstanceLayerProperties);
     SYM_FIELD(vkEnumerateInstanceExtensionProperties);
+    SYM_FIELD(vkCreateInstance);
+    SYM_FIELD(vkCreateDebugUtilsMessengerEXT);
+    SYM_FIELD(vkEnumeratePhysicalDevices);
+    SYM_FIELD(vkGetPhysicalDeviceProperties);
+    SYM_FIELD(vkCreateDevice);
+    SYM_FIELD(vkGetDeviceQueue);
+    SYM_FIELD(vkGetPhysicalDeviceMemoryProperties);
+    SYM_FIELD(vkCreateBuffer);
+    SYM_FIELD(vkGetBufferMemoryRequirements);
+    SYM_FIELD(vkAllocateMemory);
+    SYM_FIELD(vkBindBufferMemory);
+    SYM_FIELD(vkMapMemory);
+    SYM_FIELD(vkUnmapMemory);
+    SYM_FIELD(vkFreeMemory);
+    SYM_FIELD(vkDestroyBuffer);
+    SYM_FIELD(vkCreateSemaphore);
+    SYM_FIELD(vkCreateFence);
+    SYM_FIELD(vkCreateCommandPool);
+    SYM_FIELD(vkAllocateCommandBuffers);
+    SYM_FIELD(vkDestroyCommandPool);
+    SYM_FIELD(vkDestroyFence);
+    SYM_FIELD(vkDestroySemaphore);
+    SYM_FIELD(vkDestroySurfaceKHR);
+    SYM_FIELD(vkGetPhysicalDeviceSurfaceFormatsKHR);
+    SYM_FIELD(vkGetPhysicalDeviceSurfacePresentModesKHR);
+    SYM_FIELD(vkDestroySwapchainKHR);
+    SYM_FIELD(vkCreateSwapchainKHR);
+    SYM_FIELD(vkGetSwapchainImagesKHR);
+    SYM_FIELD(vkCreateImageView);
+    SYM_FIELD(vkCreateImage);
+    SYM_FIELD(vkGetImageMemoryRequirements);
+    SYM_FIELD(vkBindImageMemory);
+    SYM_FIELD(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+    SYM_FIELD(vkDestroyImageView);
+    SYM_FIELD(vkDestroyImage);
+    SYM_FIELD(vkCreateFramebuffer);
+    SYM_FIELD(vkDestroyFramebuffer);
 };
 
 
@@ -317,18 +198,17 @@ class HardwareLayerVulkan : public HardwareLayer {
 
     public:
 
-        HardwareLayerVulkan(Logger& rLogger, ResourceRegistry& rResReg);
-        TprResult init(
-            WindowManager* pWinMan, uint8_t engineVersionVariant, uint8_t engineVersionMajor,
-            uint8_t engineVersionMinor, uint8_t engineVersionPatch
-        ) override;
+        HardwareLayerVulkan(
+            Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, uint8_t engineVersionVariant,
+            uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+        );
 
         ~HardwareLayerVulkan() noexcept;
 
         void update() override;
         
-        uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).swapchain.extent().width; }
-        uint32_t getFrameHeight(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).swapchain.extent().height; }
+        uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).extent.width; }
+        uint32_t getFrameHeight(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).extent.height; }
         
         TprResult registerWindow(TprWindow handle) noexcept override;
 
@@ -341,24 +221,39 @@ class HardwareLayerVulkan : public HardwareLayer {
 
     private:
 
+        // buffer functions
+        TprResult allocateBuffer(
+            Buffer& buffer, uint32_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
+            VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE, const uint32_t* pQueueFamilyIndices = nullptr, uint32_t queueFamilyIndexCount = 0
+        );
+        TprResult mapBufferMemory(Buffer& buffer, VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE, VkMemoryMapFlags flags = 0);
+        void unmapBufferMemory(Buffer& buffer) noexcept;
+        void freeBuffer(Buffer& buffer) noexcept;
+        TprResult resizeBuffer(Buffer& buffer, uint32_t newSize);
+
+        // frame functions
+        TprResult constructFrame(Frame& frame, uint32_t queueFamilyIndex);
+        void destroyFrame(Frame& frame) noexcept;
+
+        // window context functions
+        TprResult constructWindowContext(WindowContext& ctx, uint32_t queueFamilyIndex, TprWindow window, bool constructSurface = true);
+        TprResult reconstructWindowContext(WindowContext& ctx);
+        void destroyWindowContext(WindowContext& ctx) noexcept;
+
+        // utility functions
+        expected<uint32_t, TprResult> findMemoryType(uint32_t memType, VkMemoryPropertyFlags property);
+
         Logger& mrLogger;
         ResourceRegistry& mrResReg;
-
-        WindowManager* mpWinMan;
-
+        WindowManager& mrWinMan;
         VulkanSymbols mSym;
 
         VkInstance mInstance = VK_NULL_HANDLE;
         uint32_t mApiVer;
         VkDevice mDevice = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT mDebugMessenger = VK_NULL_HANDLE;
-
         std::vector<const char*> mInstanceExtensions;
-
         Buffer mDebugLinesBuffer;
-        Buffer mGUIVertexBuffer;
-        Buffer mGUIIndexBuffer;
-        
         VkPhysicalDevice mPhysicalDevice;
         VkQueue mRenderQueue;
 

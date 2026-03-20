@@ -3,6 +3,7 @@
 #include "tempor.hpp"
 #include "hardware_common_structs.hpp"
 #include "core.hpp"
+#include "hardware_layer_interface.hpp"
 #include "plugin.h"
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
@@ -40,6 +41,10 @@ ResourceRegistry& TemporEngine::getResourceRegistry() {
 
 WindowManager& TemporEngine::getWindowManager() {
     return mServHolder.get<WindowManager>();
+}
+
+HardwareLayer& TemporEngine::getHWLI() {
+    return *mServHolder.get<std::unique_ptr<HardwareLayer>>();
 }
 
 
@@ -119,17 +124,11 @@ int TemporEngine::init() {
 
             mpLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend=" << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "...\n";
 
-            // 1. creating window manager independently with manifest's info
             WindowManager* localWinMan = &mServHolder.construct<WindowManager>(manifest.graphicsBackend, *mpLogger, mAliveTokens);
 
-            // 2. creating HWLI independently
-            HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(*mpLogger, *mpResReg)).get();
-
-            // 3. passing pointer to HWLI to window manager
-            localWinMan->setHWLI(localHWLI);
-
-            // 4. HWLI init
-            localHWLI->init(localWinMan, 0, 1, 0, 0);
+            HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(
+                *mpLogger, *mpResReg, *localWinMan, 0, 1, 0, 0
+            )).get();
 
             mpWinMan = localWinMan;
             mpHWLI = localHWLI;
@@ -139,6 +138,11 @@ int TemporEngine::init() {
             mServHolder.destruct<WindowManager>();
             mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
 
+        } catch (TprResult r) {
+            mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << " [" << r << "]\n";
+            mServHolder.destruct<WindowManager>();
+            mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
+            
         } catch (...) {
             mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << "\n";
             mServHolder.destruct<WindowManager>();

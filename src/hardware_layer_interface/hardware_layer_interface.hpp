@@ -30,11 +30,7 @@ class HardwareLayer {
 
     public:
 
-        virtual TprResult init(
-            WindowManager* pWinMan, uint8_t engineVersionVariant, uint8_t engineVersionMajor,
-            uint8_t engineVersionMinor, uint8_t engineVersionPatch
-        ) = 0;
-
+        HardwareLayer() = default;
         virtual ~HardwareLayer() noexcept = default;
 
         virtual void update() = 0;
@@ -44,12 +40,6 @@ class HardwareLayer {
         
         virtual TprResult registerWindow(TprWindow handle) noexcept = 0;
         virtual void unregisterWindow(TprWindow handle) noexcept = 0;
-        
-        // virtual void beginRenderPass(const Scissor* pScissor = nullptr, const Viewport* pViewport = nullptr) = 0;
-        // virtual void renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject = CameraProject::Ortho) = 0;
-        // virtual void renderGUI(const GUIDrawDesc& desc) = 0;
-        // virtual void endRenderPass() = 0;
-        // virtual void nextSubpass() = 0;
 
         virtual void render(const RenderGraph& renderGraph) = 0;
 
@@ -68,7 +58,10 @@ struct type_name<std::unique_ptr<HardwareLayer>> {
 struct HardwareLayerManifest {
 
     GraphicsBackend graphicsBackend;
-    std::function<std::unique_ptr<HardwareLayer>(Logger& rLogger, ResourceRegistry& rResReg)> factory;
+    std::function<std::unique_ptr<HardwareLayer>(
+        Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, uint8_t engineVersionVariant,
+        uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+    )> factory;
     std::string name;
 
 };

@@ -34,13 +34,12 @@ class WindowManager {
         ~WindowManager() noexcept;
         WindowManager(const WindowManager& other) = delete;
         void update();
-        void setHWLI(HardwareLayer* pHWLI);
 
         std::vector<TprWindow> getWindows();
 
         // vulkan-specific functional
-        std::vector<const char*> getExtensionsVk(TprWindow handle) const;
-        VkSurfaceKHR createSurfaceVk(TprWindow handle, VkInstance instance) const;
+        expected<std::vector<const char*>, TprResult> getExtensionsVk(TprWindow handle) const;
+        expected<VkSurfaceKHR, TprResult> createSurfaceVk(TprWindow handle, VkInstance instance) const;
 
         // plugin API
         expected<TprWindow, TprResult> openWindow(const TprWindowCreateInfo* pCreateInfo) noexcept;
@@ -78,7 +77,6 @@ class WindowManager {
 
         Logger& mrLogger;
         std::atomic<int32_t>& mrAliveTokens;
-        HardwareLayer* mpHWLI = nullptr;
 
         Uint32 mWindowFlags = 0;
         uint32_t mWindowCounter = 0;

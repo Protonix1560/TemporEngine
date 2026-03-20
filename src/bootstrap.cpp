@@ -1,5 +1,6 @@
 
 
+#include "hardware_layer_interface.hpp"
 #if !defined(__linux__)
     #error "Unsupported OS type"
 #endif
@@ -235,17 +236,28 @@ namespace {
         namespace wm {
             TprResult openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept { return std_handler([=]() {
                 WindowManager& win = g_engine->getWindowManager();
+                HardwareLayer& hwli = g_engine->getHWLI();
+                TprWindow handle;
                 auto exp = win.openWindow(pCreateInfo);
                 if (exp.has_value()) {
-                    *pWindow = exp.value();
+                    handle = exp.value();
                 } else {
                     return exp.error();
                 }
+                TprResult r = hwli.registerWindow(handle);
+                // TODO: add HWLI recreation when result is TPR_INSUFFICIENT_INIT
+                if (r < 0) {
+                    win.closeWindow(handle);
+                    return r;
+                }
+                *pWindow = handle;
                 return TPR_SUCCESS;
             })(); }
 
             void closeWindow(TprWindow window) noexcept { return std_handler([=]() {
+                HardwareLayer& hwli = g_engine->getHWLI();
                 WindowManager& win = g_engine->getWindowManager();
+                hwli.unregisterWindow(window);
                 win.closeWindow(window);
             })(); }
         }

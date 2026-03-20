@@ -26,14 +26,6 @@ class Logger;
 
 
 
-struct HWLCreateInfo {
-    WindowManager& rWinMan;
-    Logger& rLogger;
-    ResourceRegistry& rResReg;
-};
-
-
-
 class HardwareLayer {
 
     public:
@@ -48,23 +40,17 @@ class HardwareLayer {
         
         virtual TprResult registerWindow(TprWindow handle) noexcept = 0;
         virtual void unregisterWindow(TprWindow handle) noexcept = 0;
-        
-        // virtual void beginRenderPass(const Scissor* pScissor = nullptr, const Viewport* pViewport = nullptr) = 0;
-        // virtual void renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject = CameraProject::Ortho) = 0;
-        // virtual void renderGUI(const GUIDrawDesc& desc) = 0;
-        // virtual void endRenderPass() = 0;
-        // virtual void nextSubpass() = 0;
 
-        virtual void render(const RenderGraph& renderGraph) = 0;
+        virtual TprResult render(const RenderGraph& renderGraph) = 0;
 
 };
 
-REGISTER_TYPE_NAME_S(HardwareLayer, "PHWL");
+REGISTER_TYPE_NAME_S(HardwareLayer, "HWLI");
 
 template <>
 struct type_name<std::unique_ptr<HardwareLayer>> {
-    static constexpr comptime_string<sizeof("PHardwareLayer")> value{"PHardwareLayer"};
-    static constexpr comptime_string<sizeof("PHWL")> value_short{"PHWL"};
+    static constexpr consteval_string<sizeof("PHardwareLayer")> value{"PHardwareLayer"};
+    static constexpr consteval_string<sizeof("PHWL")> value_short{"PHWL"};
 };
 
 
@@ -72,7 +58,10 @@ struct type_name<std::unique_ptr<HardwareLayer>> {
 struct HardwareLayerManifest {
 
     GraphicsBackend graphicsBackend;
-    std::function<std::unique_ptr<HardwareLayer>(HWLCreateInfo& createInfo)> factory;
+    std::function<std::unique_ptr<HardwareLayer>(
+        Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, uint8_t engineVersionVariant,
+        uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+    )> factory;
     std::string name;
 
 };

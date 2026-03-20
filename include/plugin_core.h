@@ -54,6 +54,7 @@ typedef enum TprResult {
     TPR_CONTRACT_VIOLATION = -7,
     TPR_NOT_PERMITTED = -8,
     TPR_USER_CODE_ERROR = -9,
+    TPR_NOT_SUPPORTED = -10,
     TPR_RESULT_MAX_ENUM = INT32_MAX
 } TprResult;
 

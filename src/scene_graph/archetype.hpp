@@ -4,7 +4,6 @@
 #define SCENE_MANAGER_ARCHETYPE_HPP_
 
 
-#include "core.hpp"
 #include "logger.hpp"  // IWYU pragma: keep
 
 #include <algorithm>
@@ -21,7 +20,7 @@ class PackedArray {
         PackedArray(size_t elSize = 1, size_t size = 0)
             : mElSize(elSize), mSize(size) {
                 if (elSize == 0) {
-                    throw Exception(ErrCode::InternalError, "PackedArray: elSize must be greater or equal to 1");
+                    throw std::runtime_error("PackedArray: elSize must be greater or equal to 1");
                 }
                 if (size != 0) {
                     mData.resize(mElSize * size);
@@ -84,7 +83,7 @@ class Archetype {
             mEntityCount = 0;
 
             if (components.size() > UINT32_MAX) {
-                throw Exception(ErrCode::InternalError, "Archetype::create: components.size() must be compatible with 32-bit integer");
+                throw std::runtime_error("Archetype::create: components.size() must be compatible with 32-bit integer");
             }
 
             mComponentsData.resize(components.size());
@@ -97,7 +96,7 @@ class Archetype {
                     }
                 )->id;
                 if (maxComponentId == UINT32_MAX) {
-                    throw Exception(ErrCode::InternalError, "Archetype::create: max allowed component id is 2^32-2");
+                    throw std::runtime_error("Archetype::create: max allowed component id is 2^32-2");
                 }
                 mComponentsSparse.assign(maxComponentId + 1, UINT32_MAX);
 

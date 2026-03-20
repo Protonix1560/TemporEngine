@@ -2,14 +2,16 @@
 #ifndef PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
 #define PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
 
+#include "core.hpp"
 #include "plugin.h"
 #include "plugin_common_structs.hpp"
-#include "core.hpp"
 #include "plugin_core.h"
 
 #ifdef LINUX
     #include "linux_helper.hpp"
 #endif
+
+#include <atomic>
 
 
 class Plugin {

@@ -3,6 +3,7 @@
 #include "tempor.hpp"
 #include "hardware_common_structs.hpp"
 #include "core.hpp"
+#include "hardware_layer_interface.hpp"
 #include "plugin.h"
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
@@ -42,6 +43,10 @@ WindowManager& TemporEngine::getWindowManager() {
     return mServHolder.get<WindowManager>();
 }
 
+HardwareLayer& TemporEngine::getHWLI() {
+    return *mServHolder.get<std::unique_ptr<HardwareLayer>>();
+}
+
 
 
 TemporEngine::TemporEngine(size_t verboseLevel, const TprEngineAPI* api)
@@ -49,7 +54,6 @@ TemporEngine::TemporEngine(size_t verboseLevel, const TprEngineAPI* api)
 
     mpLogger = &mServHolder.construct<Logger>(5);
     mpLogger->setVerbosityLevel(verboseLevel);
-    gGetServiceLocator()->provide(mpLogger);
 
     mpLogger->info(TPR_LOG_STYLE_STANDART) << "Tempor Engine " << BUILD_VERSION << " (build datetime: " << BUILD_DATETIME << ")\n";
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Infrastructure service initialization now\n";
@@ -81,7 +85,7 @@ int TemporEngine::init() {
     try {
         mainJson = njson::parse(confBegin, confEnd);
     } catch (const njson::exception& e) {
-        throw Exception(ErrCode::FormatError, "Failed to parse config \""s + confPath.string() + "\""s);
+        throw std::runtime_error("Failed to parse config \""s + confPath.string() + "\""s);
     }
 
     // reading configs
@@ -89,7 +93,7 @@ int TemporEngine::init() {
         mainJson.contains("asset") && mainJson["asset"].contains("format") &&
         mainJson["asset"]["format"].get<std::string>() == "tempor" && mainJson["asset"].contains("version")
     )) {
-        throw Exception(ErrCode::FormatError, "Config \""s + confPath.string() + "\" is corrupted"s);
+        throw std::runtime_error("Config \""s + confPath.string() + "\" is corrupted"s);
     }
 
     int major = 0, minor = 0, patch = 0;
@@ -99,7 +103,7 @@ int TemporEngine::init() {
         size_t verDigitSize = 0;
         int i = 0;
         while (verDigitSize != std::string::npos) {
-            if (i == std::size(numbers)) throw Exception(ErrCode::FormatError, "Invalid config \""s + confPath.string() + "\" version"s);
+            if (i == std::size(numbers)) throw std::runtime_error("Invalid config \""s + confPath.string() + "\" version"s);
             verDigitSize = mainJsonVersionStr.find('.');
             *numbers[i] = std::stoi(mainJsonVersionStr.substr(0, verDigitSize));
             mainJsonVersionStr = mainJsonVersionStr.substr(verDigitSize + 1);
@@ -121,29 +125,33 @@ int TemporEngine::init() {
             mpLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend=" << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "...\n";
 
             WindowManager* localWinMan = &mServHolder.construct<WindowManager>(manifest.graphicsBackend, *mpLogger, mAliveTokens);
-            gGetServiceLocator()->provide(localWinMan);
-            HWLCreateInfo hWLCreateInfo = {
-                *localWinMan, *mpLogger, *mpResReg
-            };
-            HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(hWLCreateInfo)).get();
+
+            HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(manifest.factory(
+                *mpLogger, *mpResReg, *localWinMan, 0, 1, 0, 0
+            )).get();
 
             mpWinMan = localWinMan;
             mpHWLI = localHWLI;
 
         } catch (const std::exception& e) {
             mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << ":\n" << e.what() << "\n";
-            gGetServiceLocator()->provide<WindowManager>(nullptr);
             mServHolder.destruct<WindowManager>();
             mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
 
+        } catch (TprResult r) {
+            mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << " [" << r << "]\n";
+            mServHolder.destruct<WindowManager>();
+            mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
+            
         } catch (...) {
             mpLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << "\n";
-            gGetServiceLocator()->provide<WindowManager>(nullptr);
             mServHolder.destruct<WindowManager>();
             mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
         }
 
     }
+
+    constexpr auto i = logPrxPHWL() + "Hello!";
 
     if (!mpHWLI) {
         mpLogger->warn(TPR_LOG_STYLE_WARN1) << "Failed to initialize any hardware layer. Continuing without it\n";
@@ -218,7 +226,10 @@ int TemporEngine::run() {
                 cfg.viewport.maxDepth = 1.0f;
                 graph.windows.emplace_back(window, cfg);
             }
-            mpHWLI->render(graph);
+            TprResult renderResult = mpHWLI->render(graph);
+            if (renderResult < 0) {
+                return -1;
+            }
         }
 
         if (mSigInt || mSigTerm) {

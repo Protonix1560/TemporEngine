@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <vulkan/vulkan_core.h>
 
 
 
@@ -23,16 +24,16 @@ WindowManager::WindowManager(GraphicsBackend backend, Logger& logger, std::atomi
     
     switch (backend) {
         case GraphicsBackend::None:
-            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager without a graphics backend\n";
+            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << logPrxWinM() << "Initializing window manager without a graphics backend\n";
             break;
 
         case GraphicsBackend::Unknown:
-            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with an unknown graphics backend\n";
+            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << logPrxWinM() << "Initializing window manager with an unknown graphics backend\n";
             break;
 
         case GraphicsBackend::Vulkan:
             mWindowFlags |= SDL_WINDOW_VULKAN;
-            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with Vulkan\n";
+            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << logPrxWinM() << "Initializing window manager with Vulkan\n";
             break;
     }
 
@@ -163,14 +164,7 @@ WindowManager::~WindowManager() noexcept {
 }
 
 
-void WindowManager::setHWLI(HardwareLayer* pHWLI) {
-    mpHWLI = pHWLI;
-}
-
-
 expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateInfo* pCreateInfo) noexcept {
-
-    assert(mpHWLI != nullptr);
 
     if (!pCreateInfo) return unexpected(TPR_INVALID_VALUE);
 
@@ -218,13 +212,6 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
 
     auto it = mWindows.emplace(index, window).first;
 
-    TprResult regRes = mpHWLI->registerWindow(window.handle);
-    if (regRes < 0) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "Failed to create window: failed to register window in HWLI\n";
-        mWindows.erase(it);
-        return unexpected(regRes);
-    }
-
     mrAliveTokens++;
 
     mrLogger.debug() << logPrxWinM() << "Opened window " << index << " width SDL WindowID " << window.id << "\n";
@@ -246,7 +233,6 @@ void WindowManager::closeWindow(TprWindow handle) noexcept {
 
 void WindowManager::destroyWindow(Window& window) noexcept {
     SDL_DestroyWindow(window.window);
-    if (mpHWLI) mpHWLI->unregisterWindow(window.handle);
     for (auto& [index, action] : window.actions) {
         mActionMap.erase(index);
     }
@@ -391,30 +377,28 @@ void WindowManager::update() {
 }
 
 
-std::vector<const char*> WindowManager::getExtensionsVk(TprWindow handle) const {
-    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw std::runtime_error(logPrxWinM() + "Was not initialized with Vulkan support");
+expected<std::vector<const char*>, TprResult> WindowManager::getExtensionsVk(TprWindow handle) const {
+    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) return unexpected(TPR_NOT_SUPPORTED);
     auto it = mWindows.find(get_basic_handle_index(handle));
-    if (it == mWindows.end()) throw std::runtime_error(logPrxWinM() + "Invalid window handle");
+    if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
     const Window& window = it->second;
     uint32_t count;
-    if (!SDL_Vulkan_GetInstanceExtensions(window.window, &count, nullptr))
-        throw std::runtime_error(logPrxWinM() + "Failed to get vulkan instance extensions");
+    if (!SDL_Vulkan_GetInstanceExtensions(window.window, &count, nullptr)) return unexpected(TPR_UNKNOWN_ERROR);
     std::vector<const char*> extensions(count);
-    if (!SDL_Vulkan_GetInstanceExtensions(window.window, &count, extensions.data()))
-        throw std::runtime_error(logPrxWinM() + "Failed to get vulkan instance extensions");
-    return std::move(extensions);
+    if (!SDL_Vulkan_GetInstanceExtensions(window.window, &count, extensions.data())) return unexpected(TPR_UNKNOWN_ERROR);
+    return extensions;
 }
 
 
-VkSurfaceKHR WindowManager::createSurfaceVk(TprWindow handle, VkInstance instance) const {
-    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) throw std::runtime_error(logPrxWinM() + "Was not initialized with Vulkan support");
+expected<VkSurfaceKHR, TprResult> WindowManager::createSurfaceVk(TprWindow handle, VkInstance instance) const {
+    if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) return unexpected(TPR_NOT_SUPPORTED);
     auto it = mWindows.find(get_basic_handle_index(handle));
-    if (it == mWindows.end()) throw std::runtime_error(logPrxWinM() + "Invalid window handle");
+    if (it == mWindows.end()) return unexpected(TPR_UNKNOWN_ERROR);;
     const Window& window = it->second;
     VkSurfaceKHR surface;
     if (!SDL_Vulkan_CreateSurface(window.window, instance, &surface)) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << SDL_GetError() << "\n";
-        throw std::runtime_error("Failed to create vulkan surface");
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << SDL_GetError() << "\n";
+        return unexpected(TPR_UNKNOWN_ERROR);;
     }
     return surface;
 }

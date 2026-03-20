@@ -169,6 +169,7 @@ class TemporEngine {
         Logger& getLogger();
         ResourceRegistry& getResourceRegistry();
         WindowManager& getWindowManager();
+        HardwareLayer& getHWLI();
 
     private:
         sleep_clock mClock;

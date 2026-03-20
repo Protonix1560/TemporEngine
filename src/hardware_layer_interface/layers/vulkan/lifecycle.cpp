@@ -180,7 +180,11 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         instanceCreateInfo.enabledLayerCount = layers.size();
         instanceCreateInfo.ppEnabledLayerNames = layers.data();
 
-        TOF(vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance));
+        result = mSym.vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance);
+        if (result != VK_SUCCESS) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateInstance failed [" << result << "]\n";
+            throw TPR_UNKNOWN_ERROR;
+        }
 
         mrLogger.debug() << logPrxPHWL() << "Created instance\n";
     }
@@ -326,6 +330,11 @@ HardwareLayerVulkan::HardwareLayerVulkan(
     SYM_LOAD_PFN(mSym, vkDestroyImage, mDevice);
     SYM_LOAD_PFN(mSym, vkCreateFramebuffer, mDevice);
     SYM_LOAD_PFN(mSym, vkDestroyFramebuffer, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateImage, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateRenderPass, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreatePipelineLayout, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateShaderModule, mDevice);
+    SYM_LOAD_PFN(mSym, vkCreateGraphicsPipelines, mDevice);
 
     mSym.vkGetDeviceQueue(mDevice, 0, 0, &mRenderQueue);
 
@@ -364,215 +373,6 @@ HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
 
 
 
-void RenderPass::construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, WindowContext& windowContext) {
-
-    mDevice = device;
-
-    // render pass
-    {
-
-        VkAttachmentDescription attachments[2] = {};
-        VkAttachmentDescription& swapchainAttachment = attachments[0];
-        swapchainAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        swapchainAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        swapchainAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        swapchainAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        swapchainAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        swapchainAttachment.format = windowContext.chainImageFormat;
-
-        VkAttachmentDescription& depthAttachment = attachments[1];
-        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthAttachment.format = windowContext.depthImageFormat;
-
-        VkSubpassDescription subpasses[1] = {};
-        VkSubpassDescription& subpass = subpasses[0];
-        VkAttachmentReference swapchainReference = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkAttachmentReference depthReference = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &swapchainReference;
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.pDepthStencilAttachment = &depthReference;
-
-        VkSubpassDependency dependencies[1] = {};
-        VkSubpassDependency& dependency = dependencies[0];
-        dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-        dependency.dstSubpass = 0;
-        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependency.srcAccessMask = 0;
-        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-
-        VkRenderPassCreateInfo renderPassCreateInfo{};
-        renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassCreateInfo.attachmentCount = std::size(attachments);
-        renderPassCreateInfo.pAttachments = attachments;
-        renderPassCreateInfo.subpassCount = std::size(subpasses);
-        renderPassCreateInfo.pSubpasses = subpasses;
-        renderPassCreateInfo.dependencyCount = std::size(dependencies);
-        renderPassCreateInfo.pDependencies = dependencies;
-
-        TOF(vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &mRenderPass));
-
-        rLogger.debug() << logPrxPHWL() + "Created render pass\n";
-
-    }
-
-    // debug lines pipeline
-    {
-
-        VkPushConstantRange pushConst{};
-        pushConst.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        pushConst.offset = 0;
-        pushConst.size = sizeof(DebugLinesPushConst);  
-
-        VkPipelineLayoutCreateInfo layoutCreateInfo{};
-        layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        layoutCreateInfo.pPushConstantRanges = &pushConst;
-        layoutCreateInfo.pushConstantRangeCount = 1;
-        
-        TOF(vkCreatePipelineLayout(mDevice, &layoutCreateInfo, nullptr, &mDebugLinesPipelineLayout));
-
-        VkPipelineColorBlendAttachmentState colourBlendAttach{};
-        colourBlendAttach.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colourBlendAttach.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendStateCreateInfo colourBlend{};
-        colourBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colourBlend.attachmentCount = 1;
-        colourBlend.pAttachments = &colourBlendAttach;
-
-        VkPipelineRasterizationStateCreateInfo raster{};
-        raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        raster.polygonMode = VK_POLYGON_MODE_FILL;
-        raster.cullMode = VK_CULL_MODE_NONE;
-        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        raster.lineWidth = 1.0f;
-
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-        
-        VkDynamicState dynamics[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dynamicState.pDynamicStates = dynamics;
-        dynamicState.dynamicStateCount = std::size(dynamics);
-
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-        VkPipelineShaderStageCreateInfo stages[2] = {};
-
-        VkShaderModule fragShader;
-        TprResource fragRes = rResReg.openResource("shaders/vulkan/debug_lines.frag.spv", 0, 4).value();
-        if (rResReg.sizeofResource(fragRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
-        VkShaderModuleCreateInfo fragModuleCreateInfo{};
-        fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        fragModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(fragRes).value());
-        fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(fragRes).value());
-        TOF(vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader));
-        
-        VkPipelineShaderStageCreateInfo& fragStage = stages[1];
-        fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        fragStage.module = fragShader;
-        fragStage.pName = "main";
-
-        VkShaderModule vertShader;
-        TprResource vertRes = rResReg.openResource("shaders/vulkan/debug_lines.vert.spv", 0, 4).value();
-        if (rResReg.sizeofResource(vertRes).value() > UINT32_MAX) throw Exception(ErrCode::IOError, "Shader size is greater that 4GiB");
-        VkShaderModuleCreateInfo vertModuleCreateInfo{};
-        vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        vertModuleCreateInfo.codeSize = static_cast<uint32_t>(rResReg.sizeofResource(vertRes).value());
-        vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(rResReg.getResourceConstPointer(vertRes).value());
-        TOF(vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader));
-
-        VkPipelineShaderStageCreateInfo& vertStage = stages[0];
-        vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertStage.module = vertShader;
-        vertStage.pName = "main";
-
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount = 1;
-        viewportState.scissorCount = 1;
-        viewportState.pViewports = nullptr;
-        viewportState.pScissors = nullptr;
-
-        VkVertexInputBindingDescription vertexBinding = DebugLineVertexVk::getBindDesc();
-        auto vertexAttribs = DebugLineVertexVk::getAttrDesc();
-
-        VkPipelineVertexInputStateCreateInfo vertexInput{};
-        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInput.pVertexBindingDescriptions = &vertexBinding;
-        vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexAttributeDescriptions = vertexAttribs.data();
-        vertexInput.vertexAttributeDescriptionCount = vertexAttribs.size();
-        
-        VkPipelineDepthStencilStateCreateInfo depthState{};
-        depthState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthState.depthBoundsTestEnable = VK_FALSE;
-        depthState.depthTestEnable = VK_FALSE;
-        depthState.depthWriteEnable = VK_FALSE;
-        depthState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-        depthState.stencilTestEnable = VK_FALSE;
-        depthState.minDepthBounds = 0.0f;
-        depthState.maxDepthBounds = 1.0f;
-
-        VkGraphicsPipelineCreateInfo pipelineCreateInfo{};
-        pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipelineCreateInfo.layout = mDebugLinesPipelineLayout;
-        pipelineCreateInfo.pColorBlendState = &colourBlend;
-        pipelineCreateInfo.pRasterizationState = &raster;
-        pipelineCreateInfo.pMultisampleState = &multisampling;
-        pipelineCreateInfo.pDynamicState = &dynamicState;
-        pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
-        pipelineCreateInfo.renderPass = mRenderPass;
-        pipelineCreateInfo.subpass = 0;
-        pipelineCreateInfo.pStages = stages;
-        pipelineCreateInfo.stageCount = std::size(stages);
-        pipelineCreateInfo.pViewportState = &viewportState;
-        pipelineCreateInfo.pVertexInputState = &vertexInput;
-        pipelineCreateInfo.pDepthStencilState = &depthState;
-
-        TOF(vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &mDebugLinesPipeline));
-
-        vkDestroyShaderModule(mDevice, fragShader, nullptr);
-        vkDestroyShaderModule(mDevice, vertShader, nullptr);
-
-        rLogger.debug() << logPrxPHWL() + "Created debug lines pipeline\n";
-    }
-
-}
-
-
-
-void RenderPass::destroy() noexcept {
-    if (mDebugLinesPipeline) {
-        vkDestroyPipeline(mDevice, mDebugLinesPipeline, nullptr);
-        mDebugLinesPipeline = VK_NULL_HANDLE;
-    }
-    if (mDebugLinesPipelineLayout) {
-        vkDestroyPipelineLayout(mDevice, mDebugLinesPipelineLayout, nullptr);
-        mDebugLinesPipelineLayout = VK_NULL_HANDLE;
-    }
-    if (mRenderPass) {
-        vkDestroyRenderPass(mDevice, mRenderPass, nullptr);
-        mRenderPass = VK_NULL_HANDLE;
-    }
-}
-
-
-
 TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
 
     TprResult result;
@@ -594,35 +394,9 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
             found_match: ;
         }
 
-        result = constructWindowContext(ctx, handle);
+        result = constructWindowContext(ctx, 0, handle);
         if (result < 0) return result;
 
-        for (const auto& [otherWindow, otherCtx] : mWindowContexts) {
-            if (
-                &otherCtx != &ctx && 
-                otherCtx.chainImageFormat == ctx.chainImageFormat &&
-                otherCtx.depthImageFormat == ctx.depthImageFormat
-            ) {
-                // can borrow the render pass from already existing window
-                mrLogger.debug() << logPrxPHWL() + "Sharing already existing render pass\n";
-                ctx.renderPass = otherCtx.renderPass;
-                goto have_valid_render_pass;
-            }
-        }
-
-        // need to create it's own
-        // because no existing windows have the exact same formats choosed
-        mrLogger.debug() << logPrxPHWL() + "Creating a new render pass\n";
-        ctx.renderPass = std::make_shared<RenderPass>();
-        ctx.renderPass->construct(mrLogger, mrResReg, mDevice, ctx);
-
-        have_valid_render_pass: ;
-
-        ctx.windowHandle = handle;
-
-    } catch (const Exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Expected exception [" << e.code() << "]: " << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
     } catch (const std::exception& e) {
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unxpected exception: " << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
@@ -641,28 +415,17 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
     if (mInstance != VK_NULL_HANDLE) {
         try {
 
-            TOF(vkDeviceWaitIdle(mDevice));
-            auto& ctx = mWindowContexts[get_basic_handle_index(handle)];
-            for (auto& frame : ctx.frames) {
-                destroyFrame(frame);
-            }
-            ctx.framebuffers.destroy();
-            if (ctx.renderPass) {
-                ctx.renderPass->destroy();
-                ctx.renderPass.reset();
-            }
-            ctx.swapchain.destroy();
-            if (ctx.surface) {
-                vkDestroySurfaceKHR(mInstance, ctx.surface, nullptr);
-                ctx.surface = VK_NULL_HANDLE;
-            }
+            VkResult result = vkDeviceWaitIdle(mDevice);
+            if (result != VK_SUCCESS) return;
+            WindowContext& ctx = mWindowContexts.at(get_basic_handle_index(handle));
+            destroyWindowContext(ctx);
 
         } catch (...) {}
     }
 }
 
 
-void HardwareLayerVulkan::render(const RenderGraph& graph) {
+TprResult HardwareLayerVulkan::render(const RenderGraph& graph) {
 
     mFrameCounter = (mFrameCounter + 1) % mMaxFramesInFlight;
     VkResult result;
@@ -678,46 +441,66 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
         // render pass begin
         {
 
-            TOF(vkWaitForFences(mDevice, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX));
+            result = vkWaitForFences(mDevice, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkWaitForFences failed [" << result << "]\n";
+                return TPR_UNKNOWN_ERROR;
+            }
 
-            TOF(vkResetCommandPool(mDevice, frame.commandPool, 0));
+            result = vkResetCommandPool(mDevice, frame.commandPool, 0);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkResetCommandPool failed [" << result << "]\n";
+                return TPR_UNKNOWN_ERROR;
+            }
 
             // auto resizing the swapchain if size changed
             // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
             TprBool8 resized;
             auto exp = mrWinMan.hasWindowResized(handle);
             if (!exp.has_value()) {
-                throw Exception(ErrCode::InternalError, logPrxPHWL() + "WindowManager::hasWindowResized returned error code "s + std::to_string(exp.error()));
+                return exp.error();
             }
             resized = exp.value();
-            // if (resized) {
-            //     TOF(vkDeviceWaitIdle(mDevice));
-            //     ctx.swapchain.construct(mPhysicalDevice, mDevice, ctx.surface, handle);
-            //     ctx.renderPass->mFramebuffers.destroy();
-            //     ctx.renderPass->mFramebuffers.construct(ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
-            // }
+            if (resized) {
+                result = vkDeviceWaitIdle(mDevice);
+                if (result != VK_SUCCESS) {
+                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+                    return TPR_UNKNOWN_ERROR;
+                }
+                reconstructWindowContext(ctx);
+                return TPR_SUCCESS;
+            }
 
             // acquiring swapchain image
-            result = vkAcquireNextImageKHR(mDevice, ctx.swapchain.swapchain(), UINT64_MAX, frame.imageAvailableSemaphore, VK_NULL_HANDLE, &swapchainImageIndex);
+            result = vkAcquireNextImageKHR(mDevice, ctx.swapchain, UINT64_MAX, frame.imageAvailableSemaphore, VK_NULL_HANDLE, &swapchainImageIndex);
             switch (result) {
                 case VK_ERROR_OUT_OF_DATE_KHR:
-                    mrLogger << "SWAPCHAIN ACQUIRED\n";
-                    TOF(vkDeviceWaitIdle(mDevice));
-                    ctx.swapchain.construct(&mrLogger, &mrWinMan, mPhysicalDevice, mDevice, ctx.surface, handle);
-                    ctx.framebuffers.destroy();
-                    ctx.framebuffers.construct(&mrLogger, ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
-                    return;
+                    result = vkDeviceWaitIdle(mDevice);
+                    if (result != VK_SUCCESS) {
+                        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+                        return TPR_UNKNOWN_ERROR;
+                    }
+                    reconstructWindowContext(ctx);
+                    return TPR_SUCCESS;
+
                 case VK_SUBOPTIMAL_KHR: break;
                 case VK_SUCCESS: break;
-                default: throw Exception(ErrCode::InternalError, "Failed to acquire swapchain image");
+
+                default:
+                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkAcquireNextImageKHR failed [" << result << "]\n";
+                    return TPR_UNKNOWN_ERROR;
             }
-            swapchainImage = ctx.swapchain.getChainImage(swapchainImageIndex);
+            swapchainImage = ctx.chainImages[swapchainImageIndex];
 
             // render command buffer begin
             VkCommandBufferBeginInfo commandBeginInfo{};
             commandBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             commandBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            TOF(vkBeginCommandBuffer(frame.renderCommandBuffer(), &commandBeginInfo));
+            result = vkBeginCommandBuffer(frame.renderCommandBuffer(), &commandBeginInfo);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkBeginCommandBuffer failed [" << result << "]\n";
+                return TPR_UNKNOWN_ERROR;
+            }
 
             // render pass begin
             VkClearValue chainClearValues[2];
@@ -725,14 +508,14 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             chainClearValues[1].depthStencil = {1.0f, 0};
             VkRenderPassBeginInfo renderPassBeginInfo{};
             renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            renderPassBeginInfo.renderArea.extent.width = ctx.swapchain.extent().width;
-            renderPassBeginInfo.renderArea.extent.height = ctx.swapchain.extent().height;
+            renderPassBeginInfo.renderArea.extent.width = ctx.extent.width;
+            renderPassBeginInfo.renderArea.extent.height = ctx.extent.height;
             renderPassBeginInfo.renderArea.offset.x = 0;
             renderPassBeginInfo.renderArea.offset.y = 0;
-            renderPassBeginInfo.renderPass = ctx.renderPass->mRenderPass;
+            renderPassBeginInfo.renderPass = ctx.renderPass.renderPass;
             renderPassBeginInfo.clearValueCount = std::size(chainClearValues);
             renderPassBeginInfo.pClearValues = chainClearValues;
-            renderPassBeginInfo.framebuffer = ctx.framebuffers.getFramebuffer(swapchainImageIndex);
+            renderPassBeginInfo.framebuffer = ctx.framebuffers[swapchainImageIndex];
             vkCmdBeginRenderPass(frame.renderCommandBuffer(), &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
             // scissor
@@ -761,9 +544,17 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
 
             vkCmdEndRenderPass(frame.renderCommandBuffer());
 
-            TOF(vkEndCommandBuffer(frame.renderCommandBuffer()));
+            result = vkEndCommandBuffer(frame.renderCommandBuffer());
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkEndCommandBuffer failed [" << result << "]\n";
+                return TPR_UNKNOWN_ERROR;
+            }
 
-            TOF(vkResetFences(mDevice, 1, &frame.inFlightFence));
+            result = vkResetFences(mDevice, 1, &frame.inFlightFence);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkResetFences failed [" << result << "]\n";
+                return TPR_UNKNOWN_ERROR;
+            }
 
             // submitting render queue
             VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -774,34 +565,44 @@ void HardwareLayerVulkan::render(const RenderGraph& graph) {
             submitInfo.waitSemaphoreCount = 1;
             submitInfo.pWaitSemaphores = &frame.imageAvailableSemaphore;
             submitInfo.signalSemaphoreCount = 1;
-            submitInfo.pSignalSemaphores = &ctx.swapchain.getSemaphore(swapchainImageIndex);
+            submitInfo.pSignalSemaphores = &ctx.semaphores[swapchainImageIndex];
             submitInfo.pWaitDstStageMask = &waitStageMask;
-            TOF(vkQueueSubmit(mRenderQueue, 1, &submitInfo, frame.inFlightFence));
+            result = vkQueueSubmit(mRenderQueue, 1, &submitInfo, frame.inFlightFence);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkQueueSubmit failed [" << result << "]\n";
+                return TPR_UNKNOWN_ERROR;
+            }
 
             // submitting present queue
             VkPresentInfoKHR presentInfo{};
             presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             presentInfo.pImageIndices = &swapchainImageIndex;
-            presentInfo.pSwapchains = &ctx.swapchain.swapchain();
+            presentInfo.pSwapchains = &ctx.swapchain;
             presentInfo.swapchainCount = 1;
             presentInfo.waitSemaphoreCount = 1;
-            presentInfo.pWaitSemaphores = &ctx.swapchain.getSemaphore(swapchainImageIndex);
+            presentInfo.pWaitSemaphores = &ctx.semaphores[swapchainImageIndex];
             result = vkQueuePresentKHR(mRenderQueue, &presentInfo);
             switch (result) {
                 case VK_ERROR_OUT_OF_DATE_KHR:
                 case VK_SUBOPTIMAL_KHR:
-                    mrLogger << "SWAPCHAIN PRESENT\n";
-                    TOF(vkDeviceWaitIdle(mDevice));
-                    ctx.swapchain.construct(&mrLogger, &mrWinMan, mPhysicalDevice, mDevice, ctx.surface, handle);
-                    ctx.framebuffers.destroy();
-                    ctx.framebuffers.construct(&mrLogger, ctx.swapchain, mDevice, ctx.renderPass->mRenderPass);
-                    return;
+                    result = vkDeviceWaitIdle(mDevice);
+                    if (result != VK_SUCCESS) {
+                        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+                        return TPR_UNKNOWN_ERROR;
+                    }
+                    reconstructWindowContext(ctx);
+                    return TPR_SUCCESS;
+
                 case VK_SUCCESS: break;
-                default: throw Exception(ErrCode::InternalError, "Failed to present");
+
+                default:
+                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkQueuePresentKHR failed [" << result << "]\n";
+                    return TPR_UNKNOWN_ERROR;
             }
         }
     }
 
+    return TPR_SUCCESS;
 }
 
 

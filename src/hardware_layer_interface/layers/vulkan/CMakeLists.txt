@@ -26,8 +26,7 @@ add_library(
     lifecycle.cpp
     buffer.cpp
     utility.cpp
-    swapchain.cpp
-    frame.cpp
+    window_context.cpp
 )
 add_dependencies(hardware_layer_vulkan vulkan_shaders)
 target_link_libraries(

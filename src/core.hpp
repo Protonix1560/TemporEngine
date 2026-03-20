@@ -4,13 +4,13 @@
 #define CORE_HPP_
 
 
-#include <exception>
-#include <ostream>
+// #include <exception>
+// #include <ostream>
 #include <cstdint>
 #include <type_traits>
 #include <vector>
-#include <functional>
-#include <memory>
+// #include <functional>
+// #include <memory>
 #include <optional>
 #include <format>
 #include <array>
@@ -62,19 +62,6 @@ constexpr typename std::underlying_type<E>::type to_underlying(E e) {
 }
 
 template <typename> inline constexpr bool dependent_false_v = false;
-
-
-
-// recursive constexpr byte-by-byte copy function
-
-// template <size_t I, size_t N, size_t O = 0UL>
-// consteval void consteval_copy(const char* strsrc, char* strdst) {
-//     static_assert(O <= I, "consteval_copy: O > I");
-//     if constexpr (I < N) {
-//         strdst[I] = strsrc[I - O];
-//         consteval_copy<I + 1, N, O>(strsrc, strdst);
-//     }
-// }
 
 
 
@@ -584,130 +571,6 @@ class expected<void, E> {
         } m_data;
         bool m_has_value;
 };
-
-
-
-/*
-
-        TRASH FIELD  TRASH FIELD  TRASH FIELD  TRASH FIELD
-        TRASH FIELD  TRASH FIELD  TRASH FIELD  TRASH FIELD
-
-*/
-
-
-
-enum class ErrCode {
-    NoSupportError = -1,
-    InternalError = -2,
-    IOError = -3,
-    FormatError = -4,
-    PluginError = -5,
-    WrongValueError = -6,
-    AccessError = -7
-};
-
-
-
-inline std::ostream& operator<<(std::ostream& os, ErrCode code) {
-    return os << static_cast<std::underlying_type_t<ErrCode>>(code);
-}
-
-
-
-struct Exception : public std::exception {
-
-    public:
-
-        explicit Exception(ErrCode c, std::string msg = {})
-            : errCode(c), message(std::move(msg)) {}
-
-        template <size_t N>
-        explicit Exception(ErrCode c, consteval_string<N> msg = {})
-            : errCode(c), message(msg) {}
-
-        const char* what() const noexcept override {
-            if (message.empty()) {
-                return defaultMessage();
-            }
-            return message.c_str();
-        }
-
-        ErrCode code() const noexcept {
-            return errCode;
-        }
-    
-    private:
-        const char* defaultMessage() const noexcept {
-            switch (errCode) {
-                default: return "unknown error";
-            }
-        }
-
-        std::string message;
-        ErrCode errCode;
-
-};
-
-
-
-class ServiceLocator {
-    public:
-        template<typename T>
-        static void provide(T* service) {
-            getSlot<T>() = service;
-        }
-
-        template<typename T>
-        static T& get() {
-            T* s = getSlot<T>();
-            if (!s) throw Exception(ErrCode::InternalError, "Service " + type_name<T>::value + " is not provided");
-            return *s;
-        }
-
-        template<typename T>
-        static T* getPtr() {
-            T* s = getSlot<T>();
-            return s;
-        }
-
-        template <typename Base>
-        static void registerListFactory(std::function<std::unique_ptr<Base>()> factory) {
-            getFactoryList<Base>().push_back(std::move(factory));
-        }
-
-        template <typename Base>
-        static const std::vector<std::function<std::unique_ptr<Base>()>>& getListFactories() {
-            return getFactoryList<Base>();
-        }
-
-    private:
-        template<typename T>
-        static T*& getSlot() {
-            static T* instance = nullptr;
-            return instance;
-        }
-
-        template <typename Base>
-        static std::vector<std::function<std::unique_ptr<Base>()>>& getFactoryList() {
-            static std::vector<std::function<std::unique_ptr<Base>()>> list;
-            return list;
-        }
-};
-
-
-inline const ServiceLocator* gGetServiceLocator() {
-    static ServiceLocator sl;
-    return &sl;
-}
-
-
-template <typename Base>
-struct FactoryListRegistrar {
-    explicit FactoryListRegistrar(std::function<std::unique_ptr<Base>()> element) {
-        gGetServiceLocator()->registerListFactory(element);
-    }
-};
-
 
 
 

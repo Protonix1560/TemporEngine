@@ -97,8 +97,6 @@ class AssetStore {
 
         [[nodiscard]] TprResult validateHandle(TprAsset handle);
 
-        ServiceLocator mLoc;
-
         std::vector<std::variant<
             AssetModel
         >> mAssets;

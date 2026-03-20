@@ -41,7 +41,7 @@ class HardwareLayer {
         virtual TprResult registerWindow(TprWindow handle) noexcept = 0;
         virtual void unregisterWindow(TprWindow handle) noexcept = 0;
 
-        virtual void render(const RenderGraph& renderGraph) = 0;
+        virtual TprResult render(const RenderGraph& renderGraph) = 0;
 
 };
 

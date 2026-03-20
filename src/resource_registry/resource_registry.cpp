@@ -179,11 +179,6 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
 
         handle = construct_basic_handle<TprResource>(index, 0, handle_type::resource);
 
-    } catch (const Exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "[" << e.code() << "]: " << e.what() << "\n";
-        mResources.erase(index);
-        return unexpected(TPR_UNKNOWN_ERROR);
-
     } catch (const std::runtime_error& e) {
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << e.what() << "\n";
         mResources.erase(index);
@@ -519,11 +514,11 @@ expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprR
 std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::path dirpath, TprEnumDirFlags flags, size_t maxDepth) {
 
     if (!std::filesystem::exists(dirpath)) {
-        throw Exception(ErrCode::WrongValueError, logPrxRReg() + dirpath.string() + " doesn't exist");
+        throw std::runtime_error(logPrxRReg() + dirpath.string() + " doesn't exist");
     }
 
     if (!std::filesystem::is_directory(dirpath)) {
-        throw Exception(ErrCode::WrongValueError, logPrxRReg() + dirpath.string() + " is not a directory");
+        throw std::runtime_error(logPrxRReg() + dirpath.string() + " is not a directory");
     }
 
     std::vector<std::filesystem::path> entries;
@@ -608,7 +603,7 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
 std::filesystem::path ResourceRegistry::getResourceFilepath(TprResource handle) {
 
     TprResult validateResult = validateHandle(handle);
-    if (validateResult < 0) throw Exception(ErrCode::WrongValueError, "Invalid handle");
+    if (validateResult < 0) throw std::runtime_error("Invalid handle");
 
     TprResource resource = getRootResource(handle);
 
@@ -624,7 +619,7 @@ std::filesystem::path ResourceRegistry::getResourceFilepath(TprResource handle) 
         },
 
         [handle](auto& resource) -> void {
-            throw Exception(ErrCode::NoSupportError, "Getting filepath of resource: "s + std::to_string(handle._d) + " is not allowed");
+            throw std::runtime_error("Getting filepath of resource: "s + std::to_string(handle._d) + " is not allowed");
         }
 
     }, mResources[get_basic_handle_index(resource)]);

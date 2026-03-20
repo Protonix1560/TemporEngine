@@ -21,11 +21,7 @@
 
 
 
-AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg)
-    : mrLogger(rLogger), mrResReg(rRegReg)
-{
-    mLoc = *gGetServiceLocator();
-}
+AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg) : mrLogger(rLogger), mrResReg(rRegReg) {}
 
 
 AssetStore::~AssetStore() noexcept {
@@ -59,8 +55,6 @@ TprResult AssetStore::validateHandle(TprAsset handle) {
 
 
 expected<TprAsset, TprResult> AssetStore::loadAsset(const TprAssetLoadInfo* info) noexcept {
-
-    auto& mrResReg = mLoc.get<ResourceRegistry>();
 
     size_t index;
     if (!mFreeAssets.empty()) {

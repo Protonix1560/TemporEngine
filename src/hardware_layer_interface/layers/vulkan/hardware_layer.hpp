@@ -28,19 +28,6 @@
 
 
 
-struct Frame {
-
-    inline VkCommandBuffer& renderCommandBuffer() noexcept { return commandBuffers[0]; }
-    inline VkCommandBuffer& presentCommandBuffer() noexcept { return commandBuffers[1]; }
-
-    VkCommandPool commandPool = VK_NULL_HANDLE;
-    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-    VkFence inFlightFence = VK_NULL_HANDLE;
-    VkCommandBuffer commandBuffers[2] = {};
-};
-
-
-
 struct DebugLineVertexVk : public DebugLineVertex {
 
     static VkVertexInputBindingDescription getBindDesc() {
@@ -75,34 +62,22 @@ struct DebugLinesPushConst {
 
 
 
-struct Swapchain {
+struct Frame {
 
+    inline VkCommandBuffer& renderCommandBuffer() noexcept { return commandBuffers[0]; }
+    inline VkCommandBuffer& presentCommandBuffer() noexcept { return commandBuffers[1]; }
+
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
+    VkFence inFlightFence = VK_NULL_HANDLE;
+    VkCommandBuffer commandBuffers[2] = {};
 };
-
-
-
-class FramebuffersHolder {
-    public:
-        void construct(Logger* pLogger, Swapchain& swapchain, VkDevice device, VkRenderPass renderPass);
-        void destroy() noexcept;
-        const VkFramebuffer& getFramebuffer(uint32_t index) const { return mFramebuffers[index]; };
-    private:
-        Logger* mpLogger;
-        std::vector<VkFramebuffer> mFramebuffers;
-        VkDevice mDevice;
-};
-
-
-struct WindowContext;
 
 
 struct RenderPass {
-    VkRenderPass mRenderPass = VK_NULL_HANDLE;
-    VkPipelineLayout mDebugLinesPipelineLayout = VK_NULL_HANDLE;
-    VkPipeline mDebugLinesPipeline = VK_NULL_HANDLE;
-    VkDevice mDevice = VK_NULL_HANDLE;
-    void construct(Logger& rLogger, ResourceRegistry& rResReg, VkDevice device, WindowContext& ctx);
-    void destroy() noexcept;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkPipelineLayout debugLinesPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline debugLinesPipeline = VK_NULL_HANDLE;
 };
 
 
@@ -129,7 +104,8 @@ struct WindowContext {
 
     std::vector<VkFramebuffer> framebuffers;
     std::vector<Frame> frames;
-    std::shared_ptr<RenderPass> renderPass;
+    uint32_t poolQueueFamily;
+    RenderPass renderPass;
 };
 
 
@@ -191,6 +167,10 @@ struct VulkanSymbols {
     SYM_FIELD(vkDestroyImage);
     SYM_FIELD(vkCreateFramebuffer);
     SYM_FIELD(vkDestroyFramebuffer);
+    SYM_FIELD(vkCreateRenderPass);
+    SYM_FIELD(vkCreatePipelineLayout);
+    SYM_FIELD(vkCreateShaderModule);
+    SYM_FIELD(vkCreateGraphicsPipelines);
 };
 
 
@@ -214,7 +194,7 @@ class HardwareLayerVulkan : public HardwareLayer {
 
         void unregisterWindow(TprWindow handle) noexcept override;
 
-        void render(const RenderGraph& renderGraph) override;
+        TprResult render(const RenderGraph& renderGraph) override;
 
         [[deprecated]] void renderDebugLines(const std::vector<DebugLineVertex>& debugLinesVertices, CameraProject cameraProject = CameraProject::Ortho);
         [[deprecated]] void renderGUI(const GUIDrawDesc& desc);
@@ -231,12 +211,11 @@ class HardwareLayerVulkan : public HardwareLayer {
         void freeBuffer(Buffer& buffer) noexcept;
         TprResult resizeBuffer(Buffer& buffer, uint32_t newSize);
 
-        // frame functions
-        TprResult constructFrame(Frame& frame, uint32_t queueFamilyIndex);
-        void destroyFrame(Frame& frame) noexcept;
-
         // window context functions
-        TprResult constructWindowContext(WindowContext& ctx, uint32_t queueFamilyIndex, TprWindow window, bool constructSurface = true);
+        TprResult constructWindowContext(
+            WindowContext& ctx, uint32_t queueFamilyIndex, TprWindow window,
+            bool constructSurface = true, bool constructRenderPass = true
+        );
         TprResult reconstructWindowContext(WindowContext& ctx);
         void destroyWindowContext(WindowContext& ctx) noexcept;
 

@@ -12,12 +12,13 @@
 
 
 
-TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32_t queueFamilyIndex, TprWindow window, bool constructSurface) {
+TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32_t queueFamilyIndex, TprWindow window, bool constructSurface, bool constructRenderPass) {
 
     VkResult result;
 
     if (constructSurface) {
         ctx.windowHandle = window;
+        ctx.poolQueueFamily = queueFamilyIndex;
 
         auto surfaceExp = mrWinMan.createSurfaceVk(ctx.windowHandle, mInstance);
         if (!surfaceExp.has_value()) {
@@ -48,7 +49,7 @@ TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32
 
             VkCommandPoolCreateInfo poolCreateInfo{};
             poolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-            poolCreateInfo.queueFamilyIndex = queueFamilyIndex;
+            poolCreateInfo.queueFamilyIndex = ctx.poolQueueFamily;
             result = mSym.vkCreateCommandPool(mDevice, &poolCreateInfo, nullptr, &frame.commandPool);
             if (result != VK_SUCCESS) {
                 mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "constructWindowContext: vkCreateCommandPool failed [" << result << "]\n";
@@ -304,6 +305,7 @@ TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32
                 imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
                 imageCreateInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
                 imageCreateInfo.format = ctx.depthImageFormat;
+                // mrLogger << ctx.imageCount << ", " << i << "\n";
                 result = mSym.vkCreateImage(mDevice, &imageCreateInfo, nullptr, &ctx.depthImages[i]);
                 if (result != VK_SUCCESS) {
                     mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "constructWindowContext: vkCreateImage failed [" << result << "]\n";
@@ -372,7 +374,230 @@ TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32
                     return TPR_UNKNOWN_ERROR;
                 }
             }
+        }
 
+        // render pass
+        {
+
+            VkAttachmentDescription attachments[2] = {};
+            VkAttachmentDescription& swapchainAttachment = attachments[0];
+            swapchainAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            swapchainAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            swapchainAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            swapchainAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            swapchainAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            swapchainAttachment.format = ctx.chainImageFormat;
+
+            VkAttachmentDescription& depthAttachment = attachments[1];
+            depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            depthAttachment.format = ctx.depthImageFormat;
+
+            VkSubpassDescription subpasses[1] = {};
+            VkSubpassDescription& subpass = subpasses[0];
+            VkAttachmentReference swapchainReference = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+            VkAttachmentReference depthReference = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+            subpass.colorAttachmentCount = 1;
+            subpass.pColorAttachments = &swapchainReference;
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.pDepthStencilAttachment = &depthReference;
+
+            VkSubpassDependency dependencies[1] = {};
+            VkSubpassDependency& dependency = dependencies[0];
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
+            VkRenderPassCreateInfo renderPassCreateInfo{};
+            renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            renderPassCreateInfo.attachmentCount = std::size(attachments);
+            renderPassCreateInfo.pAttachments = attachments;
+            renderPassCreateInfo.subpassCount = std::size(subpasses);
+            renderPassCreateInfo.pSubpasses = subpasses;
+            renderPassCreateInfo.dependencyCount = std::size(dependencies);
+            renderPassCreateInfo.pDependencies = dependencies;
+
+            result = mSym.vkCreateRenderPass(mDevice, &renderPassCreateInfo, nullptr, &ctx.renderPass.renderPass);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "constructWindowContext: vkCreateRenderPass failed [" << result << "]\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+
+            mrLogger.debug() << logPrxPHWL() + "Created render pass\n";
+
+        }
+
+        // debug lines pipeline
+        {
+
+            VkPushConstantRange pushConst{};
+            pushConst.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+            pushConst.offset = 0;
+            pushConst.size = sizeof(DebugLinesPushConst);  
+
+            VkPipelineLayoutCreateInfo layoutCreateInfo{};
+            layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            layoutCreateInfo.pPushConstantRanges = &pushConst;
+            layoutCreateInfo.pushConstantRangeCount = 1;
+            
+            result = mSym.vkCreatePipelineLayout(mDevice, &layoutCreateInfo, nullptr, &ctx.renderPass.debugLinesPipelineLayout);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1)
+                    << logPrxPHWL() << "constructWindowContext: vkCreatePipelineLayout at debug lines pipeline creation failed [" << result << "]\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+
+            VkPipelineColorBlendAttachmentState colourBlendAttach{};
+            colourBlendAttach.colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+            colourBlendAttach.blendEnable = VK_FALSE;
+
+            VkPipelineColorBlendStateCreateInfo colourBlend{};
+            colourBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            colourBlend.attachmentCount = 1;
+            colourBlend.pAttachments = &colourBlendAttach;
+
+            VkPipelineRasterizationStateCreateInfo raster{};
+            raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            raster.polygonMode = VK_POLYGON_MODE_FILL;
+            raster.cullMode = VK_CULL_MODE_NONE;
+            raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            raster.lineWidth = 1.0f;
+
+            VkPipelineMultisampleStateCreateInfo multisampling{};
+            multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            
+            VkDynamicState dynamics[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+            VkPipelineDynamicStateCreateInfo dynamicState{};
+            dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+            dynamicState.pDynamicStates = dynamics;
+            dynamicState.dynamicStateCount = std::size(dynamics);
+
+            VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+            inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+            VkPipelineShaderStageCreateInfo stages[2] = {};
+
+            VkShaderModule fragShader;
+            TprResource fragRes = mrResReg.openResource("shaders/vulkan/debug_lines.frag.spv", 0, 4).value();
+            if (mrResReg.sizeofResource(fragRes).value() > UINT32_MAX) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "shaders/vulkan/debug_lines.frag.spv shader size is greater that 4GiB\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+            VkShaderModuleCreateInfo fragModuleCreateInfo{};
+            fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            fragModuleCreateInfo.codeSize = static_cast<uint32_t>(mrResReg.sizeofResource(fragRes).value());
+            fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(mrResReg.getResourceConstPointer(fragRes).value());
+            result = mSym.vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1)
+                    << logPrxPHWL() << "constructWindowContext: vkCreateShaderModule at debug lines pipeline's fragment shader creation failed [" << result << "]\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+            
+            VkPipelineShaderStageCreateInfo& fragStage = stages[1];
+            fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+            fragStage.module = fragShader;
+            fragStage.pName = "main";
+
+            VkShaderModule vertShader;
+            TprResource vertRes = mrResReg.openResource("shaders/vulkan/debug_lines.vert.spv", 0, 4).value();
+            if (mrResReg.sizeofResource(vertRes).value() > UINT32_MAX) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "shaders/vulkan/debug_lines.frag.spv shader size is greater that 4GiB\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+            VkShaderModuleCreateInfo vertModuleCreateInfo{};
+            vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            vertModuleCreateInfo.codeSize = static_cast<uint32_t>(mrResReg.sizeofResource(vertRes).value());
+            vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(mrResReg.getResourceConstPointer(vertRes).value());
+            result = mSym.vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1)
+                    << logPrxPHWL() << "constructWindowContext: vkCreateShaderModule at debug lines pipeline's vertex shader creation failed [" << result << "]\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+
+            VkPipelineShaderStageCreateInfo& vertStage = stages[0];
+            vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+            vertStage.module = vertShader;
+            vertStage.pName = "main";
+
+            VkPipelineViewportStateCreateInfo viewportState{};
+            viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewportState.viewportCount = 1;
+            viewportState.scissorCount = 1;
+            viewportState.pViewports = nullptr;
+            viewportState.pScissors = nullptr;
+
+            VkVertexInputBindingDescription vertexBinding = DebugLineVertexVk::getBindDesc();
+            auto vertexAttribs = DebugLineVertexVk::getAttrDesc();
+
+            VkPipelineVertexInputStateCreateInfo vertexInput{};
+            vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            vertexInput.pVertexBindingDescriptions = &vertexBinding;
+            vertexInput.vertexBindingDescriptionCount = 1;
+            vertexInput.pVertexAttributeDescriptions = vertexAttribs.data();
+            vertexInput.vertexAttributeDescriptionCount = vertexAttribs.size();
+            
+            VkPipelineDepthStencilStateCreateInfo depthState{};
+            depthState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            depthState.depthBoundsTestEnable = VK_FALSE;
+            depthState.depthTestEnable = VK_FALSE;
+            depthState.depthWriteEnable = VK_FALSE;
+            depthState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+            depthState.stencilTestEnable = VK_FALSE;
+            depthState.minDepthBounds = 0.0f;
+            depthState.maxDepthBounds = 1.0f;
+
+            VkGraphicsPipelineCreateInfo pipelineCreateInfo{};
+            pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipelineCreateInfo.layout = ctx.renderPass.debugLinesPipelineLayout;
+            pipelineCreateInfo.pColorBlendState = &colourBlend;
+            pipelineCreateInfo.pRasterizationState = &raster;
+            pipelineCreateInfo.pMultisampleState = &multisampling;
+            pipelineCreateInfo.pDynamicState = &dynamicState;
+            pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
+            pipelineCreateInfo.renderPass = ctx.renderPass.renderPass;
+            pipelineCreateInfo.subpass = 0;
+            pipelineCreateInfo.pStages = stages;
+            pipelineCreateInfo.stageCount = std::size(stages);
+            pipelineCreateInfo.pViewportState = &viewportState;
+            pipelineCreateInfo.pVertexInputState = &vertexInput;
+            pipelineCreateInfo.pDepthStencilState = &depthState;
+
+            result = mSym.vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &ctx.renderPass.debugLinesPipeline);
+            if (result != VK_SUCCESS) {
+                mrLogger.error(TPR_LOG_STYLE_ERROR1)
+                    << logPrxPHWL() << "constructWindowContext: vkCreateGraphicsPipelines at debug lines pipeline creation failed [" << result << "]\n";
+                destroyWindowContext(ctx);
+                return TPR_UNKNOWN_ERROR;
+            }
+
+            vkDestroyShaderModule(mDevice, fragShader, nullptr);
+            vkDestroyShaderModule(mDevice, vertShader, nullptr);
+
+            mrLogger.debug() << logPrxPHWL() + "Created debug lines pipeline\n";
+        }
+
+        for (uint32_t i = 0; i < ctx.imageCount; i++) {
             // framebuffer
             {
                 VkImageView attachments[] = {
@@ -387,7 +612,7 @@ TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32
                 createInfo.attachmentCount = std::size(attachments);
                 createInfo.pAttachments = attachments;
                 createInfo.layers = 1;
-                createInfo.renderPass = ctx.renderPass->mRenderPass;
+                createInfo.renderPass = ctx.renderPass.renderPass;
 
                 result = mSym.vkCreateFramebuffer(mDevice, &createInfo, nullptr, &ctx.framebuffers[i]);
                 if (result != VK_SUCCESS) {
@@ -397,7 +622,7 @@ TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32
                 }
             }
         
-        }   
+        }
     }
 
     return TPR_SUCCESS;
@@ -406,40 +631,115 @@ TprResult HardwareLayerVulkan::constructWindowContext(WindowContext& ctx, uint32
 
 TprResult HardwareLayerVulkan::reconstructWindowContext(WindowContext& ctx) {
 
-    {
-        for (uint32_t i = 0; i < ctx.chainImages.size(); i++) {
-            if (ctx.chainImageViews[i]) mSym.vkDestroyImageView(mDevice, ctx.chainImageViews[i], nullptr);
-
-            if (ctx.depthImageViews[i]) mSym.vkDestroyImageView(mDevice, ctx.depthImageViews[i], nullptr);
-            if (ctx.depthImageMemories[i]) mSym.vkFreeMemory(mDevice, ctx.depthImageMemories[i], nullptr);
-            if (ctx.depthImages[i]) mSym.vkDestroyImage(mDevice, ctx.depthImages[i], nullptr);
-
-            if (ctx.semaphores[i]) mSym.vkDestroySemaphore(mDevice, ctx.semaphores[i], nullptr);
+    for (uint32_t i = 0; i < ctx.chainImages.size(); i++) {
+        if (ctx.framebuffers[i]) {
+            mSym.vkDestroyFramebuffer(mDevice, ctx.framebuffers[i], nullptr);
+            ctx.framebuffers[i] = VK_NULL_HANDLE;
         }
     }
 
-    return constructWindowContext(ctx, mRenderQueue, ctx.windowHandle, false);
+    if (ctx.renderPass.debugLinesPipeline) {
+        vkDestroyPipeline(mDevice, ctx.renderPass.debugLinesPipeline, nullptr);
+        ctx.renderPass.debugLinesPipeline = VK_NULL_HANDLE;
+    }
+    if (ctx.renderPass.debugLinesPipelineLayout) {
+        vkDestroyPipelineLayout(mDevice, ctx.renderPass.debugLinesPipelineLayout, nullptr);
+        ctx.renderPass.debugLinesPipelineLayout = VK_NULL_HANDLE;
+    }
+    if (ctx.renderPass.renderPass) {
+        vkDestroyRenderPass(mDevice, ctx.renderPass.renderPass, nullptr);
+        ctx.renderPass.renderPass = VK_NULL_HANDLE;
+    }
+
+    for (uint32_t i = 0; i < ctx.chainImages.size(); i++) {
+        if (ctx.chainImageViews[i]) mSym.vkDestroyImageView(mDevice, ctx.chainImageViews[i], nullptr);
+
+        if (ctx.depthImageViews[i]) mSym.vkDestroyImageView(mDevice, ctx.depthImageViews[i], nullptr);
+        if (ctx.depthImageMemories[i]) mSym.vkFreeMemory(mDevice, ctx.depthImageMemories[i], nullptr);
+        if (ctx.depthImages[i]) mSym.vkDestroyImage(mDevice, ctx.depthImages[i], nullptr);
+
+        if (ctx.semaphores[i]) mSym.vkDestroySemaphore(mDevice, ctx.semaphores[i], nullptr);
+    }
+
+    return constructWindowContext(ctx, ctx.poolQueueFamily, ctx.windowHandle, false, false);
 }
 
 
 void HardwareLayerVulkan::destroyWindowContext(WindowContext& ctx) noexcept {
 
     for (uint32_t i = 0; i < ctx.chainImages.size(); i++) {
-
-        if (ctx.framebuffers[i]) mSym.vkDestroyFramebuffer(mDevice, ctx.framebuffers[i], nullptr);
-
-        if (ctx.semaphores[i]) mSym.vkDestroySemaphore(mDevice, ctx.semaphores[i], nullptr);
-
-        if (ctx.depthImageViews[i]) mSym.vkDestroyImageView(mDevice, ctx.depthImageViews[i], nullptr);
-        if (ctx.depthImageMemories[i]) mSym.vkFreeMemory(mDevice, ctx.depthImageMemories[i], nullptr);
-        if (ctx.depthImages[i]) mSym.vkDestroyImage(mDevice, ctx.depthImages[i], nullptr);
-
-        if (ctx.chainImageViews[i]) mSym.vkDestroyImageView(mDevice, ctx.chainImageViews[i], nullptr);
+        if (ctx.framebuffers[i]) {
+            mSym.vkDestroyFramebuffer(mDevice, ctx.framebuffers[i], nullptr);
+            ctx.framebuffers[i] = VK_NULL_HANDLE;
+        }
     }
 
-    if (ctx.swapchain) mSym.vkDestroySwapchainKHR(mDevice, ctx.swapchain, nullptr);
+    if (ctx.renderPass.debugLinesPipeline) {
+        vkDestroyPipeline(mDevice, ctx.renderPass.debugLinesPipeline, nullptr);
+        ctx.renderPass.debugLinesPipeline = VK_NULL_HANDLE;
+    }
+    if (ctx.renderPass.debugLinesPipelineLayout) {
+        vkDestroyPipelineLayout(mDevice, ctx.renderPass.debugLinesPipelineLayout, nullptr);
+        ctx.renderPass.debugLinesPipelineLayout = VK_NULL_HANDLE;
+    }
+    if (ctx.renderPass.renderPass) {
+        vkDestroyRenderPass(mDevice, ctx.renderPass.renderPass, nullptr);
+        ctx.renderPass.renderPass = VK_NULL_HANDLE;
+    }
 
-    if (ctx.surface) mSym.vkDestroySurfaceKHR(mInstance, ctx.surface, nullptr);
+    for (uint32_t i = 0; i < ctx.chainImages.size(); i++) {
+        if (ctx.semaphores[i]) {
+            mSym.vkDestroySemaphore(mDevice, ctx.semaphores[i], nullptr);
+            ctx.semaphores[i] = VK_NULL_HANDLE;
+        }
+
+        if (ctx.depthImageViews[i]) {
+            mSym.vkDestroyImageView(mDevice, ctx.depthImageViews[i], nullptr);
+            ctx.depthImageViews[i] = VK_NULL_HANDLE;
+        }
+
+        if (ctx.depthImageMemories[i]) {
+            mSym.vkFreeMemory(mDevice, ctx.depthImageMemories[i], nullptr);
+            ctx.depthImageMemories[i] = VK_NULL_HANDLE;
+        }
+
+        if (ctx.depthImages[i]) {
+            mSym.vkDestroyImage(mDevice, ctx.depthImages[i], nullptr);
+            ctx.depthImages[i] = VK_NULL_HANDLE;
+        }
+
+        if (ctx.chainImageViews[i]) {
+            mSym.vkDestroyImageView(mDevice, ctx.chainImageViews[i], nullptr);
+            ctx.chainImageViews[i] = VK_NULL_HANDLE;
+        }
+    }
+
+    if (ctx.swapchain) {
+        mSym.vkDestroySwapchainKHR(mDevice, ctx.swapchain, nullptr);
+        ctx.swapchain = VK_NULL_HANDLE;
+    }
+
+    for (auto& frame : ctx.frames) {
+        if (frame.commandPool) {
+            mSym.vkDestroyCommandPool(mDevice, frame.commandPool, nullptr);
+            frame.commandPool = VK_NULL_HANDLE;
+        }
+
+        if (frame.inFlightFence) {
+            mSym.vkDestroyFence(mDevice, frame.inFlightFence, nullptr);
+            frame.inFlightFence = VK_NULL_HANDLE;
+        }
+
+        if (frame.imageAvailableSemaphore) {
+            mSym.vkDestroySemaphore(mDevice, frame.imageAvailableSemaphore, nullptr);
+            frame.imageAvailableSemaphore = VK_NULL_HANDLE;
+        }
+    }
+
+    if (ctx.surface) {
+        mSym.vkDestroySurfaceKHR(mInstance, ctx.surface, nullptr);
+        ctx.surface = VK_NULL_HANDLE;
+    }
 
 }
 

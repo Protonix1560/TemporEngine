@@ -4,185 +4,100 @@
 #define SCENE_MANAGER_ARCHETYPE_HPP_
 
 
-#include "logger.hpp"  // IWYU pragma: keep
+#include "core.hpp"
+#include "matrix.hpp"
+#include "set_key.hpp"
+#include "plugin_core_extender.hpp"
 
-#include <algorithm>
-#include <vector>
-#include <cstdint>
 #include <cstring>
-
-
-
-
-class PackedArray {
-
-    public:
-        PackedArray(size_t elSize = 1, size_t size = 0)
-            : mElSize(elSize), mSize(size) {
-                if (elSize == 0) {
-                    throw std::runtime_error("PackedArray: elSize must be greater or equal to 1");
-                }
-                if (size != 0) {
-                    mData.resize(mElSize * size);
-                }
-            }
-
-            std::byte* data(size_t index) {
-                return mData.data() + mElSize * index;
-            }
-
-            void resize(size_t newSize) { 
-                if (newSize == 0) {
-                    mData.clear();
-                } else {
-                    mData.resize(newSize * mElSize);
-                }
-                mSize = newSize;
-            }
-
-            size_t size() const {
-                return mSize;
-            }
-
-            size_t elSize() const {
-                return mElSize;
-            }
-
-    private:
-        std::vector<std::byte> mData;
-        size_t mElSize;
-        size_t mSize;
-
-};
-
-
-
-struct ComponentDeclare {
-    uint32_t id;
-    uint32_t size;
-};
-
-
-
-struct Replace {
-    uint32_t id;
-    uint32_t newId;
-};
+#include <unordered_map>
 
 
 
 class Archetype {
 
-
     public:
+        Archetype() {}
 
-        void create(const std::vector<ComponentDeclare>& components) {
-
-            mAlive = true;
-
-            mEntityCount = 0;
-
-            if (components.size() > UINT32_MAX) {
-                throw std::runtime_error("Archetype::create: components.size() must be compatible with 32-bit integer");
+        Archetype(const set_key<TprComponentInfo>& components) : mComponents(components) {
+            mLayerDense.reserve(mComponents.size());
+            mComponentMap.reserve(mComponents.size());
+            for (auto& component : mComponents) {
+                mLayerDense.emplace_back(component.size, 0);
+                mComponentMap.try_emplace(component.wrapper, mComponentMap.size());
             }
+        }
 
-            mComponentsData.resize(components.size());
+        bool contains(TprComponentWrapper component) const { return mComponentMap.contains(component); }
+        uint32_t size() const { return mLayerIndices.size(); }
+        bool empty() const { return size() == 0; }
+        const set_key<TprComponentInfo>& components() const { return mComponents; }
 
-            if (components.size()) {
-                uint32_t maxComponentId = std::max_element(
-                    components.begin(), components.end(),
-                    [](const ComponentDeclare& a, const ComponentDeclare& b) -> bool {
-                        return a.size < b.size;
+        void reserve(size_t n) {
+            for (auto& layer : mLayerDense) {
+                layer.reserve(n);
+            }
+            mLayerIndices.reserve(n);
+            if (n > mLayerIndices.size()) {
+                mLayerSparse.reserve(n - mLayerIndices.size() + mLayerSparse.size());
+            }
+        }
+
+        TprEntityWrapper spawn() {
+            for (auto& layer : mLayerDense) {
+                layer.emplace_back();
+            }
+            size_t sparseSize = mLayerSparse.size();
+            size_t indicesSize = mLayerIndices.size();
+            mLayerIndices.push_back(sparseSize);
+            mLayerSparse.push_back(indicesSize);
+            return TprEntityWrapper{TprEntity{static_cast<uint32_t>(sparseSize)}};
+        }
+
+        void kill(TprEntityWrapper entity) {
+            assert(entity.entity.id < mLayerSparse.size());
+            uint32_t offset = mLayerSparse[entity.entity.id];
+            if (offset != UINT32_MAX) {
+                if (offset != mLayerIndices.size() - 1) {
+                    for (auto& layer : mLayerDense) {
+                        layer[offset] = layer.back();
                     }
-                )->id;
-                if (maxComponentId == UINT32_MAX) {
-                    throw std::runtime_error("Archetype::create: max allowed component id is 2^32-2");
+                    mLayerIndices[offset] = mLayerIndices.back();
                 }
-                mComponentsSparse.assign(maxComponentId + 1, UINT32_MAX);
-
-            } else {
-                mComponentsSparse.assign(0, UINT32_MAX);
-            }
-
-            for (size_t i = 0; i < components.size(); i++) {
-                const ComponentDeclare& component = components[i];
-                mComponentsSparse[component.id] = i;
-                mComponentsData[i] = PackedArray(component.size, 0);
-            }
-
-        }
-
-        bool hasComponent(uint32_t componentId) {
-            if (componentId >= mComponentsSparse.size()) return false;
-            uint32_t componentDatasIndex = mComponentsSparse[componentId];
-            if (componentDatasIndex == UINT32_MAX) return false;
-            return true;
-        }
-
-        std::byte* get(uint32_t entityId, uint32_t componentId) {
-
-            if (componentId >= mComponentsSparse.size()) return nullptr;
-            if (entityId >= mEntityCount) return nullptr;
-
-            uint32_t componentDatasIndex = mComponentsSparse[componentId];
-
-            if (componentDatasIndex == UINT32_MAX) return nullptr;
-
-            return mComponentsData[componentDatasIndex].data(entityId);
-            
-        }
-
-        uint32_t createEntity(uint32_t globalId) {
-            for (auto& componentDatas : mComponentsData) {
-                componentDatas.resize(componentDatas.size() + 1);
-            }
-            mEntityGlobalId.push_back(globalId);
-
-            return mEntityCount++;
-        }
-
-        Replace destroyEntity(uint32_t id) {
-
-            for (auto& array : mComponentsData) {
-                if (mEntityCount > 1) {
-                    std::byte* data = array.data(id);
-                    std::memcpy(data, array.data(mEntityCount - 1), array.elSize());
+                mLayerSparse[entity.entity.id] = UINT32_MAX;
+                for (auto& layer : mLayerDense) {
+                    mLayerDense.pop_back();
                 }
-                array.resize(array.size() - 1);
+                mLayerIndices.pop_back();
             }
-
-            uint32_t oldId = mEntityGlobalId[mEntityCount - 1];
-
-            mEntityGlobalId.pop_back();
-            mEntityCount--;
-
-            return {oldId, id};
         }
 
-        uint32_t entityCount() const {
-            return mEntityCount;
+        void destroyComponent(TprComponentWrapper component) {
+            mComponents.erase(component);
+            mComponentMap.erase(component);
         }
 
-        void destroy() {
-            mAlive = false;
+        bool operator==(const Archetype& other) const { return mComponents == other.mComponents; }
+        bool operator!=(const Archetype& other) const { return mComponents != other.mComponents; }
+
+        expected<std::byte*, TprResult> get(TprEntityWrapper entity, TprComponentWrapper component) {
+            if (!contains(component)) return unexpected(TPR_INVALID_VALUE);
+            return &mLayerDense[mComponentMap.at(component)][mLayerSparse[entity.entity.id]].front();
         }
 
-        bool alive() const {
-            return mAlive;
+        expected<uint32_t, TprResult> width(TprComponentWrapper component) {
+            if (!contains(component)) return unexpected(TPR_INVALID_VALUE);
+            return mLayerDense[mComponentMap.at(component)].sizes()[0];
         }
-
-
+    
     private:
-        std::vector<uint32_t> mComponentsSparse;
-        std::vector<PackedArray> mComponentsData;
-        std::vector<uint32_t> mEntityGlobalId;
-        uint32_t mEntityCount;
-        bool mAlive = false;
+        std::vector<uint32_t> mLayerSparse;
+        std::vector<uint32_t> mLayerIndices;
+        std::vector<matrix<2, std::byte>> mLayerDense;
 
-
+        set_key<TprComponentInfo> mComponents;
+        std::unordered_map<TprComponentWrapper, size_t> mComponentMap;
 };
-
-
 
 
 #endif  // SCENE_MANAGER_ARCHETYPE_HPP_

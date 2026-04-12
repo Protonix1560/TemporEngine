@@ -156,7 +156,6 @@ class ResourceRegistry {
         expected<TprResource, TprResult> openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags = 0, size_t alignment = 1);
         expected<TprResource, TprResult> openResource(TprResource protectedResource, TprProtectResourceFlags protectFlags, TprOpenCapabilityResourceFlags flags = 0);
 
-        TprResult resetResourceLifetime(TprResource resource, const TprLifetime* lifetime);
         TprResult resizeResource(TprResource resource, size_t newSize);
         expected<uint64_t, TprResult> sizeofResource(TprResource resource);
         expected<std::byte*, TprResult> getResourceRawDataPointer(TprResource resource);

@@ -266,7 +266,7 @@ typedef TprFlag_T TprEnumDirFlags;
 
 
 
-// opaque handles
+// handles
 
 typedef struct TprOArrayEntityDrawDesc_T* TprOArrayEntityDrawDesc;
 
@@ -274,32 +274,13 @@ typedef struct TprWindow { uint64_t _d; } TprWindow;
 typedef struct TprResource { uint64_t _d; } TprResource;
 typedef struct TprAsset { uint64_t _d; } TprAsset;
 typedef struct TprAction { uint64_t _d; } TprAction;
+typedef struct TprComponent { uint64_t _d; } TprComponent;
 
-
-
-// handles
-
-typedef struct TprEntityHandle {
-    uint32_t id;
-    uint32_t gen;
-} TprEntity;
-
-typedef struct TprComponent {
-    uint32_t id;
-} TprComponent;
+typedef struct TprEntity { uint32_t id; } TprEntity;
 
 
 
 // data structs
-
-typedef struct TprEntityDrawDesc {
-    TprEntityDrawDescFlags flags;
-    TprEntity entityHandle;
-} TprEntityDrawDesc;
-
-typedef struct TprLifetime {
-    uint64_t frames;
-} TprLifetime;
 
 typedef struct TprAssetSlot {
 

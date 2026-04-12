@@ -1,5 +1,0 @@
-{
-    "settings": {
-        "vulkanBackend.debug.useKhronosValidationLayer": true
-    }
-}

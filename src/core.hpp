@@ -288,7 +288,8 @@ enum class handle_type : uint8_t {
     window = 1,
     resource = 2,
     asset = 3,
-    action = 4
+    action = 4,
+    component = 5
 };
 
 
@@ -384,6 +385,14 @@ consteval auto logWinMName() {
 }
 consteval auto logPrxWinM() {
     return logWinMName() + ": ";
+}
+
+consteval auto logScGrName() {
+    const char name[] = "ScGr";
+    return consteval_string<std::size(name)>(name);
+}
+consteval auto logPrxScGr() {
+    return logScGrName() + ": ";
 }
 
 

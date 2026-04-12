@@ -77,7 +77,6 @@ struct RenderGraph {
         Viewport viewport;
     };
     std::vector<std::pair<TprWindow, WindowConfig>> windows;
-    std::vector<TprEntityDrawDesc> entites;
 };
 
 

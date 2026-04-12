@@ -46,34 +46,25 @@ typedef struct TprEngineAPI {
 
     struct Scene {
 
-        /// @brief declares a new component id.
-        /// @details new id is a valid id and can be passed to other functions.
-        TprResult(*registerComponent)(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) NOEXCEPT_T;
+        TprResult(*createComponent)(uint32_t componentSize, TprComponent* pComponent) NOEXCEPT_T;
+        void(*destroyComponent)(TprComponent component) NOEXCEPT_T;
 
-        TprResult(*acquireComponent)(const char* componentName, uint32_t* pComponentId) NOEXCEPT_T;
+        TprResult(*spawnEntity)(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) NOEXCEPT_T;
+        void(*killEntity)(TprEntity entity) NOEXCEPT_T;
 
-        /// @brief creates an entity.
-        /// @param pEntityId pointer to uint32_t where created entity id will be stored.
-        /// @param componentIdsCount count of components that created entity must have.
-        /// @param pComponentIds array with component ids that created entity must have. All ids must be valid ids created using declareComponentId.
-        /// @returns TPR_SUCCESS on success
-        TprResult(*createEntity)(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntity* pEntityHandle) NOEXCEPT_T;
+        TprResult(*modifyEntityComponentSet)(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) NOEXCEPT_T;
 
-        void(*destroyEntity)(const TprEntity* entityHandle) NOEXCEPT_T;
+        TprResult(*copyEntityComponentData)(TprEntity entity, TprComponent component, uint32_t start, uint32_t n, char* componentData) NOEXCEPT_T;
+        TprResult(*readEntityComponent8bit)(TprEntity entity, TprComponent component, uint32_t offset, uint8_t* data) NOEXCEPT_T;
+        TprResult(*readEntityComponent16bit)(TprEntity entity, TprComponent component, uint32_t offset, uint16_t* data) NOEXCEPT_T;
+        TprResult(*readEntityComponent32bit)(TprEntity entity, TprComponent component, uint32_t offset, uint32_t* data) NOEXCEPT_T;
+        TprResult(*readEntityComponent64bit)(TprEntity entity, TprComponent component, uint32_t offset, uint64_t* data) NOEXCEPT_T;
 
-        TprResult(*modifyEntityComponentSet)(const TprEntity* entityHandle, uint32_t newComponentIdCount, const uint32_t* pNewComponentIds) NOEXCEPT_T;
-
-        TprResult(*copyEntityComponentData)(const TprEntity* entityHandle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) NOEXCEPT_T;
-        TprResult(*readEntityComponent8bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint8_t* data) NOEXCEPT_T;
-        TprResult(*readEntityComponent16bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint16_t* data) NOEXCEPT_T;
-        TprResult(*readEntityComponent32bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint32_t* data) NOEXCEPT_T;
-        TprResult(*readEntityComponent64bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t offset, uint64_t* data) NOEXCEPT_T;
-
-        TprResult(*writeEntityComponentData)(const TprEntity* entityHandle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) NOEXCEPT_T;
-        TprResult(*writeEntityComponent8bit)(const TprEntity* entityHandle, uint32_t componentId, uint8_t data, uint32_t offset) NOEXCEPT_T;
-        TprResult(*writeEntityComponent16bit)(const TprEntity* entityHandle, uint32_t componentId, uint16_t data, uint32_t offset) NOEXCEPT_T;
-        TprResult(*writeEntityComponent32bit)(const TprEntity* entityHandle, uint32_t componentId, uint32_t data, uint32_t offset) NOEXCEPT_T;
-        TprResult(*writeEntityComponent64bit)(const TprEntity* entityHandle, uint32_t componentId, uint64_t data, uint32_t offset) NOEXCEPT_T;
+        TprResult(*writeEntityComponentData)(TprEntity entity, TprComponent component, const char* componentData, uint32_t start, uint32_t n) NOEXCEPT_T;
+        TprResult(*writeEntityComponent8bit)(TprEntity entity, TprComponent component, uint8_t data, uint32_t offset) NOEXCEPT_T;
+        TprResult(*writeEntityComponent16bit)(TprEntity entity, TprComponent component, uint16_t data, uint32_t offset) NOEXCEPT_T;
+        TprResult(*writeEntityComponent32bit)(TprEntity entity, TprComponent component, uint32_t data, uint32_t offset) NOEXCEPT_T;
+        TprResult(*writeEntityComponent64bit)(TprEntity entity, TprComponent component, uint64_t data, uint32_t offset) NOEXCEPT_T;
 
     } *scene;
 

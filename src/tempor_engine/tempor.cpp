@@ -7,6 +7,7 @@
 #include "plugin.h"
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
+#include "scene_graph.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -45,6 +46,10 @@ WindowManager& TemporEngine::getWindowManager() {
 
 HardwareLayer& TemporEngine::getHWLI() {
     return *mServHolder.get<std::unique_ptr<HardwareLayer>>();
+}
+
+SceneGraph& TemporEngine::getSceneGraph() {
+    return mServHolder.get<SceneGraph>();
 }
 
 

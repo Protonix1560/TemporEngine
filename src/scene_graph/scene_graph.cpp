@@ -1,231 +1,166 @@
 
 #include "scene_graph.hpp"
 #include "archetype.hpp"
+#include "core.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
 
 #include <cstdint>
-#include <memory>
 
 
 
-SceneGraph::SceneGraph(Logger& rLogger) : mrLogger(rLogger) {
-}
+SceneGraph::SceneGraph(Logger& rLogger) : mrLogger(rLogger) {}
+
+SceneGraph::~SceneGraph() noexcept {}
+
+void SceneGraph::update() {}
 
 
-
-SceneGraph::~SceneGraph() noexcept {
-
-}
-
-
-
-void SceneGraph::update() {
-    
-}
-
-
-
-
-
-size_t SceneGraph::getArchetype(uint32_t componentCount, const uint32_t* components) {
-
-    for (size_t i = 0; i < mArchetypes.size(); i++) {
-
-        auto& archetype = mArchetypes[i];
-        if (!archetype.alive()) continue;
-        
-        for (uint32_t j = 0; j < componentCount; j++) {
-            if (!archetype.hasComponent(components[j])) goto not_matching_components;
-        }
-
-        // matching_components:
-        return i;
-
-        not_matching_components: ;
-    }
-
-    return mArchetypes.size();
-}
-
-
-
-
-
-TprResult SceneGraph::registerComponent(uint32_t componentSize, const char* componentName, uint32_t* pNewComponentId) noexcept {
-
+expected<TprComponent, TprResult> SceneGraph::createComponent(uint32_t componentSize) noexcept {
     try {
-
-        if (mComponentCounter == UINT32_MAX) return TPR_COUNT_OVERFLOW;
-        mComponentNameRegister.emplace_back(componentName);
-        *pNewComponentId = mComponentCounter;
-        mComponentSizes.push_back(componentSize);
-        mComponentCounter++;
-
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        if (mComponentCounter == UINT32_MAX) return unexpected(TPR_COUNT_OVERFLOW);
+        TprComponent handle = construct_basic_handle<TprComponent>(mComponentCounter++, 0, handle_type::component);
+        mComponents.try_emplace(TprComponentWrapper{handle}, componentSize);
+        mrLogger << logPrxScGr() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
+        return handle;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        return unexpected(TPR_UNKNOWN_ERROR);
     }
-
-    return TPR_SUCCESS;
 }
 
 
-TprResult SceneGraph::acquireComponent(const char* componentName, uint32_t* pComponentId) noexcept {
-
+void SceneGraph::destroyComponent(TprComponent component) noexcept {
     try {
 
-        if (mComponentCounter == UINT32_MAX) return TPR_COUNT_OVERFLOW;
-        for (uint32_t i = 0; i < mComponentNameRegister.size(); i++) {
-            if (std::strcmp(mComponentNameRegister[i].c_str(), componentName) == 0) {
-                *pComponentId = i;
-                return TPR_SUCCESS;
+        for (auto& [components, archetype] : mArchetypes) {
+            if (archetype.contains(TprComponentWrapper{component})) {
+                set_key<TprComponentWrapper> componentSet = components;
+                componentSet.erase(component);
+                auto downgradeIt = mArchetypes.find(componentSet);
+                if (downgradeIt != mArchetypes.end()) {
+                    Archetype& downgradeArchetype = downgradeIt->second;
+                    // somehow move all entities from old archetype to new archetype
+                    // or remove one line of components from old archetype and move all entities from new archetype to old archetype if that's more efficient
+
+                    // if (downArchetype.size() < archetype.size()) {
+                    //     archetype.destroyComponent(component);
+                    //     archetype.reserve(archetype.size() + downArchetype.size());
+                    //     for (size_t i = 0; i < downArchetype.size(); i++) {
+                            
+                    //     }
+                    // }
+                    // TODO: maybe fix that, will significantly optimize this case
+
+                } else {
+                    // just need to remove one line of components from that archetype,
+                    // all Archetype* pointers of entities that belong to that archetype already point to it
+                    archetype.destroyComponent(TprComponentWrapper{component});
+                }
             }
         }
-        return TPR_INVALID_VALUE;
 
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        // temporarily just cycling through all entities and calling modifyEntitiyComponentSet
+        // works, but isn't optimized
+        for (size_t i = 0; i < mEntities.dense_size(); i++) {
+            const EntityEntry& entry = mEntities[i];
+            Archetype& archetype = *entry.archetype;
+            if (archetype.contains(TprComponentWrapper{component})) {
+                std::vector<TprComponent> components;
+                components.reserve(archetype.components().size() - 1);
+                for (const auto& c : archetype.components()) {
+                    if (c != component) {
+                        components.push_back(c.wrapper.component);
+                    }
+                }
+                modifyEntityComponentSet(TprEntity{mEntities.index(i)}, components.data(), components.size());
+
+            }
+        }
+
+        mComponents.erase(mComponents.find(TprComponentWrapper{component}));
+
+        mrLogger << logPrxScGr() << "Explicitly destroyed component " << get_basic_handle_index(component) << "\n";
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
-    }
-}
-
-
-TprResult SceneGraph::createEntity(uint32_t componentIdCount, const uint32_t* pComponentIds, TprEntity* pEntityHandle) noexcept {
-    
-    try {
-
-        for (auto it = pComponentIds; it < pComponentIds + componentIdCount; it++) {
-            if (*it >= mComponentCounter) return TPR_INVALID_VALUE;
-        }
-
-        size_t archetypeIndex = getArchetype(componentIdCount, pComponentIds);
-        if (archetypeIndex == mArchetypes.size()) {
-
-            if (!mFreeArchetypes.empty()) {
-                archetypeIndex = mFreeArchetypes.back();
-                mFreeArchetypes.pop_back();
-            } else {
-                archetypeIndex = mArchetypes.size();
-                mArchetypes.emplace_back();
-                mArchetypeMutexes.emplace_back(std::make_unique<std::shared_mutex>());
-            }
-
-            std::vector<ComponentDeclare> components;
-            components.reserve(componentIdCount);
-            for (auto it = pComponentIds; it < pComponentIds + componentIdCount; it++) {
-                components.push_back({*it, mComponentSizes[*it]});
-            }
-
-            mArchetypes[archetypeIndex].create(components);
-        }
-
-        uint32_t entityIndex;
-        if (!mFreeEntityEntries.empty()) {
-            entityIndex = mFreeEntityEntries.back();
-            mFreeEntityEntries.pop_back();
-        } else {
-            entityIndex = mEntityEntries.size();
-            mEntityEntries.emplace_back();
-        }
-
-        Archetype& archetype = mArchetypes[archetypeIndex];
-
-        pEntityHandle->id = entityIndex;
-        EntityEntry& entry = mEntityEntries[entityIndex];
-        entry.archetype = archetypeIndex;
-        entry.id = archetype.createEntity(entityIndex);
-        entry.gen++;
-        pEntityHandle->gen = entry.gen;
-
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
-    } catch (...) {
-        return TPR_UNKNOWN_ERROR;
-    }
-    
-    return TPR_SUCCESS;
-}
-
-
-void SceneGraph::destroyEntity(const TprEntity* handle) noexcept {
-
-    auto& log = mrLogger;
-
-    try {
-
-        if (mEntityEntries.size() <= handle->id) return;
-
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return;
-        if (entry.gen != handle->id) return;
-
-        Archetype& archetype = mArchetypes[entry.archetype];
-
-        Replace replace = archetype.destroyEntity(entry.id);
-
-        if (replace.id != handle->id) {
-            mEntityEntries[replace.id].id = replace.newId;
-        }
-        if (mEntityEntries.size() - 1 == handle->id) {
-            mEntityEntries.pop_back();
-        } else {
-            mFreeEntityEntries.push_back(handle->id);
-        }
-
-        if (archetype.entityCount() == 0) {
-            archetype.destroy();
-            if (entry.archetype == mArchetypes.size() - 1) {
-                mArchetypes.pop_back();
-                mArchetypeMutexes.pop_back();
-            } else {
-                mFreeArchetypes.push_back(entry.archetype);
-            }
-        }
-
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
         return;
+    }
+}
+
+
+expected<TprEntity, TprResult> SceneGraph::spawnEntity(const TprComponent* pComponents, uint32_t componentCount) noexcept {
+    
+    try {
+
+        set_key<TprComponentWrapper> componentSet(pComponents, pComponents + componentCount);
+
+        auto it = mArchetypes.find(componentSet);
+        if (it == mArchetypes.end()) {
+            set_key<TprComponentInfo> componentInfoSet;
+            componentInfoSet.reserve(componentSet.size());
+            for (const auto& component : componentSet) {
+                componentInfoSet.insert({component, mComponents.at(component).size});
+            }
+            it = mArchetypes.try_emplace(componentSet, componentInfoSet).first;
+        }
+        auto& archetype = it->second;
+
+        TprEntityWrapper local = archetype.spawn();
+        TprEntityWrapper global = TprEntityWrapper{mEntities.insert(EntityEntry{&archetype, local})};
+        return global.entity;
+
+    } catch (...) {
+        return unexpected(TPR_UNKNOWN_ERROR);
+    }
+}
+
+ 
+void SceneGraph::killEntity(TprEntity entity) noexcept {
+
+    try {
+
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+        archetype.kill(entry.local);
+        if (archetype.empty()) {
+            auto it = mArchetypes.find(set_key<TprComponentWrapper>(archetype.components()));
+            if (it != mArchetypes.end()) {
+                mArchetypes.erase(it);
+            }
+        }
+        mEntities.offset_erase(offset);
+
     } catch(...) {
         return;
     }
-
-    return;
 }
 
 
 
-TprResult SceneGraph::copyEntityComponentData(const TprEntity* handle, uint32_t componentId, uint32_t start, uint32_t end, char* componentData) noexcept {
+TprResult SceneGraph::copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t start, uint32_t n, char* pData) noexcept {
 
     try {
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
 
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if (end <= start && end != 0) return TPR_INVALID_VALUE;
-        if ((end - start) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
 
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (offset + n > width) return TPR_INVALID_VALUE;
 
-        Archetype& archetype = mArchetypes[entry.archetype];
-
-        char* data = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-
-        if (end != 0) {
-            std::memcpy(componentData, data + start, end - start);
+        if (n != 0) {
+            std::memcpy(pData, data + start, n);
         } else {
-            std::memcpy(componentData, data + start, mComponentSizes[componentId]);
+            auto widthExp = archetype.width(TprComponentWrapper{component});
+            if (!widthExp.has_value()) return widthExp.error();
+            std::memcpy(pData, data + start, widthExp.value() - start);
         }
 
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
@@ -234,33 +169,29 @@ TprResult SceneGraph::copyEntityComponentData(const TprEntity* handle, uint32_t 
 }
 
 
-
-TprResult SceneGraph::writeEntityComponentData(const TprEntity* handle, uint32_t componentId, const char* componentData, uint32_t start, uint32_t end) noexcept {
+TprResult SceneGraph::writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t start, uint32_t n) noexcept {
 
     try {
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
 
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if (end <= start && end != 0) return TPR_INVALID_VALUE;
-        if (end > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
 
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (offset + n > width) return TPR_INVALID_VALUE;
 
-        Archetype& archetype = mArchetypes[entry.archetype];
-
-        char* data = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-
-        if (end != 0) {
-            std::memcpy(data + start, componentData, end - start);
+        if (n != 0) {
+            std::memcpy(data + start, pData, n);
         } else {
-            std::memcpy(data + start, componentData, mComponentSizes[componentId]);
+            std::memcpy(data + start, pData, width - start);
         }
 
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
@@ -269,170 +200,300 @@ TprResult SceneGraph::writeEntityComponentData(const TprEntity* handle, uint32_t
 }
 
 
-TprResult SceneGraph::readEntityComponent8bit(const TprEntity* handle, uint32_t componentId, uint32_t offset, uint8_t* data) noexcept {
+expected<uint8_t, TprResult> SceneGraph::readEntityComponent8bit(TprEntity entity, TprComponent component, uint32_t start) noexcept {
+
     try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint8_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(data, d + offset, sizeof(uint8_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        uint8_t dest;
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(dest) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(&dest, data + start, sizeof(dest));
+        return dest;
+
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
+}
+
+
+expected<uint16_t, TprResult> SceneGraph::readEntityComponent16bit(TprEntity entity, TprComponent component, uint32_t start) noexcept {
+
+    try {
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        uint16_t dest;
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(dest) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(&dest, data + start, sizeof(dest));
+        return dest;
+
+    } catch(...) {
+        return TPR_UNKNOWN_ERROR;
+    }
+
+}
+
+
+expected<uint32_t, TprResult> SceneGraph::readEntityComponent32bit(TprEntity entity, TprComponent component, uint32_t start) noexcept {
+
+    try {
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        uint32_t dest;
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(dest) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(&dest, data + start, sizeof(dest));
+        return dest;
+
+    } catch(...) {
+        return TPR_UNKNOWN_ERROR;
+    }
+}
+
+
+expected<uint64_t, TprResult> SceneGraph::readEntityComponent64bit(TprEntity entity, TprComponent component, uint32_t start) noexcept {
+
+    try {
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        uint64_t dest;
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(dest) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(&dest, data + start, sizeof(dest));
+        return dest;
+
+    } catch(...) {
+        return TPR_UNKNOWN_ERROR;
+    }
+}
+
+
+TprResult SceneGraph::writeEntityComponent8bit(TprEntity entity, TprComponent component, uint8_t data, uint32_t start) noexcept {
+
+    try {
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(data) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(data + start, &data, sizeof(data));
+
+    } catch(...) {
+        return TPR_UNKNOWN_ERROR;
+    }
+
     return TPR_SUCCESS;
 }
 
 
-TprResult SceneGraph::readEntityComponent16bit(const TprEntity* handle, uint32_t componentId, uint32_t offset, uint16_t* data) noexcept {
+TprResult SceneGraph::writeEntityComponent16bit(TprEntity entity, TprComponent component, uint16_t data, uint32_t start) noexcept {
+
     try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint16_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(data, d + offset, sizeof(uint16_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(data) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(data + start, &data, sizeof(data));
+
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
+
     return TPR_SUCCESS;
 }
 
 
-TprResult SceneGraph::readEntityComponent32bit(const TprEntity* handle, uint32_t componentId, uint32_t offset, uint32_t* data) noexcept {
+TprResult SceneGraph::writeEntityComponent32bit(TprEntity entity, TprComponent component, uint32_t data, uint32_t start) noexcept {
+
     try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint32_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(data, d + offset, sizeof(uint32_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(data) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(data + start, &data, sizeof(data));
+
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
+
     return TPR_SUCCESS;
 }
 
 
-TprResult SceneGraph::readEntityComponent64bit(const TprEntity* handle, uint32_t componentId, uint32_t offset, uint64_t* data) noexcept {
+TprResult SceneGraph::writeEntityComponent64bit(TprEntity entity, TprComponent component, uint64_t data, uint32_t start) noexcept {
+
     try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint64_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(data, d + offset, sizeof(uint64_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        const EntityEntry& entry = mEntities[offset];
+        Archetype& archetype = *entry.archetype;
+
+        auto dataExp = archetype.get(entry.local, TprComponentWrapper{component});
+        if (!dataExp.has_value()) return dataExp.error();
+        auto data = dataExp.value();
+
+        auto widthExp = archetype.width(TprComponentWrapper{component});
+        if (!widthExp.has_value()) return widthExp.error();
+        uint32_t width = widthExp.value();
+        if (start + sizeof(data) > width) return TPR_INVALID_VALUE;
+
+        std::memcpy(data + start, &data, sizeof(data));
+
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
+
     return TPR_SUCCESS;
 }
 
 
-TprResult SceneGraph::writeEntityComponent8bit(const TprEntity* handle, uint32_t componentId, uint8_t data, uint32_t offset) noexcept {
+TprResult SceneGraph::modifyEntityComponentSet(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) noexcept {
+
     try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint8_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(d + offset, &data, sizeof(uint8_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
+        size_t offset = mEntities.offset(entity.id);
+        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        EntityEntry& entry = mEntities[offset];
+        Archetype& oldArchetype = *entry.archetype;
+
+        set_key<TprComponentWrapper> componentSet(pComponents, pComponents + componentCount);
+
+        auto it = mArchetypes.find(componentSet);
+        if (it == mArchetypes.end()) {
+            set_key<TprComponentInfo> componentInfoSet;
+            componentInfoSet.reserve(componentSet.size());
+            for (const auto& component : componentSet) {
+                componentInfoSet.insert({component, mComponents.at(component).size});
+            }
+            it = mArchetypes.try_emplace(componentSet, componentInfoSet).first;
+        }
+        auto& newArchetype = it->second;
+
+        TprEntityWrapper newLocal = newArchetype.spawn();
+        for (TprComponentInfo component : newArchetype.components()) {
+            if (oldArchetype.contains(component)) {
+                auto dstExp = newArchetype.get(newLocal, component);
+                if (!dstExp.has_value()) {
+                    newArchetype.kill(newLocal);
+                    if (newArchetype.empty()) {
+                        mArchetypes.erase(it);
+                    }
+                    return TPR_UNKNOWN_ERROR;
+                }
+                std::byte* dst = dstExp.value();
+
+                auto srcExp = oldArchetype.get(entry.local, component);
+                if (!srcExp.has_value()) {
+                    newArchetype.kill(newLocal);
+                    if (newArchetype.empty()) {
+                        mArchetypes.erase(it);
+                    }
+                    return TPR_UNKNOWN_ERROR;
+                }
+                std::byte* src = srcExp.value();
+                
+                auto widthExp = newArchetype.width(component);
+                if (!widthExp.has_value()) {
+                    newArchetype.kill(newLocal);
+                    if (newArchetype.empty()) {
+                        mArchetypes.erase(it);
+                    }
+                    return TPR_UNKNOWN_ERROR;
+                }
+                std::memcpy(dst, src, widthExp.value());
+            }
+        }
+
+        oldArchetype.kill(entry.local);
+        if (oldArchetype.empty()) {
+            auto it = mArchetypes.find(set_key<TprComponentWrapper>(oldArchetype.components()));
+            if (it != mArchetypes.end()) {
+                mArchetypes.erase(it);
+            }
+        }
+
+        entry.archetype = &newArchetype;
+        entry.local = newLocal;
+
     } catch(...) {
         return TPR_UNKNOWN_ERROR;
     }
+
     return TPR_SUCCESS;
-}
 
-
-TprResult SceneGraph::writeEntityComponent16bit(const TprEntity* handle, uint32_t componentId, uint16_t data, uint32_t offset) noexcept {
-    try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint16_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(d + offset, &data, sizeof(uint16_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
-    } catch(...) {
-        return TPR_UNKNOWN_ERROR;
-    }
-    return TPR_SUCCESS;
-}
-
-
-TprResult SceneGraph::writeEntityComponent32bit(const TprEntity* handle, uint32_t componentId, uint32_t data, uint32_t offset) noexcept {
-    try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint32_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(d + offset, &data, sizeof(uint32_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
-    } catch(...) {
-        return TPR_UNKNOWN_ERROR;
-    }
-    return TPR_SUCCESS;
-}
-
-
-TprResult SceneGraph::writeEntityComponent64bit(const TprEntity* handle, uint32_t componentId, uint64_t data, uint32_t offset) noexcept {
-    try {
-        if (mEntityEntries.size() <= handle->id) return TPR_INVALID_VALUE;
-        if (componentId >= mComponentCounter) return TPR_INVALID_VALUE;
-        if ((offset + sizeof(uint64_t)) > mComponentSizes[componentId]) return TPR_INVALID_VALUE;
-        EntityEntry entry = mEntityEntries[handle->id];
-        if (entry.id == UINT32_MAX) return TPR_INVALID_VALUE;
-        if (entry.gen != handle->id) return TPR_INVALID_VALUE;
-        Archetype& archetype = mArchetypes[entry.archetype];
-        char* d = reinterpret_cast<char*>(archetype.get(entry.id, componentId));
-        std::memcpy(d + offset, &data, sizeof(uint64_t));
-    } catch (const std::exception& e) {
-        mrLogger << e.what() << "\n";
-        return TPR_UNKNOWN_ERROR;
-    } catch(...) {
-        return TPR_UNKNOWN_ERROR;
-    }
     return TPR_SUCCESS;
 }
 

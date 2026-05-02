@@ -2,6 +2,7 @@
 #include "plugin.h"
 #include "plugin_core.h"
 
+#include <format>
 #include <string>  // IWYU pragma: keep
 #include <vulkan/vulkan_core.h>
 
@@ -12,7 +13,7 @@ using namespace std::string_literals;
 
 #define ROF(__expr) do {            \
     auto __r = (__expr);            \
-    if (__r < 0) return __r;         \
+    if (__r < 0) return __r;        \
 } while (0)
 
 
@@ -23,8 +24,6 @@ class Plugin {
         const TprEngineAPI* api;
         TprWindow window;
         TprAction quitAction;
-        TprAction mouseAction;
-        TprEntity entity;
         TprAsset model;
 };
 
@@ -39,13 +38,8 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     Plugin* plugin = new Plugin;
     if (!plugin) return -1;
 
-    *ctx = reinterpret_cast<void*>(plugin);
+    *ctx = plugin;
     plugin->api = api;
-
-    plugin->api->log->info("TEST PLUGIN INITIALIZATION\n");
-
-    // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entA));
-    // ROF(plugin->api->scene.createEntity(0, nullptr, &plugin->entB));
 
     TprWindowCreateInfo windowCreateInfo{};
     windowCreateInfo.name = "Tempor Testing Initiative";
@@ -59,32 +53,52 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     quitActionInfo.highThreshold = 0.7f;
     ROF(plugin->api->input->createAction(plugin->window, &quitActionInfo, &plugin->quitAction));
 
-    TprActionCreateInfo mouseActionInfo{};
-    mouseActionInfo.element = TPR_MOUSE_WHEEL_DOWN;
-    mouseActionInfo.lowThreshold = 0.3f;
-    mouseActionInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &mouseActionInfo, &plugin->mouseAction));
+    TprComponent c1;
+    TprComponent c2;
+    TprEntity e1;
+    TprEntity e2;
+
+    const char hello[] = "hello, world!";
+    const char bye[] = "bye, world!";
+
+    char buffer[20];
+    std::fill(buffer, buffer + std::size(buffer), 'q');
+    buffer[std::size(buffer) - 1] = '\0';
+
+    ROF(plugin->api->scene->createComponent(sizeof(hello), &c1));
+    ROF(plugin->api->scene->createComponent(sizeof(bye), &c2));
+
+    TprComponent components[] = { c1, c2 };
+
+    ROF(plugin->api->scene->spawnEntity(&c1, 1, &e1));
+    ROF(plugin->api->scene->spawnEntity(components, 2, &e2));
+
+    ROF(plugin->api->scene->writeEntityComponentData(e1, c1, hello, 0, 0));
+    ROF(plugin->api->scene->writeEntityComponentData(e2, c1, hello, 0, 0));
+
+    ROF(plugin->api->scene->writeEntityComponentData(e2, c2, bye, 0, 0));
+
+    ROF(plugin->api->scene->copyEntityComponentData(e1, c1, 0, 0, buffer));
+    plugin->api->log->info(std::format("{}\n", buffer).c_str());
+    ROF(plugin->api->scene->copyEntityComponentData(e2, c1, 0, 0, buffer));
+    plugin->api->log->info(std::format("{}\n", buffer).c_str());
+    ROF(plugin->api->scene->copyEntityComponentData(e2, c2, 0, 0, buffer));
+    plugin->api->log->info(std::format("{}\n", buffer).c_str());
+
+    ROF(plugin->api->scene->writeEntityComponentData(e2, c1, bye, 0, 0));
+    ROF(plugin->api->scene->copyEntityComponentData(e2, c1, 0, 0, buffer));
+    plugin->api->log->info(std::format("{}\n", buffer).c_str());
+
+    plugin->api->scene->destroyComponent(c1);
+
+    // ROF(plugin->api->scene->copyEntityComponentData(e1, c1, 0, 0, buffer));
+    // plugin->api->log->info(std::format("{}\n", buffer).c_str());
+    // ROF(plugin->api->scene->copyEntityComponentData(e2, c1, 0, 0, buffer));
+    // plugin->api->log->info(std::format("{}\n", buffer).c_str());
+    ROF(plugin->api->scene->copyEntityComponentData(e2, c2, 0, 0, buffer));
+    plugin->api->log->info(std::format("{}\n", buffer).c_str());
 
     /*
-
-    // API.vfs::
-    // TprResult createResouceByPath(const char* path, TprCreateResourceFlags flags)
-    //  - used to create resource with data from a file, the resource is always deleted next frame
-    // TprResult createResourceByBuffer(const char* begin, const char* end, TprCreateResourceFlags flags)
-    //  - used to create resource with data from a buffer in memory, the resource is always deleted next frame
-    // TprResult createResourceEmpty(uint64_t size, TprCreateResourceFlags flags)
-    //  - used to create resource with set size filled with zeros, the resource is always deleted next frame
-    // TprResult createResouceByPathLifetimed(const char* path, TprCreateResourceFlags flags, TprLifetime lifetime)
-    //  - used to create resource with data from a file, allows lifetime control
-    // TprResult createResourceByBufferLifetimedconst char* begin, const char* end, TprCreateResourceFlags flags, TprLifetime lifetime)
-    //  - used to create resource with data from a buffer in memory, allows lifetime control
-    // TprResult createResourceEmptyLifetimed(uint64_t size, TprCreateResourceFlags flags, TprLifetime lifetime)
-    //  - used to create resource with set size filled with zeros, allows lifetime control
-    //
-    // Resource - an abstract wrapper of some data,
-    // used to abstract filesystem and memory
-
-
     // initializing
     sceneFile = openFile(path/to/file);
 
@@ -134,9 +148,6 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
 
 void pluginShutdown(void* ctx) noexcept {
     Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
-    plugin->api->log->info("TEST PLUGIN SHUTDOWN\n");
-    plugin->api->input->destroyAction(plugin->quitAction);
-    plugin->api->wm->closeWindow(plugin->window);
     delete plugin;
 }
 
@@ -149,12 +160,6 @@ int32_t updatePerFrame(void* ctx) noexcept {
     ROF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
     if (quitActionState.state) {
         plugin->api->wm->closeWindow(plugin->window);
-    }
-
-    TprActionState mouseActionState;
-    ROF(plugin->api->input->getActionState(plugin->mouseAction, &mouseActionState));
-    if (mouseActionState.state) {
-        plugin->api->log->info((std::to_string(mouseActionState.framesActive) + ": " + std::to_string(mouseActionState.vector.x) + ", " + std::to_string(mouseActionState.vector.y) + "\n").c_str());
     }
 
     return 0;

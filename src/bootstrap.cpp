@@ -1,6 +1,5 @@
 
 
-#include "hardware_layer_interface.hpp"
 #if !defined(__linux__)
     #error "Unsupported OS type"
 #endif
@@ -262,6 +261,114 @@ namespace {
             })(); }
         }
 
+        namespace scene {
+            TprResult createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                auto exp = scgr.createComponent(componentSize);
+                if (!exp.has_value()) {
+                    return exp.error();
+                }
+                *pComponent = exp.value();
+                return TPR_SUCCESS;
+            })(); }
+
+            void destroyComponent(TprComponent component) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                scgr.destroyComponent(component);
+            })(); }
+
+            TprResult createEntity(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                auto exp = scgr.spawnEntity(pComponents, componentCount);
+                if (!exp.has_value()) {
+                    return exp.error();
+                }
+                *pEntity = exp.value();
+                return TPR_SUCCESS;
+            })(); }
+
+            void destroyEntity(TprEntity entity) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                scgr.killEntity(entity);
+            })(); }
+
+            TprResult modifyEntityComponentSet(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.modifyEntityComponentSet(entity, pComponents, componentCount);
+            })(); }
+
+            TprResult copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t offset, uint32_t n, char* pData) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.copyEntityComponentData(entity, component, offset, n, pData);
+            })(); }
+
+            TprResult readEntityComponent8bit(TprEntity entity, TprComponent component, uint32_t offset, uint8_t* pData) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                auto exp = scgr.readEntityComponent8bit(entity, component, offset);
+                if (!exp.has_value()) {
+                    return exp.error();
+                }
+                *pData = exp.value();
+                return TPR_SUCCESS;
+            })(); }
+
+            TprResult readEntityComponent16bit(TprEntity entity, TprComponent component, uint32_t offset, uint16_t* pData) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                auto exp = scgr.readEntityComponent16bit(entity, component, offset);
+                if (!exp.has_value()) {
+                    return exp.error();
+                }
+                *pData = exp.value();
+                return TPR_SUCCESS;
+            })(); }
+
+            TprResult readEntityComponent32bit(TprEntity entity, TprComponent component, uint32_t offset, uint32_t* pData) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                auto exp = scgr.readEntityComponent32bit(entity, component, offset);
+                if (!exp.has_value()) {
+                    return exp.error();
+                }
+                *pData = exp.value();
+                return TPR_SUCCESS;
+            })(); }
+
+            TprResult readEntityComponent64bit(TprEntity entity, TprComponent component, uint32_t offset, uint64_t* pData) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                auto exp = scgr.readEntityComponent64bit(entity, component, offset);
+                if (!exp.has_value()) {
+                    return exp.error();
+                }
+                *pData = exp.value();
+                return TPR_SUCCESS;
+            })(); }
+
+            TprResult writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t offset, uint32_t n) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.writeEntityComponentData(entity, component, pData, offset, n);
+            })(); }
+
+            TprResult writeEntityComponent8bit(TprEntity entity, TprComponent component, uint8_t data, uint32_t offset) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.writeEntityComponent8bit(entity, component, offset, data);
+            })(); }
+
+            TprResult writeEntityComponent16bit(TprEntity entity, TprComponent component, uint16_t data, uint32_t offset) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.writeEntityComponent16bit(entity, component, offset, data);
+            })(); }
+
+            TprResult writeEntityComponent32bit(TprEntity entity, TprComponent component, uint32_t data, uint32_t offset) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.writeEntityComponent32bit(entity, component, offset, data);
+            })(); }
+
+            TprResult writeEntityComponent64bit(TprEntity entity, TprComponent component, uint64_t data, uint32_t offset) noexcept { return std_handler([=]() {
+                SceneGraph& scgr = g_engine->getSceneGraph();
+                return scgr.writeEntityComponent64bit(entity, component, offset, data);
+            })(); }
+
+        }
+
     }
 
 }
@@ -317,6 +424,21 @@ int main(int argc, char* argv[]) {
     apiVFS.closeResource = api::vfs::closeResource;
 
     TprEngineAPI::Scene apiScene;
+    apiScene.createComponent = api::scene::createComponent;
+    apiScene.destroyComponent = api::scene::destroyComponent;
+    apiScene.spawnEntity = api::scene::createEntity;
+    apiScene.killEntity = api::scene::destroyEntity;
+    apiScene.modifyEntityComponentSet = api::scene::modifyEntityComponentSet;
+    apiScene.copyEntityComponentData = api::scene::copyEntityComponentData;
+    apiScene.readEntityComponent8bit = api::scene::readEntityComponent8bit;
+    apiScene.readEntityComponent16bit = api::scene::readEntityComponent16bit;
+    apiScene.readEntityComponent32bit = api::scene::readEntityComponent32bit;
+    apiScene.readEntityComponent64bit = api::scene::readEntityComponent64bit;
+    apiScene.writeEntityComponentData = api::scene::writeEntityComponentData;
+    apiScene.writeEntityComponent8bit = api::scene::writeEntityComponent8bit;
+    apiScene.writeEntityComponent16bit = api::scene::writeEntityComponent16bit;
+    apiScene.writeEntityComponent32bit = api::scene::writeEntityComponent32bit;
+    apiScene.writeEntityComponent64bit = api::scene::writeEntityComponent64bit;
 
     TprEngineAPI::Geo apiGeo;
     
@@ -374,7 +496,7 @@ int main(int argc, char* argv[]) {
         }
         if (root_verbose.present()) {
             verbose_level = root_verbose.value<size_t>(root_verbose.count() - 1);
-            if (verbose_level < 0 || verbose_level > 6) {
+            if (verbose_level > 6) {
                 std::fprintf(stderr, "--verbose value is not in [0-5]: %ld\n", verbose_level);
                 return bootstrap_invalid_argv;
             }

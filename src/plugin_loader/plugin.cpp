@@ -15,7 +15,7 @@ TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
 
     mrAliveTokens++;
 
-    mrLogger.debug() << logPrxPlLd() << "Loading plugin \"" << pLoadInfo->path.string() << "\" in-thread aliased as " << pLoadInfo->name << "\n";
+    mrLogger.debug() << logPrxPlLd() << "Loading plugin " << pLoadInfo->name << " (\"" << pLoadInfo->path.string() << "\") in-thread" << "\n";
 
     mName = pLoadInfo->name;
 
@@ -26,6 +26,7 @@ TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
     int32_t getCallbacksRet = callbacksHook(&mCallbacks);
     if (getCallbacksRet < 0) {
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLd() << "getPluginCallbacks of " << mName << " returned negative exit code [" << getCallbacksRet << "]\n";
+        mrAliveTokens--;
         return TPR_USER_CODE_ERROR;
     }
     mrLogger.trace() << logPrxPlLd() << "getPluginCallbacks of " << mName << " returned non-negative exit code [" << getCallbacksRet << "]\n";
@@ -34,6 +35,7 @@ TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
         int32_t initRet = mCallbacks.init(&mCtx, pLoadInfo->pAPI);
         if (initRet < 0) {
             mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPlLd() << "init callback of " << mName << " returned negative exit code [" << initRet << "]\n";
+            mrAliveTokens--;
             return TPR_USER_CODE_ERROR;
         }
         mrLogger.trace() << logPrxPlLd() << "init callback of " << mName << " returned non-negative exit code [" << initRet << "]\n";

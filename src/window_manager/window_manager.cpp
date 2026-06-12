@@ -200,8 +200,6 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
             return unexpected(TPR_UNKNOWN_ERROR);
         }
 
-        window.elements.reserve(mKeyMap.size() + mMouseButtonMap.size());
-
         window.handle = construct_basic_handle<TprWindow>(index, 0, handle_type::window);
 
 
@@ -214,7 +212,7 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
 
     mrAliveTokens++;
 
-    mrLogger.debug() << logPrxWinM() << "Opened window " << index << " width SDL WindowID " << window.id << "\n";
+    mrLogger.debug() << logPrxWinM() << "Opened window " << index << "\n";
 
     return window.handle;
 }
@@ -245,7 +243,6 @@ void WindowManager::updateWindowActions(Window& window, TprInputElement element,
     for (auto& [actionIndex, action] : window.actions) {
         if (action.element == element) {
             float length = std::sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
-            // mrLogger << "LENGTH: " << length << "\n";
             if (action.state == TPR_TRUE && length < action.lowThreshold) {
                 action.state = TPR_FALSE;
                 action.frames = 0;
@@ -286,12 +283,40 @@ void WindowManager::update() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
 
-        auto it = std::find_if(mWindows.begin(), mWindows.end(), [&event](const auto& pair) {
-            return pair.second.id == event.window.windowID;
-        });
+        // NOTICE:
+        // SDL2 doesn't have a singular windowID field in SDL_Event
+        // and for every different type of event there's it's own union member
+        // so for example in event.type == SDL_KEYDOWN the windowID is in event.key.windowID
+        // but for event.type == SDL_WINDOWEVENT the windowID is in event.window.windowID
+        Uint32* pWindowId = nullptr;
+        switch (event.type) {
+            case SDL_KEYDOWN:
+            case SDL_KEYUP:
+                pWindowId = &event.key.windowID;
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP:
+                pWindowId = &event.button.windowID;
+                break;
+            case SDL_MOUSEMOTION:
+                pWindowId = &event.motion.windowID;
+                break;
+            case SDL_WINDOWEVENT:
+                pWindowId = &event.window.windowID;
+                break;
+            case SDL_MOUSEWHEEL:
+                pWindowId = &event.wheel.windowID;
+                break;
+        }
         Window* window = &mSentinelWindow;
-        if (it != mWindows.end()) {
-            window = &it->second;
+        auto windowIt = mWindows.end();
+        if (pWindowId) {
+            windowIt = std::find_if(mWindows.begin(), mWindows.end(), [pWindowId](const auto& pair) {
+                return pair.second.id == *pWindowId;
+            });
+            if (windowIt != mWindows.end()) {
+                window = &windowIt->second;
+            }
         }
 
         switch (event.type) {
@@ -360,9 +385,9 @@ void WindowManager::update() {
                         break;
 
                     case SDL_WINDOWEVENT_CLOSE:
-                        if (window != &mSentinelWindow) {
+                        if (windowIt != mWindows.end() && window != &mSentinelWindow) {
                             destroyWindow(*window);
-                            mWindows.erase(it);
+                            mWindows.erase(windowIt);
                         }
                         break;
 

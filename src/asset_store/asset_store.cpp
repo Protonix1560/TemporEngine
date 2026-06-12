@@ -1,204 +1,199 @@
 
 
 #include "asset_store.hpp"
+#include "common.hpp"
 #include "core.hpp"
+#include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "logger.hpp"
 #include "resource_registry.hpp"
 
-#define TINYGLTF_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define TINYGLTF_NOEXCEPTION
-#define JSON_NOEXCEPTION
-#include <tiny_gltf.h>
+#include <fastgltf/core.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/math.hpp>
 
-#include <cstring>
+#include <stdexcept>
 
 
 
-#define MEMCPY_SINGLE(d, s, f, m) std::memcpy((d) + offsetof(s, f), m, sizeof(s::f));
+AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI) : mrLogger(rLogger), mrResReg(rRegReg), mrHWLI(rHWLI) {}
 
 
+AssetStore::~AssetStore() noexcept {}
 
-AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg) : mrLogger(rLogger), mrResReg(rRegReg) {}
 
+expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pInfo) noexcept {
+    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
 
-AssetStore::~AssetStore() noexcept {
+    try {
+
+        auto ptrExp = mrResReg.getResourceConstPointer(pInfo->resource);
+        if (!ptrExp.has_value()) {
+            return unexpected(ptrExp.error());
+        }
+        if (!ptrExp.value()) {
+            return unexpected(TPR_INVALID_VALUE);
+        }
+        auto sizeExp = mrResReg.sizeofResource(pInfo->resource);
+        if (!sizeExp.has_value()) {
+            return unexpected(sizeExp.error());
+        }
+        if (sizeExp.value() == 0) {
+            return unexpected(TPR_INVALID_VALUE);
+        }
+
+        auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(ptrExp.value(), sizeExp.value());
+        if (gltfDataExp.error() != fastgltf::Error::None) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << "FastGLTF error: " << fastgltf::getErrorMessage(gltfDataExp.error()) << "\n";
+            return unexpected(TPR_UNKNOWN_ERROR);
+        }
+        auto& gltfData = gltfDataExp.get();
+
+        fastgltf::Parser gltfParser{};
+        // TODO: add support for in-memory binary chunks
+        auto gltfLibraryExp = gltfParser.loadGltfBinary(gltfData, "");
+        if (gltfLibraryExp.error() != fastgltf::Error::None) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << "FastGLTF error: " << fastgltf::getErrorMessage(gltfLibraryExp.error()) << "\n";
+            return unexpected(TPR_UNKNOWN_ERROR);
+        }
+        auto& gltfLibrary = gltfLibraryExp.get();
+
+        if (pInfo->index >= gltfLibrary.meshes.size()) return unexpected(TPR_INVALID_VALUE);
+        const auto& meshData = gltfLibrary.meshes[pInfo->index];
+
+        uint32_t totalPrimitiveCount = meshData.primitives.size();
+        uint32_t totalIndexCount = 0;
+        uint32_t totalVertexCount = 0;
+        for (const auto& primitive : meshData.primitives) {
+            uint32_t vertexCount = 0;
+            for (const auto& attribute : primitive.attributes) {
+                if (attribute.name == "POSITION") {
+                    auto& accessor = gltfLibrary.accessors[attribute.accessorIndex];
+                    totalVertexCount += accessor.count;
+                    vertexCount = accessor.count;
+                }
+            }
+            if (primitive.indicesAccessor.has_value()) {
+                totalIndexCount += gltfLibrary.accessors[*primitive.indicesAccessor].count;
+            } else {
+                totalIndexCount += vertexCount;
+            }
+        }
+        uint32_t primitiveChunkSize = totalPrimitiveCount * sizeof(AssetMesh::Primitive);
+        uint32_t indexChunkSize = totalIndexCount * sizeof(AssetMesh::Index);
+        uint32_t vertexChunkSize = totalVertexCount * sizeof(AssetMesh::Vertex);
+
+        auto& mesh = mMeshes.try_emplace(mMeshCounter).first->second;
+        mesh.data.resize(primitiveChunkSize + vertexChunkSize + indexChunkSize);
+        mesh.header.primitiveCount = meshData.primitives.size();
+        mesh.header.primitiveOffset = 0;
+        mesh.header.indexCount = totalIndexCount;
+        mesh.header.indexOffset = mesh.header.primitiveOffset + primitiveChunkSize;
+        mesh.header.vertexCount = totalVertexCount;
+        mesh.header.vertexOffset = mesh.header.indexOffset + indexChunkSize;
+
+        uint32_t currentVertexOffset = mesh.header.vertexOffset;
+        uint32_t currentIndexOffset = mesh.header.indexOffset;
+        uint32_t currentPrimitiveOffset = mesh.header.primitiveOffset;
+        for (const auto& primitive : meshData.primitives) {
+            uint32_t vertexCount = 0;
+            for (const auto& attribute : primitive.attributes) {
+                if (attribute.name == "POSITION") {
+                    const auto& accessor = gltfLibrary.accessors[attribute.accessorIndex];
+                    vertexCount = accessor.count;
+                    if (vertexCount > 0) {
+                        auto* itEl = new (mesh.data.data() + currentVertexOffset) AssetMesh::Vertex[accessor.count];
+                        auto* it = reinterpret_cast<std::byte*>(itEl);
+                        for (uint32_t i = 0; i < accessor.count; i++, it += sizeof(AssetMesh::Vertex)) {
+                            fastgltf::math::fvec3 pos = fastgltf::getAccessorElement<fastgltf::math::fvec3>(gltfLibrary, accessor, i);
+                            std::memcpy(it + offsetof(AssetMesh::Vertex, x), &pos.x(), sizeof(float));
+                            std::memcpy(it + offsetof(AssetMesh::Vertex, y), &pos.y(), sizeof(float));
+                            std::memcpy(it + offsetof(AssetMesh::Vertex, z), &pos.z(), sizeof(float));
+                        }
+                    }
+                }
+            }
+            if (vertexCount > 0) {
+                auto* itEl = new (mesh.data.data() + currentPrimitiveOffset) AssetMesh::Primitive;
+                auto* it = reinterpret_cast<std::byte*>(itEl);
+                std::memcpy(it + offsetof(AssetMesh::Primitive, count), &vertexCount, sizeof(vertexCount));
+                std::memcpy(it + offsetof(AssetMesh::Primitive, offset), &currentVertexOffset, sizeof(currentVertexOffset));
+                currentVertexOffset += vertexCount * sizeof(AssetMesh::Vertex);
+                currentPrimitiveOffset += sizeof(AssetMesh::Primitive);
+                if (primitive.indicesAccessor.has_value()) {
+                    auto& accessor = gltfLibrary.accessors[*primitive.indicesAccessor];
+                    auto* itEl = new (mesh.data.data() + currentIndexOffset) AssetMesh::Index[accessor.count];
+                    auto* it = reinterpret_cast<std::byte*>(itEl);
+                    for (uint32_t i = 0; i < accessor.count; i++, it += sizeof(AssetMesh::Index)) {
+                        AssetMesh::Index index = fastgltf::getAccessorElement<AssetMesh::Index>(gltfLibrary, accessor, i);
+                        std::memcpy(it, &index, sizeof(index));
+                    }
+                    currentIndexOffset += accessor.count * sizeof(AssetMesh::Index);
+                } else {
+                    auto* itEl = new (mesh.data.data() + currentIndexOffset) AssetMesh::Index[vertexCount];
+                    auto* it = reinterpret_cast<std::byte*>(itEl);
+                    for (uint32_t i = 0; i < vertexCount; i++, it += sizeof(AssetMesh::Index)) {
+                        std::memcpy(it, &i, sizeof(i));
+                    }
+                    currentIndexOffset += vertexCount * sizeof(AssetMesh::Index);
+                }
+            }
+        }
+
+        TprMesh handle = construct_basic_handle<TprMesh>(mMeshCounter, 0, handle_type::mesh);
+        mesh.handle = handle;
+
+        mMeshCounter++;
+
+        return handle;
+    
+    } catch (const std::runtime_error& e) {
+        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << e.what() << "\n";
+        return unexpected(TPR_UNKNOWN_ERROR);
+    } catch (...) {
+        return unexpected(TPR_UNKNOWN_ERROR);
+    }
 
 }
 
 
-void AssetStore::update() {
-
-}
-
-
-
-TprResult AssetStore::validateHandle(TprAsset handle) {
-    if (get_basic_handle_type(handle) != handle_type::asset) {
-        return TPR_INVALID_VALUE;
-    }
-    if (get_basic_handle_index(handle) >= mAssets.size()) {
-        return TPR_INVALID_VALUE;
-    }
-    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[get_basic_handle_index(handle)]);
-    if (!asset.actual) {
-        return TPR_INVALID_VALUE;
-    }
-    if (asset.generation != get_basic_handle_generation(handle)) {
-        return TPR_INVALID_VALUE;
+TprResult AssetStore::loadMesh(TprMesh handle, const TprMeshLoadInfo* pInfo) noexcept {
+    try {
+        auto it = mMeshes.find(get_basic_handle_index(handle));
+        if (it == mMeshes.end()) return TPR_INVALID_VALUE;
+        auto& mesh = it->second;
+        if (mesh.loaded) return TPR_CONTRACT_VIOLATION;
+        mesh.loaded = true;
+        return mrHWLI.loadMesh(mesh);
+    } catch (...) {
+        return TPR_UNKNOWN_ERROR;
     }
     return TPR_SUCCESS;
 }
 
 
-
-expected<TprAsset, TprResult> AssetStore::loadAsset(const TprAssetLoadInfo* info) noexcept {
-
-    size_t index;
-    if (!mFreeAssets.empty()) {
-        index = mFreeAssets.back();
-        mFreeAssets.pop_back();
-    } else {
-        index = mAssets.size();
-        mAssets.emplace_back();
+void AssetStore::unloadMesh(TprMesh handle) noexcept {
+    try {
+        auto it = mMeshes.find(get_basic_handle_index(handle));
+        if (it == mMeshes.end()) return;
+        auto& mesh = it->second;
+        if (!mesh.loaded) return;
+        mesh.loaded = false;
+        mrHWLI.unloadMesh(handle);
+    } catch (...) {
+        return;
     }
-
-    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[index]);
-
-    asset.generation++;
-    asset.data.reserve(mrResReg.sizeofResource(info->data).value());
-    asset.data.resize(mrResReg.sizeofResource(info->data).value());
-    std::memcpy(asset.data.data(), mrResReg.getResourceConstPointer(info->data).value(), mrResReg.sizeofResource(info->data).value());
-
-    TprAsset handle = construct_basic_handle<TprAsset>(index, asset.generation, handle_type::asset);
-
-    return handle;
 }
 
 
-
-expected<TprAsset, TprResult> AssetStore::parseAsset(const TprAssetParseInfo* parseInfo) noexcept {
-
-    TprAssetLoadInfo loadInfo{};
-
-    std::string warn;
-    std::string err;
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model scene;
-
-    bool res = loader.LoadBinaryFromMemory(
-        &scene, &err, &warn, 
-        reinterpret_cast<const unsigned char*>(mrResReg.getResourceConstPointer(parseInfo->resource).value()), 
-        mrResReg.sizeofResource(parseInfo->resource).value()
-    );
-
-    if (!warn.empty()) {
-        mrLogger.warn(TPR_LOG_STYLE_WARN1) << "tinygltf: " << warn << "\n";
+void AssetStore::destroyMesh(TprMesh handle) noexcept {
+    try {
+        auto it = mMeshes.find(get_basic_handle_index(handle));
+        if (it == mMeshes.end()) return;
+        if (it->second.loaded) unloadMesh(handle);
+        mMeshes.erase(it);
+    } catch (...) {
+        return;
     }
-    if (!res || !err.empty()) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "tinygltf: " << err << "\n";
-        return unexpected(TPR_PARSE_ERROR);
-    }
-
-    switch (parseInfo->type) {
-
-        case TPR_ASSET_TYPE_MODEL: {
-
-            if (parseInfo->index >= scene.meshes.size()) return unexpected(TPR_COUNT_OVERFLOW);
-            const tinygltf::Mesh& mesh = scene.meshes[0];
-
-            uint32_t assetIndicesSize = 0;
-            uint32_t assetVerticesSize = 0;
-            for (const auto& primitive : mesh.primitives) {
-                const auto& indicesAccessor = scene.accessors[primitive.indices];
-                const auto& verticesAccessor = scene.accessors[primitive.attributes.at("POSITION")];
-                assetIndicesSize += indicesAccessor.count * sizeof(AssetModel::Index);
-                assetVerticesSize += verticesAccessor.count * sizeof(AssetModel::Vertex);
-            }
-            uint32_t assetDataSize = sizeof(AssetModel::Header) + assetIndicesSize + assetVerticesSize;
-
-            loadInfo.data = mrResReg.openResource(assetDataSize, 0, 1).value();
-            std::byte* pData = mrResReg.getResourceRawDataPointer(loadInfo.data).value();
-            uint32_t offset = sizeof(AssetModel::Header);
-
-            // indices
-            MEMCPY_SINGLE(pData, AssetModel::Header, indexCount, &assetIndicesSize);
-            MEMCPY_SINGLE(pData, AssetModel::Header, indexOffset, &offset);
-            uint32_t accumIndexCount = 0;
-            for (const auto& primitive : mesh.primitives) {
-                const auto& indicesAccessor = scene.accessors[primitive.indices];
-                const auto& indicesBufferView = scene.bufferViews[indicesAccessor.bufferView];
-                const auto& indicesBuffer = scene.buffers[indicesBufferView.buffer];
-                uint32_t originalIndexSize = tinygltf::GetNumComponentsInType(indicesAccessor.type) * tinygltf::GetComponentSizeInBytes(indicesAccessor.componentType);
-                for (uint32_t i = 0; i < indicesAccessor.count; i++) {
-                    AssetModel::Index index;
-                    std::memcpy(
-                        &index,
-                        indicesBuffer.data.data() + indicesBufferView.byteOffset + indicesAccessor.byteOffset + i * originalIndexSize,
-                        originalIndexSize
-                    );
-                    index += accumIndexCount;
-                    std::memcpy(
-                        pData + offset,
-                        &index,
-                        sizeof(AssetModel::Index)
-                    );
-                    offset += sizeof(AssetModel::Index);
-                }
-                accumIndexCount += indicesAccessor.count;
-            }
-
-            // vertices
-            MEMCPY_SINGLE(pData, AssetModel::Header, vertexCount, &assetVerticesSize);
-            MEMCPY_SINGLE(pData, AssetModel::Header, vertexOffset, &offset);
-            for (const auto& primitive : mesh.primitives) {
-                const auto& verticesAccessor = scene.accessors[primitive.attributes.at("POSITION")];
-                const auto& verticesBufferView = scene.bufferViews[verticesAccessor.bufferView];
-                const auto& verticesBuffer = scene.buffers[verticesBufferView.buffer];
-                uint32_t originalVertexPosSize = tinygltf::GetNumComponentsInType(verticesAccessor.type) * tinygltf::GetComponentSizeInBytes(verticesAccessor.componentType);
-                for (uint32_t i = 0; i < verticesAccessor.count; i++) {
-                    AssetModel::Vertex vertex;
-                    std::memcpy(
-                        &vertex.pos,
-                        verticesBuffer.data.data() + verticesBufferView.byteOffset + verticesAccessor.byteOffset + i * originalVertexPosSize,
-                        originalVertexPosSize
-                    );
-                    std::memcpy(
-                        pData + offset,
-                        &vertex,
-                        sizeof(AssetModel::Vertex)
-                    );
-                    offset += sizeof(AssetModel::Vertex);
-                }
-            }
-
-        }
-
-        default: ;
-
-    }
-    
-    auto assetHandle = loadAsset(&loadInfo);
-    
-    mrResReg.closeResource(loadInfo.data);
-
-    return assetHandle;
 }
-
-
-
-void AssetStore::destroyAsset(TprAsset handle) noexcept {
-
-    if (validateHandle(handle) < 0) return;
-
-    Asset& asset = std::visit([](auto& asset) -> Asset& { return static_cast<Asset&>(asset); }, mAssets[get_basic_handle_index(handle)]);
-
-    asset.actual = false;
-
-    mFreeAssets.push_back(get_basic_handle_index(handle));
-
-}
-
 

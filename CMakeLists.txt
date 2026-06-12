@@ -5,7 +5,7 @@ project(tempor LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(WANT_DEBUG_ASAN "Enable ASan" ON)
+option(WANT_DEBUG_ASAN "Enable ASan" OFF)
 option(WANT_DEBUG_LSAN "Enable LSan" OFF)
 option(WANT_DEBUG_TSAN "Enable TSan" OFF)
 option(WANT_DEBUG_MSAN "Enable MSan" OFF)
@@ -33,7 +33,7 @@ else()
 endif()
 set(BUILD_VERSION "v0.0.0")
 
-target_compile_options(common INTERFACE -O0)
+target_compile_options(common INTERFACE -O0 -g)
 target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}")
 
 # main executable
@@ -55,7 +55,6 @@ endif()
 
 # adding services
 add_subdirectory(src/hardware_layer_interface)
-add_subdirectory(src/hardware_memory_optimizator)
 add_subdirectory(src/tempor_engine)
 add_subdirectory(src/logger)
 add_subdirectory(src/resource_registry)
@@ -63,11 +62,14 @@ add_subdirectory(src/plugin_loader)
 add_subdirectory(src/window_manager)
 add_subdirectory(src/scene_graph)
 add_subdirectory(src/asset_store)
+add_subdirectory(src/settings)
+
+add_subdirectory(3rd_party/fastgltf)
 
 target_link_libraries(
     tempor PRIVATE
-    tempor_class logger plugin_loader window_manager scene_graph asset_store
-    hardware_layer_interface resource_registry hardware_memory_optimizator
+    tempor_class logger plugin_loader window_manager scene_graph
+    hardware_layer_interface resource_registry asset_store settings
 )
 
 # adding sanitizers
@@ -96,7 +98,7 @@ endfunction()
 
 add_sanitizer(address "GNU|Clang" WANT_DEBUG_ASAN)
 add_sanitizer(thread "GNU|Clang" WANT_DEBUG_TSAN)
-add_sanitizer(memory "Clang" WANT_DEBUG_MSAN -fno-omit-frame-pointer)
+add_sanitizer(memory "GNU|Clang" WANT_DEBUG_MSAN -fno-omit-frame-pointer)
 add_sanitizer(undefined "GNU|Clang" WANT_DEBUG_UBSAN -fno-sanitize=vptr)
 add_sanitizer(leak "GNU|Clang" WANT_DEBUG_LSAN -g)
 

@@ -3,68 +3,12 @@
 #define ASSET_STORE_ASSET_STORE_HPP_
 
 
+#include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "core.hpp"
+#include "common.hpp"
 
-#include <string>
-#include <cstdint>
-#include <type_traits>
-#include <vector>
-#include <variant>
-
-
-
-struct SlotConstraints {
-    public:
-        bool operator()() { return true; }
-};
-
-
-
-struct SlotPFunc {
-    public:
-        float operator()(float p);
-};
-
-
-
-struct Slot {
-    std::string name;
-    SlotConstraints constraints;
-    uint32_t multMax;
-    uint32_t multMin;
-    SlotPFunc pFunc;
-    float p;
-};
-
-
-
-struct Asset {
-    std::vector<Slot> slots;
-    std::vector<std::byte> data;
-    uint32_t generation = 0;
-    bool actual = true;
-};
-
-struct AssetModel : public Asset {
-
-    struct Vertex {
-        struct Pos {
-            float x, y, z;
-        } pos;
-    };
-
-    using Index = uint32_t;
-
-    struct Header {
-        uint32_t vertexOffset;
-        uint32_t vertexCount;
-        uint32_t indexOffset;
-        uint32_t indexCount;
-    } header;
-    static_assert(std::is_standard_layout_v<Header>, "");
-};
-
+#include <unordered_map>
 
 
 // from "logger.hpp"
@@ -73,34 +17,29 @@ class Logger;
 // from "resource_registy.hpp"
 class ResourceRegistry;
 
+// from "hardware_layer_interface.hpp"
+class HardwareLayer;
 
 
 class AssetStore {
 
     public:
-        AssetStore(Logger& rLogger, ResourceRegistry& rRegReg);
+        AssetStore(Logger& rLogger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI);
         ~AssetStore() noexcept;
 
-        void init();
-        void update();
-        void shutdown() noexcept;
-
-        expected<TprAsset, TprResult> parseAsset(const TprAssetParseInfo* info) noexcept;
-        expected<TprAsset, TprResult> loadAsset(const TprAssetLoadInfo* info) noexcept;
-        void destroyAsset(TprAsset asset) noexcept;
-
+        expected<TprMesh, TprResult> createMesh(const TprMeshCreateInfo* info) noexcept;
+        TprResult loadMesh(TprMesh mesh, const TprMeshLoadInfo* info) noexcept;
+        void unloadMesh(TprMesh mesh) noexcept;
+        void destroyMesh(TprMesh mesh) noexcept;
 
     private:
 
         Logger& mrLogger;
         ResourceRegistry& mrResReg;
+        HardwareLayer& mrHWLI;
 
-        [[nodiscard]] TprResult validateHandle(TprAsset handle);
-
-        std::vector<std::variant<
-            AssetModel
-        >> mAssets;
-        std::vector<size_t> mFreeAssets;
+        std::unordered_map<uint32_t, AssetMesh> mMeshes;
+        uint32_t mMeshCounter = 0;
 
 
 };

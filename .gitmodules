@@ -4,6 +4,6 @@
 [submodule "3rd_party/mio"]
 	path = 3rd_party/mio
 	url = https://github.com/vimpunk/mio.git
-[submodule "3rd_party/tinygltf"]
-	path = 3rd_party/tinygltf
-	url = https://github.com/syoyo/tinygltf.git
+[submodule "3rd_party/fastgltf"]
+	path = 3rd_party/fastgltf
+	url = https://github.com/spnda/fastgltf

@@ -8,30 +8,46 @@
 #include <cstring>
 #include <xxhash.h>
 #include <type_traits>
-#include <unordered_set>
+#include <set>
 
 
 template <typename It>
 requires std::input_iterator<It>
-inline size_t sequence_hash64(It begin, It end) {
-    XXH64_state_t* state = XXH64_createState();
-    XXH64_reset(state, 0);
-    
-    for (auto it = begin; it != end; ++it) {
-        const auto& el = *it;
-        XXH64_update(state, &el, sizeof(el));
+inline size_t sequence_hash(It begin, It end) {
+    if constexpr (sizeof(size_t) == sizeof(uint64_t)) {
+        XXH64_state_t* state = XXH64_createState();
+        XXH64_reset(state, 0);
+        
+        for (auto it = begin; it != end; ++it) {
+            const auto& el = *it;
+            XXH64_update(state, &el, sizeof(el));
+        }
+        
+        uint64_t hash = XXH64_digest(state);
+        XXH64_freeState(state);
+        return hash;
+    } else if constexpr (sizeof(size_t) == sizeof(uint32_t)) {
+        XXH32_state_t* state = XXH32_createState();
+        XXH32_reset(state, 0);
+        
+        for (auto it = begin; it != end; ++it) {
+            const auto& el = *it;
+            XXH32_update(state, &el, sizeof(el));
+        }
+        
+        uint32_t hash = XXH32_digest(state);
+        XXH32_freeState(state);
+        return hash;
+    } else {
+        throw "Unsupported architecture";
     }
-    
-    uint64_t hash = XXH64_digest(state);
-    XXH64_freeState(state);
-    return hash;
 }
 
 
 template <typename T>
 class set_key {
     private:
-        std::unordered_set<T> m_set;
+        std::set<T> m_set;
 
     public:
         set_key() = default;
@@ -47,7 +63,9 @@ class set_key {
             }
         }
 
-        void insert(const T& value) { m_set.insert(value); }
+        void insert(const T& value) {
+            m_set.insert(value);
+        }
 
         template <typename... Args>
         void emplace(Args&&... args) { m_set.emplace(std::forward(args)...); }
@@ -66,29 +84,25 @@ class set_key {
             }
         }
 
-        void reserve(size_t n) {
-            m_set.reserve(n);
-        }
-
         size_t size() const { return m_set.size(); }
         bool empty() const { return m_set.empty(); }
 
         bool operator==(const set_key<T>& other) const { return m_set == other.m_set; }
         bool operator!=(const set_key<T>& other) const { return m_set != other.m_set; }
 
-        std::unordered_set<T>::iterator begin() { return m_set.begin(); }
-        std::unordered_set<T>::const_iterator cbegin() const { return m_set.cbegin(); }
-        std::unordered_set<T>::const_iterator begin() const { return m_set.cbegin(); }
+        std::set<T>::iterator begin() { return m_set.begin(); }
+        std::set<T>::const_iterator cbegin() const { return m_set.cbegin(); }
+        std::set<T>::const_iterator begin() const { return m_set.cbegin(); }
 
-        std::unordered_set<T>::iterator end() { return m_set.end(); }
-        std::unordered_set<T>::const_iterator cend() const { return m_set.cend(); }
-        std::unordered_set<T>::const_iterator end() const { return m_set.cend(); }
+        std::set<T>::iterator end() { return m_set.end(); }
+        std::set<T>::const_iterator cend() const { return m_set.cend(); }
+        std::set<T>::const_iterator end() const { return m_set.cend(); }
 };
 
 template <typename T>
 struct std::hash<set_key<T>> {
     size_t operator()(const set_key<T>& set) const {
-        return sequence_hash64(set.begin(), set.end());
+        return sequence_hash(set.begin(), set.end());
     }
 };
 

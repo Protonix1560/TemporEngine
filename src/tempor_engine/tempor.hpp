@@ -9,12 +9,12 @@
 #include "plugin_core.h"
 #include "plugin_loader.hpp"
 #include "scene_graph.hpp"
-#include "hardware_memory_optimizator.hpp"
 #include "logger.hpp"
 #include "window_manager.hpp"
 #include "resource_registry.hpp"
 #include "hardware_layer_interface.hpp"
 #include "asset_store.hpp"
+#include "settings.hpp"
 
 #include "sleep_clock.hpp"
 
@@ -57,11 +57,11 @@ struct service_buffer {
 
         T& get() {
             assert(m_alive);
-            return *reinterpret_cast<T*>(m_memory);
+            return *std::launder(reinterpret_cast<T*>(m_memory));
         }
         const T& get() const {
             assert(m_alive);
-            return *reinterpret_cast<T*>(m_memory);
+            return *std::launder(reinterpret_cast<T*>(m_memory));
         }
 
         ~service_buffer() {
@@ -166,20 +166,22 @@ class TemporEngine {
         void sigint() noexcept;
         void sigterm() noexcept;
 
-        Logger& getLogger();
-        ResourceRegistry& getResourceRegistry();
-        WindowManager& getWindowManager();
-        HardwareLayer& getHWLI();
-        SceneGraph& getSceneGraph();
+        Logger* getLogger() noexcept;
+        ResourceRegistry* getResourceRegistry() noexcept;
+        WindowManager* getWindowManager() noexcept;
+        HardwareLayer* getPHWL() noexcept;
+        SceneGraph* getSceneGraph() noexcept;
+        AssetStore* getAssetStore() noexcept;
+        Settings* getSettings() noexcept;
+        PluginLoader* getPluginLoader() noexcept;
+
+        TprComponent getComponentRenderable() noexcept;
 
     private:
         sleep_clock mClock;
         const TprEngineAPI* mpAPI;
 
-        service_singleton_holder<
-            Logger, ResourceRegistry, WindowManager, std::unique_ptr<HardwareLayer>,
-            HardwareMemoryOptimizator, AssetStore, SceneGraph, PluginLoader
-        > mServHolder;
+        service_singleton_holder<Logger, WindowManager, PHardwareLayer, AssetStore, SceneGraph, PluginLoader, ResourceRegistry, Settings> mServHolder;
 
         ResourceRegistry* mpResReg = nullptr;
         Logger* mpLogger = nullptr;
@@ -188,7 +190,9 @@ class TemporEngine {
         AssetStore* mpAssetStore = nullptr;
         PluginLoader* mpPlugLd = nullptr;
         SceneGraph* mpSceneGraph = nullptr;
-        HardwareMemoryOptimizator* mpHWMO = nullptr;
+        Settings* mpSettings = nullptr;
+
+        TprComponent mComponentRenderable;
 
         volatile sig_atomic_t mSigInt = 0;
         volatile sig_atomic_t mSigTerm = 0;

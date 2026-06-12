@@ -7,12 +7,12 @@
 
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <variant>
 #include <cassert>
-
 
 
 #if defined(WINDOWS)
@@ -22,8 +22,6 @@
 #if defined(LINUX)
     #include <elf.h>
 #endif
-
-
 
 
 ResourceRegistry::ResourceRegistry(Logger& rLogger)
@@ -45,15 +43,7 @@ ResourceRegistry::ResourceRegistry(Logger& rLogger)
 }
 
 
-ResourceRegistry::~ResourceRegistry() noexcept {
-
-}
-
-
-void ResourceRegistry::update() {
-
-}
-
+ResourceRegistry::~ResourceRegistry() noexcept {}
 
 
 
@@ -155,11 +145,32 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
 
     try {
 
+        if (std::filesystem::is_directory(filepath)) {
+            return unexpected(TPR_NOT_A_FILE);
+        }
+        if (
+            !(flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) &&
+            !(flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT) &&
+            !std::filesystem::exists(filepath)
+        ) {
+            return unexpected(TPR_NO_SUCH_FILE);
+        }
+
         // populating resource
         if (flags & TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT) {
-            mResources.at(index) = ResourceRWFile();
+            mResources.at(index) = ResourceRWFile{};
         } else {
-            mResources.at(index) = ResourceROFile();
+            mResources.at(index) = ResourceROFile{};
+        }
+        if (std::filesystem::exists(filepath)) {
+            if ((flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) && !std::filesystem::is_empty(filepath)) {
+                std::filesystem::resize_file(filepath, 0);
+            }
+        } else {
+            if ((flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) || (flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT)) {
+                std::ofstream f(filepath);
+                f.close();
+            }
         }
         ResourceBase& resource = std::visit(
             [](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); },
@@ -167,11 +178,11 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
         );
         std::visit(overload{
             [filepath](ResourceROFile& resource) -> void {
-                resource.mmapSource = MMapSource(filepath.string());
+                if (std::filesystem::file_size(filepath) > 0) resource.mmapSource = mmap_byte_source(filepath.string());
                 resource.path = filepath;
             },
             [filepath](ResourceRWFile& resource) -> void {
-                resource.mmapSink = MMapSink(filepath.string());
+                if (std::filesystem::file_size(filepath) > 0) resource.mmapSink = mmap_byte_sink(filepath.string());
                 resource.path = filepath;
             },
             [](auto& resource) -> void {}
@@ -206,7 +217,7 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, Tpr
 
     try {
 
-        mResources.at(index) = ResourceData(AlignedAllocator<std::byte>(alignment));
+        mResources.at(index) = ResourceData(aligned_allocator<std::byte>(alignment));
         ResourceData& resource = std::get<ResourceData>(mResources.at(index));
         resource.data.reserve(size);
         resource.data.resize(size);
@@ -244,7 +255,7 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin
             if (reinterpret_cast<uintptr_t>(begin) % alignment != 0) return unexpected(TPR_BAD_ALLOC);
             mResources.at(index) = ResourceReference{};
         } else {
-            mResources.at(index) = ResourceData(AlignedAllocator<std::byte>(alignment));
+            mResources.at(index) = ResourceData(aligned_allocator<std::byte>(alignment));
         }
         ResourceBase& resource = std::visit(
             [](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); },
@@ -335,12 +346,14 @@ expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource handl
         },
 
         [&size](ResourceROFile& resource) -> TprResult {
-            size = resource.mmapSource.size();
+            if (resource.mmapSource.has_value()) size = resource.mmapSource->size();
+            else size = 0;
             return TPR_SUCCESS;
         },
 
         [&size](ResourceRWFile& resource) -> TprResult {
-            size = resource.mmapSink.size();
+            if (resource.mmapSink.has_value()) size = resource.mmapSink->size();
+            else size = 0;
             return TPR_SUCCESS;
         },
 
@@ -382,9 +395,9 @@ TprResult ResourceRegistry::resizeResource(TprResource handle, size_t newSize) {
         },
 
         [newSize](ResourceRWFile& resource) -> TprResult {
-            resource.mmapSink.unmap();
+            if (resource.mmapSink.has_value()) resource.mmapSink->unmap();
             std::filesystem::resize_file(resource.path, newSize);
-            resource.mmapSink = MMapSink(resource.path.string());
+            if (newSize > 0) resource.mmapSink = mmap_byte_sink(resource.path.string());
             return TPR_SUCCESS;
         },
 
@@ -434,12 +447,14 @@ expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(
         },
 
         [&data](ResourceROFile& resource) -> TprResult {
-            data = resource.mmapSource.data();
+            if (resource.mmapSource.has_value()) data = resource.mmapSource->data();
+            else data = nullptr;
             return TPR_SUCCESS;
         },
 
         [&data](ResourceRWFile& resource) -> TprResult {
-            data = resource.mmapSink.data();
+            if (resource.mmapSink.has_value()) data = resource.mmapSink->data();
+            else data = nullptr;
             return TPR_SUCCESS;
         },
 
@@ -493,7 +508,8 @@ expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprR
         },
 
         [&data](ResourceRWFile& resource) -> TprResult {
-            data = resource.mmapSink.data();
+            if (resource.mmapSink.has_value()) data = resource.mmapSink->data();
+            else data = nullptr;
             return TPR_SUCCESS;
         },
 
@@ -557,7 +573,7 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
                 ) {
                     
                     mio::basic_mmap_source<std::byte> mmap(entry.path().string());
-                    MMapSourceStreambuf streambuf(mmap);
+                    mmap_byte_source_streambuf streambuf(mmap);
                     std::istream stream(&streambuf);
                     ELFIO::elfio reader;
                     if (!reader.load(stream)) {
@@ -598,33 +614,21 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
 }
 
 
+expected<std::filesystem::path, TprResult> ResourceRegistry::matchFile(std::filesystem::path path) {
+    // TODO: search directories and scanning
+    if (std::filesystem::exists(path) && !std::filesystem::is_directory(path)) {
+        return path;
+    }
+    return unexpected(TPR_NO_SUCH_FILE);
+}
 
 
-std::filesystem::path ResourceRegistry::getResourceFilepath(TprResource handle) {
-
-    TprResult validateResult = validateHandle(handle);
-    if (validateResult < 0) throw std::runtime_error("Invalid handle");
-
-    TprResource resource = getRootResource(handle);
-
-    std::filesystem::path path;
-
-    std::visit(overload{
-        [&path](ResourceROFile& resource) -> void {
-            path = resource.path;
-        },
-
-        [&path](ResourceRWFile& resource) -> void {
-            path = resource.path;
-        },
-
-        [handle](auto& resource) -> void {
-            throw std::runtime_error("Getting filepath of resource: "s + std::to_string(handle._d) + " is not allowed");
-        }
-
-    }, mResources[get_basic_handle_index(resource)]);
-
-    return path;
+expected<std::filesystem::path, TprResult> ResourceRegistry::matchDir(std::filesystem::path path) {
+    // TODO: search directories and scanning
+    if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
+        return path;
+    }
+    return unexpected(TPR_NO_SUCH_FILE);
 }
 
 

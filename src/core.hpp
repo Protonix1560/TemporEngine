@@ -1,16 +1,10 @@
 
-
 #ifndef CORE_HPP_
 #define CORE_HPP_
 
-
-// #include <exception>
-// #include <ostream>
 #include <cstdint>
 #include <type_traits>
 #include <vector>
-// #include <functional>
-// #include <memory>
 #include <optional>
 #include <format>
 #include <array>
@@ -53,7 +47,10 @@ using namespace std::string_literals;
 
 // smol utility things
 
-template <typename... Ts> struct overload : Ts... { using Ts::operator()...; };
+template <typename... Ts>
+struct overload : Ts... {
+    using Ts::operator()...;
+};
 template <typename... Ts> overload(Ts...) -> overload<Ts...>;
 
 template <typename E>
@@ -61,13 +58,14 @@ constexpr typename std::underlying_type<E>::type to_underlying(E e) {
     return static_cast<typename std::underlying_type<E>::type>(e);
 }
 
-template <typename> inline constexpr bool dependent_false_v = false;
+template <typename>
+inline constexpr bool dependent_false_v = false;
 
 
 
 // converter from something to string
 
-template <typename T, typename Enable = void>
+template <typename T>
 class string_converter {
     public:
         static constexpr bool is_convertable() { return false; };
@@ -82,17 +80,19 @@ class string_converter<const char*> {
 };
 
 template <typename T>
-class string_converter<T, typename std::enable_if_t<std::is_integral_v<T>>> {
+requires (std::is_integral_v<T>)
+class string_converter<T> {
     public:
         static constexpr bool is_convertable() { return true; };
         static std::string convert(T value) { return std::to_string(value); }
 };
 
 template <typename T>
-class string_converter<T, typename std::enable_if_t<std::is_integral_v<std::underlying_type_t<T>>>> {
+requires (std::is_integral_v<std::underlying_type_t<T>>)
+class string_converter<T> {
     public:
         static constexpr bool is_convertable() { return true; };
-        static std::string convert(T value) { return std::to_string(static_cast<std::underlying_type_t<T>>(value)); }
+        static std::string convert(T value) { return std::to_string(to_underlying(value)); }
 };
 
 
@@ -217,7 +217,8 @@ using type_name_v = typename type_name<T>::value;
 // static registry
 // DANGER!! it is static, therefore global
 
-template <typename T, size_t N, typename = std::enable_if_t<N == 0 || N == 1>>
+template <typename T, size_t N>
+requires (N == 0 || N == 1)
 class static_registry;
 
 
@@ -236,7 +237,7 @@ class static_registry<T, 1> {
         }
         void regist(T&& obj) {
             m_obj.reset();
-            m_obj.emplace(obj);
+            m_obj.emplace(std::forward(obj));
         }
         bool has() {
             return m_obj.has_value();
@@ -287,54 +288,51 @@ enum class handle_type : uint8_t {
     undefined = 0,
     window = 1,
     resource = 2,
-    asset = 3,
-    action = 4,
-    component = 5
+    action = 3,
+    component = 4,
+    mesh = 5,
+    setting = 6,
+    depth_domain = 7,
+    render_target = 8,
+    object_image = 9,
+    component_chunk = 10
 };
-
 
 template <typename T>
 inline constexpr uint32_t get_basic_handle_index(T handle) {
     return (handle._d >> 32) & 0xFFFFFFFF;
 }
-
 template <typename T>
 inline constexpr uint32_t get_basic_handle_generation(T handle) {
     return (handle._d >> 8) & 0xFFFFFF;
 }
-
 template <typename T>
 inline constexpr handle_type get_basic_handle_type(T handle) {
     return static_cast<handle_type>(handle._d & 0xFF);
 }
-
 template <typename T>
-inline constexpr void set_basic_handle_index(T* handle, uint32_t value) {
+inline constexpr void set_basic_handle_index(T* handle, uint32_t index) {
     handle->_d &= ~(static_cast<uint64_t>(0xFFFFFFFF) << 32);
-    handle->_d |= static_cast<uint64_t>(value) << 32;
+    handle->_d |= static_cast<uint64_t>(index) << 32;
 }
-
 template <typename T>
-inline constexpr void set_basic_handle_generation(T* handle, uint32_t value) {
+inline constexpr void set_basic_handle_generation(T* handle, uint32_t generation) {
     handle->_d &= ~(static_cast<uint64_t>(0xFFFFFF) << 8);
-    handle->_d |= static_cast<uint64_t>(value & 0xFFFFFF) << 8;
+    handle->_d |= static_cast<uint64_t>(generation & 0xFFFFFF) << 8;
 }
-
 template <typename T>
-inline constexpr void set_basic_handle_type(T* handle, handle_type value) {
+inline constexpr void set_basic_handle_type(T* handle, handle_type type) {
     handle->_d &= ~static_cast<uint64_t>(0xFF);
-    handle->_d |= static_cast<uint64_t>(value);
+    handle->_d |= static_cast<uint64_t>(type);
 }
-
 template <typename T>
 inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, handle_type type) {
     return {
-        ._d = (static_cast<uint64_t>(index) << 32) | 
-              (static_cast<uint64_t>(generation & 0xFFFFFF) << 8) |
-              (static_cast<uint64_t>(type))
+        (static_cast<uint64_t>(index) << 32) | 
+        (static_cast<uint64_t>(generation & 0xFFFFFF) << 8) |
+        (static_cast<uint64_t>(type))
     };
 }
-
 
 
 // log names
@@ -395,6 +393,14 @@ consteval auto logPrxScGr() {
     return logScGrName() + ": ";
 }
 
+consteval auto logSettName() {
+    const char name[] = "Sett";
+    return consteval_string<std::size(name)>(name);
+}
+consteval auto logPrxSett() {
+    return logSettName() + ": ";
+}
+
 
 
 // manual std::expected
@@ -419,7 +425,8 @@ class expected {
         expected(unexpected<E> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(error.error()));
         }
-        template <typename U, typename = std::enable_if_t<std::is_convertible_v<U, E>>>
+        template <typename U>
+        requires std::is_constructible_v<U, E>
         expected(unexpected<U> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(static_cast<E>(error.error())));
         }

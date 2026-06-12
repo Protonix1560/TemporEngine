@@ -5,6 +5,7 @@
 
 
 #include "logger.hpp"
+#include "core.hpp"
 #include "plugin_core.h"
 
 #include <iostream>
@@ -40,7 +41,7 @@ void Logger::write(LogEntry& logEntry) {
 
     if (logEntry.mBuffer.str().empty()) return;
 
-    if (logEntry.mAlways || static_cast<int>(logEntry.mLogLevel) <= verboseLevel.load()) {
+    if (logEntry.mAlways || to_underlying(logEntry.mLogLevel) <= verboseLevel.load()) {
         std::lock_guard<std::mutex> lock(mMutex);
         
         auto& stream = (logEntry.mLogLevel == TPR_LOG_LEVEL_ERROR) ? std::cerr : std::cout;
@@ -73,11 +74,11 @@ void Logger::write(LogEntry& logEntry) {
             case TPR_LOG_STYLE_TIMESTAMP1:
                 stream << div + " > [" << currTime() << "]: "; nsep = div + "   "; break;
             case TPR_LOG_STYLE_ERROR1:
-                stream << div + "     \033[91m"; nsep = div + "     "; break;
+                stream << div + "     \033[91m"; nsep = div + "     \033[91m"; break;
             case TPR_LOG_STYLE_WARN1:
-                stream << div + "     \033[93m"; nsep = div + "     "; break;
+                stream << div + "     \033[93m"; nsep = div + "     \033[93m"; break;
             case TPR_LOG_STYLE_SUCCESS1:
-                stream << div + "     \033[102m"; nsep = div + "     "; break;
+                stream << div + "     \033[102m"; nsep = div + "     \033[102m"; break;
             case TPR_LOG_STYLE_ENDSTAMP1:
                 stream << "\033[32ml->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount--; break;
             case TPR_LOG_STYLE_STARTSTAMP1:

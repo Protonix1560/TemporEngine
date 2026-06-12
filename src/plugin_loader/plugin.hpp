@@ -21,6 +21,7 @@ class Plugin {
         virtual void preShutdown() noexcept = 0;
         virtual void shutdown() noexcept = 0;
         virtual int32_t updatePerFrame() noexcept = 0;
+        virtual const std::string_view name() noexcept = 0;
 };
 
 
@@ -35,6 +36,7 @@ class PluginInThread : public Plugin {
         void preShutdown() noexcept override;
         void shutdown() noexcept override;
         int32_t updatePerFrame() noexcept override;
+        const std::string_view name() noexcept override;
     private:
         Logger& mrLogger;
         std::atomic<int32_t>& mrAliveTokens;

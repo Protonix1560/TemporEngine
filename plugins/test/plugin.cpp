@@ -2,9 +2,12 @@
 #include "plugin.h"
 #include "plugin_core.h"
 
-#include <format>
+#include <glm/ext/matrix_clip_space.hpp>
 #include <string>  // IWYU pragma: keep
-#include <vulkan/vulkan_core.h>
+#include <format>  // IWYU pragma: keep
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 
 using namespace std::string_literals;
@@ -23,8 +26,25 @@ class Plugin {
     public:
         const TprEngineAPI* api;
         TprWindow window;
+
         TprAction quitAction;
-        TprAsset model;
+        TprAction cameraAction;
+        TprAction mouseAction;
+
+        TprAction walkForwardAction;
+        TprAction walkBackwardAction;
+        TprAction strafeRightAction;
+        TprAction strafeLeftAction;
+        TprAction flyUpwardAction;
+        TprAction flyDownwardAction;
+
+        TprMesh mesh;
+        TprObjectImage image;
+        TprEntity object;
+        TprRenderTarget target;
+        TprDepthDomain domain;
+        glm::vec3 camPos{};
+        float camYaw = 0.0f, camPitch = 0.0f;
 };
 
 
@@ -53,93 +73,97 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     quitActionInfo.highThreshold = 0.7f;
     ROF(plugin->api->input->createAction(plugin->window, &quitActionInfo, &plugin->quitAction));
 
-    TprComponent c1;
-    TprComponent c2;
-    TprEntity e1;
-    TprEntity e2;
+    TprActionCreateInfo cameraActionInfo{};
+    cameraActionInfo.element = TPR_MOUSE_MOTION;
+    cameraActionInfo.lowThreshold = 0.0f;
+    cameraActionInfo.highThreshold = 0.0f;
+    ROF(plugin->api->input->createAction(plugin->window, &cameraActionInfo, &plugin->cameraAction));
 
-    const char hello[] = "hello, world!";
-    const char bye[] = "bye, world!";
+    TprActionCreateInfo mouseActionInfo{};
+    mouseActionInfo.element = TPR_MOUSE_BUTTON1;
+    mouseActionInfo.lowThreshold = 0.3f;
+    mouseActionInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &mouseActionInfo, &plugin->mouseAction));
 
-    char buffer[20];
-    std::fill(buffer, buffer + std::size(buffer), 'q');
-    buffer[std::size(buffer) - 1] = '\0';
+    TprActionCreateInfo walkForwardInfo{};
+    walkForwardInfo.element = TPR_KEY_W;
+    walkForwardInfo.lowThreshold = 0.3f;
+    walkForwardInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &walkForwardInfo, &plugin->walkForwardAction));
 
-    ROF(plugin->api->scene->createComponent(sizeof(hello), &c1));
-    ROF(plugin->api->scene->createComponent(sizeof(bye), &c2));
+    TprActionCreateInfo walkBackwardInfo{};
+    walkBackwardInfo.element = TPR_KEY_S;
+    walkBackwardInfo.lowThreshold = 0.3f;
+    walkBackwardInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &walkBackwardInfo, &plugin->walkBackwardAction));
 
-    TprComponent components[] = { c1, c2 };
+    TprActionCreateInfo strafeRightInfo{};
+    strafeRightInfo.element = TPR_KEY_D;
+    strafeRightInfo.lowThreshold = 0.3f;
+    strafeRightInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &strafeRightInfo, &plugin->strafeRightAction));
+    
+    TprActionCreateInfo strafeLeftInfo{};
+    strafeLeftInfo.element = TPR_KEY_A;
+    strafeLeftInfo.lowThreshold = 0.3f;
+    strafeLeftInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &strafeLeftInfo, &plugin->strafeLeftAction));
 
-    ROF(plugin->api->scene->spawnEntity(&c1, 1, &e1));
-    ROF(plugin->api->scene->spawnEntity(components, 2, &e2));
-
-    ROF(plugin->api->scene->writeEntityComponentData(e1, c1, hello, 0, 0));
-    ROF(plugin->api->scene->writeEntityComponentData(e2, c1, hello, 0, 0));
-
-    ROF(plugin->api->scene->writeEntityComponentData(e2, c2, bye, 0, 0));
-
-    ROF(plugin->api->scene->copyEntityComponentData(e1, c1, 0, 0, buffer));
-    plugin->api->log->info(std::format("{}\n", buffer).c_str());
-    ROF(plugin->api->scene->copyEntityComponentData(e2, c1, 0, 0, buffer));
-    plugin->api->log->info(std::format("{}\n", buffer).c_str());
-    ROF(plugin->api->scene->copyEntityComponentData(e2, c2, 0, 0, buffer));
-    plugin->api->log->info(std::format("{}\n", buffer).c_str());
-
-    ROF(plugin->api->scene->writeEntityComponentData(e2, c1, bye, 0, 0));
-    ROF(plugin->api->scene->copyEntityComponentData(e2, c1, 0, 0, buffer));
-    plugin->api->log->info(std::format("{}\n", buffer).c_str());
-
-    plugin->api->scene->destroyComponent(c1);
-
-    // ROF(plugin->api->scene->copyEntityComponentData(e1, c1, 0, 0, buffer));
-    // plugin->api->log->info(std::format("{}\n", buffer).c_str());
-    // ROF(plugin->api->scene->copyEntityComponentData(e2, c1, 0, 0, buffer));
-    // plugin->api->log->info(std::format("{}\n", buffer).c_str());
-    ROF(plugin->api->scene->copyEntityComponentData(e2, c2, 0, 0, buffer));
-    plugin->api->log->info(std::format("{}\n", buffer).c_str());
-
-    /*
-    // initializing
-    sceneFile = openFile(path/to/file);
-
-    vector materials;
-    for (material : sceneFile) {
-        resource = API.vfs.createResourceByBuffer(material, sizeof(Material), TPR_CREATE_RESOURCE_DONT_COPY);
-        // all the data is copied inside the resource by default,
-        // but in this case it is unnesesary because materialHandle already will encapsulate all the data,
-        // so the appropriate flag must be passed to get rid of extra copy
-
-        materialHandle = API.geo.loadMaterialResource(resource);
-        materials.push_back(materialHandle);
-    }
-
-    vector models;
-    for (model : sceneFile) {
-        resource = API.vfs.createResourceByPath(model.path, TPR_CREATE_RESOURCE_DONT_COPY);
-        // data still doesn't need to be copied, so the appropriate flag is passed
-
-        modelHandle = API.geo.loadModelResource(resource);
-        // doesn't auto-load anything from handle,
-        // everything else (e. g. materials) must be loaded manually separately.
-        // Everything else is linked to a model through a local index, so
-        // user code must manually link it to a handle
-
-        for (materialId : model.materials) {
-            API.geo.connectMaterial(modelHandle, materials[materialId], materialId);
-        }
-
-        models.push_back(modelHandle);
-    }
-
-    */
+    TprActionCreateInfo flyUpwardInfo{};
+    flyUpwardInfo.element = TPR_KEY_E;
+    flyUpwardInfo.lowThreshold = 0.3f;
+    flyUpwardInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &flyUpwardInfo, &plugin->flyUpwardAction));
+    
+    TprActionCreateInfo flyDownwardInfo{};
+    flyDownwardInfo.element = TPR_KEY_Q;
+    flyDownwardInfo.lowThreshold = 0.3f;
+    flyDownwardInfo.highThreshold = 0.7f;
+    ROF(plugin->api->input->createAction(plugin->window, &flyDownwardInfo, &plugin->flyDownwardAction));
 
     TprResource modelResource;
     ROF(plugin->api->vfs->openPathResource("plugins/test/model.glb", 0, 1, &modelResource));
-    // TprAssetParseInfo parseInfo{};
-    // parseInfo.resource = modelResource;
-    // parseInfo.type = TPR_ASSET_TYPE_MODEL;
-    // ROF(plugin->api->geo.parseAsset(&parseInfo, &plugin->model));
+    TprMeshCreateInfo parseInfo{};
+    parseInfo.resource = modelResource;
+    parseInfo.index = 0;
+    ROF(plugin->api->geo->createMesh(&parseInfo, &plugin->mesh));
     plugin->api->vfs->closeResource(modelResource);
+
+    TprMeshLoadInfo loadInfo{};
+    ROF(plugin->api->geo->loadMesh(plugin->mesh, &loadInfo));
+
+    TprDepthDomainCreateInfo domainInfo{};
+    ROF(plugin->api->render->createDepthDomain(&domainInfo, &plugin->domain));
+
+    TprRenderTargetCreateInfo targetInfo{};
+    targetInfo.depthDomain = plugin->domain;
+    targetInfo.scissor = {0, 0, 1300, 800};
+    targetInfo.viewport = {0.0f, 0.0f, 1300.0f, 800.0f, 0.0f, 1.0f};
+    targetInfo.window = plugin->window;
+    ROF(plugin->api->render->createRenderTarget(&targetInfo, &plugin->target));
+
+    TprObjectImageCreateInfo imageInfo{};
+    imageInfo.mesh = plugin->mesh;
+    imageInfo.pRenderTargets = &plugin->target;
+    imageInfo.renderTargetCount = 1;
+    ROF(plugin->api->render->createObjectImage(&imageInfo, &plugin->image));
+
+    TprComponent components[] = {
+        plugin->api->render->getComponentRenderable()
+    };
+    ROF(plugin->api->scene->spawnEntity(components, std::size(components), &plugin->object));
+
+    TprComponentRenderable renderable{};
+    renderable.image = plugin->image;
+    renderable.transform.x0 = 1.0f;
+    renderable.transform.y1 = 1.0f;
+    renderable.transform.z2 = 1.0f;
+    renderable.transform.w3 = 1.0f;
+    renderable.transform.z0 = 3.0f;
+    renderable.transform.x0 = 0.5f;
+    ROF(plugin->api->scene->writeEntityComponentData(
+        plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
+    ));
 
     return 0;
 }
@@ -160,6 +184,97 @@ int32_t updatePerFrame(void* ctx) noexcept {
     ROF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
     if (quitActionState.state) {
         plugin->api->wm->closeWindow(plugin->window);
+    }
+
+    TprActionState cameraActionState;
+    TprActionState mouseActionState;
+    ROF(plugin->api->input->getActionState(plugin->cameraAction, &cameraActionState));
+    ROF(plugin->api->input->getActionState(plugin->mouseAction, &mouseActionState));
+
+    TprActionState walkForwardState;
+    TprActionState walkBackwardState;
+    TprActionState strafeRightState;
+    TprActionState strafeLeftState;
+    TprActionState flyUpwardState;
+    TprActionState flyDownwardState;
+    ROF(plugin->api->input->getActionState(plugin->walkForwardAction, &walkForwardState));
+    ROF(plugin->api->input->getActionState(plugin->walkBackwardAction, &walkBackwardState));
+    ROF(plugin->api->input->getActionState(plugin->strafeRightAction, &strafeRightState));
+    ROF(plugin->api->input->getActionState(plugin->strafeLeftAction, &strafeLeftState));
+    ROF(plugin->api->input->getActionState(plugin->flyUpwardAction, &flyUpwardState));
+    ROF(plugin->api->input->getActionState(plugin->flyDownwardAction, &flyDownwardState));
+
+    bool update = false;
+
+    if (mouseActionState.state) {
+        plugin->camYaw += cameraActionState.vector.x * 0.01f;
+        plugin->camPitch += cameraActionState.vector.y * 0.01f;
+        plugin->camPitch = std::clamp(plugin->camPitch, -1.55f, 1.55f);
+        update = true;
+    }
+
+    glm::vec3 front;
+    front.x = std::cos(plugin->camYaw) * std::cos(plugin->camPitch);
+    front.y = std::sin(plugin->camPitch);
+    front.z = std::sin(plugin->camYaw) * std::cos(plugin->camPitch);
+    front = glm::normalize(front);
+    glm::vec3 up(0.0f, 1.0f, 0.0f);
+    glm::vec3 right = glm::cross(front, up);
+
+    if (walkForwardState.state) {
+        plugin->camPos += front * 0.03f;
+        update = true;
+    }
+    if (walkBackwardState.state) {
+        plugin->camPos -= front * 0.03f;
+        update = true;
+    }
+    if (strafeRightState.state) {
+        plugin->camPos += right * 0.03f;
+        update = true;
+    }
+    if (strafeLeftState.state) {
+        plugin->camPos -= right * 0.03f;
+        update = true;
+    }
+    if (flyUpwardState.state) {
+        plugin->camPos -= up * 0.03f;
+        update = true;
+    }
+    if (flyDownwardState.state) {
+        plugin->camPos += up * 0.03f;
+        update = true;
+    }
+
+    glm::mat4 modelMat = glm::mat4(1.0f);
+    modelMat[1][1] = -1.0f;
+    glm::mat4 viewMat = glm::lookAt(plugin->camPos, plugin->camPos + front, up);
+    glm::mat4 projMat = glm::perspective(1.7f, 1300.0f / 800.0f, 0.01f, 1000.0f);
+    glm::mat4 mvpMat = projMat * viewMat * modelMat;
+
+    if (update) {
+        TprComponentRenderable renderable{};
+        renderable.image = plugin->image;
+        renderable.transform.x0 = mvpMat[0][0];
+        renderable.transform.x1 = mvpMat[1][0];
+        renderable.transform.x2 = mvpMat[2][0];
+        renderable.transform.x3 = mvpMat[3][0];
+        renderable.transform.y0 = mvpMat[0][1];
+        renderable.transform.y1 = mvpMat[1][1];
+        renderable.transform.y2 = mvpMat[2][1];
+        renderable.transform.y3 = mvpMat[3][1];
+        renderable.transform.z0 = mvpMat[0][2];
+        renderable.transform.z1 = mvpMat[1][2];
+        renderable.transform.z2 = mvpMat[2][2];
+        renderable.transform.z3 = mvpMat[3][2];
+        renderable.transform.w0 = mvpMat[0][3];
+        renderable.transform.w1 = mvpMat[1][3];
+        renderable.transform.w2 = mvpMat[2][3];
+        renderable.transform.w3 = mvpMat[3][3];
+        ROF(plugin->api->scene->writeEntityComponentData(
+            plugin->object, plugin->api->render->getComponentRenderable(),
+            reinterpret_cast<const char*>(&renderable), 0, 0
+        ));
     }
 
     return 0;

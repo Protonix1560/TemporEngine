@@ -20,6 +20,17 @@ struct Lib {
             OPEN_MODE_LAZY = 0x1
         };
 
+        Lib() = default;
+        Lib(Lib&& other) = delete;
+        Lib(const Lib& other) = delete;
+
+        ~Lib() noexcept {
+            if (mpFile) {
+                dlclose(mpFile);
+                mpFile = nullptr;
+            }
+        }
+
         expected<void, const char*> open(std::filesystem::path path, uint32_t mode = 0) {
             assert(mpFile == nullptr);
             int m = 0;
@@ -39,7 +50,7 @@ struct Lib {
             assert(mpFile != nullptr);
             void* p = dlsym(mpFile, sym.data());
             if (!p) {
-                return unexpected(dlerror());
+                return unexpected(static_cast<const char*>(dlerror()));
             }
             dlerror();
             return reinterpret_cast<T>(p);

@@ -55,32 +55,13 @@ typedef enum TprResult {
     TPR_NOT_PERMITTED = -8,
     TPR_USER_CODE_ERROR = -9,
     TPR_NOT_SUPPORTED = -10,
+    TPR_NOT_A_FILE = -11,
+    TPR_NO_SUCH_FILE = -12,
+    TPR_ALREADY_EXISTS = -13,
+    TPR_WRONG_TYPE = -14,
+    TPR_VERSION_MISMATCH = -15,
     TPR_RESULT_MAX_ENUM = INT32_MAX
 } TprResult;
-
-typedef enum TprDtype {
-    TPR_DTYPE_NONE = 0,
-    TPR_DTYPE_FLOAT32 = 1,
-    TPR_DTYPE_FLOAT64 = 2,
-    TPR_DTYPE_INT8 = 3,
-    TPR_DTYPE_INT16 = 4,
-    TPR_DTYPE_INT32 = 5,
-    TPR_DTYPE_INT64 = 6,
-    TPR_DTYPE_UINT8 = 7,
-    TPR_DTYPE_UINT16 = 8,
-    TPR_DTYPE_UINT32 = 9,
-    TPR_DTYPE_UINT64 = 10,
-    TPR_DTYPE_BOOL8 = 11,
-    TPR_DTYPE_BOOL32 = 12,
-    TPR_DTYPE_CHAR = 13,
-    TPR_DTYPE_MAX_ENUM = INT32_MAX
-} TprDtype;
-
-typedef enum TprAssetType {
-    // TPR_ASSET_TYPE_AUTO = 0,
-    TPR_ASSET_TYPE_MODEL = 1,
-    TPR_ASSET_TYPE_MAX_ENUM = INT32_MAX
-} TprAssetType;
 
 typedef enum TprInputElement {
     TPR_KEY_A = 1,
@@ -202,6 +183,16 @@ typedef enum TprInputElement {
     TPR_KEY_MAX_ENUM = INT32_MAX
 } TprInputElement;
 
+typedef enum TprSettingType {
+    TPR_SETTING_TYPE_UNSET = 0,
+    TPR_SETTING_TYPE_STRING = 1,
+    TPR_SETTING_TYPE_INTEGER = 2,
+    TPR_SETTING_TYPE_FLOATING = 3,
+    TPR_SETTING_TYPE_BOOL = 4,
+    TPR_SETTING_TYPE_NULL = 5,
+    TPR_SETTING_MAX_ENUM = INT32_MAX
+} TprSettingType;
+
 
 
 // flags
@@ -235,6 +226,8 @@ typedef TprFlag_T TprOpenEmptyResourceFlags;
 
 typedef enum TprOpenPathResourceFlagBits {
     TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT = 0x1,
+    TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT = 0x2,
+    TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT = 0x4,
     TPR_OPEN_PATH_RESOURCE_FLAG_BITS_MAX_ENUM = INT32_MAX
 } TprOpenPathResourceFlagBits;
 typedef TprFlag_T TprOpenPathResourceFlags;
@@ -265,16 +258,26 @@ typedef enum TprEnumDirFlagBits {
 typedef TprFlag_T TprEnumDirFlags;
 
 
+typedef enum TprCreateDepthDomainFlagBits {
+    TPR_CREATE_DEPTH_DOMAIN_BEFORE_BIT = 0x1,
+    TPR_CREATE_DEPTH_DOMAIN_ANCHOR_BIT = 0x2,
+    TPR_CREATE_DEPTH_DOMAIN_MAX_ENUM = INT32_MAX
+} TprCreateDepthDomainFlagBits;
+
+
 
 // handles
 
-typedef struct TprOArrayEntityDrawDesc_T* TprOArrayEntityDrawDesc;
-
 typedef struct TprWindow { uint64_t _d; } TprWindow;
 typedef struct TprResource { uint64_t _d; } TprResource;
-typedef struct TprAsset { uint64_t _d; } TprAsset;
+typedef struct TprMesh { uint64_t _d; } TprMesh;
 typedef struct TprAction { uint64_t _d; } TprAction;
 typedef struct TprComponent { uint64_t _d; } TprComponent;
+typedef struct TprSetting { uint64_t _d; } TprSetting;
+typedef struct TprDepthDomain { uint64_t _d; } TprDepthDomain;
+typedef struct TprRenderTarget {  uint64_t _d; } TprRenderTarget;
+typedef struct TprObjectImage { uint64_t _d; } TprObjectImage;
+typedef struct TprComponentChunk { uint64_t _d; } TprComponentChunk;
 
 typedef struct TprEntity { uint32_t id; } TprEntity;
 
@@ -282,11 +285,7 @@ typedef struct TprEntity { uint32_t id; } TprEntity;
 
 // data structs
 
-typedef struct TprAssetSlot {
-
-} TprAssetSlot;
-
-typedef struct TprElementVector {
+typedef struct TprInputElementVector {
     float x;
     float y;
     float z;
@@ -298,14 +297,37 @@ typedef struct TprActionState {
     uint32_t framesActive;
 } TprActionState;
 
+typedef struct TprScissor {
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+} TprScissor;
+
+typedef struct TprViewport {
+    float x;
+    float y;
+    float width;
+    float height;
+    float minDepth;
+    float maxDepth;
+} TprViewport;
+
+typedef struct TprMat4x4 {
+    float x0, y0, z0, w0;
+    float x1, y1, z1, w1;
+    float x2, y2, z2, w2;
+    float x3, y3, z3, w3;
+} TprMat4x4;
+
+typedef struct TprComponentRenderable {
+    TprObjectImage image;
+    TprMat4x4 transform;
+} TprComponentRenderable;
+
 
 
 // create infos
-
-typedef struct TprMaterialDeclareInfo {
-    uint32_t dtypeCount;
-    TprDtype dtypes;
-} TprTemplateDeclareRegisterInfo;
 
 typedef struct TprWindowCreateInfo {
     TprCreateWindowFlags flags;
@@ -314,22 +336,37 @@ typedef struct TprWindowCreateInfo {
     int32_t prefferedHeight;
 } TprWindowCreateInfo;
 
-typedef struct TprAssetParseInfo {
-    TprResource resource;
-    TprAssetType type;
-    uint32_t index;
-} TprAssetParseInfo;
-
-typedef struct TprAssetLoadInfo {
-    const TprAssetSlot* pSlots;
-    TprResource data;
-} TprAssetLoadInfo;
-
 typedef struct TprActionCreateInfo {
     TprInputElement element;
     float highThreshold;
     float lowThreshold;
 } TprActionCreateInfo;
+
+typedef struct TprMeshCreateInfo {
+    TprResource resource;
+    uint32_t index;
+} TprMeshCreateInfo;
+
+typedef struct TprMeshLoadInfo {
+} TprMeshLoadInfo;
+
+typedef struct TprDepthDomainCreateInfo {
+    TprCreateDepthDomainFlagBits flags;
+    const TprDepthDomain* pAnchor;
+} TprDepthDomainCreateInfo;
+
+typedef struct TprRenderTargetCreateInfo {
+    TprWindow window;
+    TprDepthDomain depthDomain;
+    TprViewport viewport;
+    TprScissor scissor;
+} TprRenderTargetCreateInfo;
+
+typedef struct TprObjectImageCreateInfo {
+    TprMesh mesh;
+    uint32_t renderTargetCount;
+    const TprRenderTarget* pRenderTargets;
+} TprObjectImageCreateInfo;
 
 
 

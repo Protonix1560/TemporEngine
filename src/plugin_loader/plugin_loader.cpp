@@ -5,14 +5,14 @@
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
 #include "plugin.hpp"
+#include "settings.hpp"
+
 #include <memory>
 
 
-
-PluginLoader::PluginLoader(Logger& rLogger, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrAliveTokens(rAliveTokens) {}
+PluginLoader::PluginLoader(Logger& rLogger, Settings& rSettings, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrSettings(rSettings), mrAliveTokens(rAliveTokens) {}
 
 PluginLoader::~PluginLoader() noexcept {}
-
 
 
 TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
@@ -39,13 +39,14 @@ TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
 }
 
 
-
 expected<std::vector<TprResult>, TprResult> PluginLoader::triggerCallback(PluginCallback callback) {
 
     std::vector<TprResult> returns;
     returns.reserve(mPlugins.size());
 
-    for (auto& plugin : mPlugins) {
+    for (mCurrentPlugin = 0; mCurrentPlugin < mPlugins.size(); mCurrentPlugin++) {
+        auto& plugin = mPlugins[mCurrentPlugin];
+
         switch (callback) {
 
             case PluginCallback::PreShutdown:
@@ -70,5 +71,18 @@ expected<std::vector<TprResult>, TprResult> PluginLoader::triggerCallback(Plugin
     }
 
     return returns;
+}
+
+
+expected<TprSetting, TprResult> PluginLoader::createSetting(std::string_view name) noexcept {
+
+    try {
+        auto& plugin = mPlugins[mCurrentPlugin];
+        std::string scopedName = std::format("{}.{}", plugin->name(), name);
+        return mrSettings.createSetting(scopedName);
+
+    } catch (...) {
+        return unexpected(TPR_UNKNOWN_ERROR);
+    }
 }
 

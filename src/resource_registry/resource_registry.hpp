@@ -10,6 +10,7 @@
 #include <elfio/elfio.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <streambuf>
 #include <unordered_map>
 #include <vector>
@@ -26,18 +27,18 @@
 
 
 template <typename T>
-class AlignedAllocator {
+class aligned_allocator {
     public:
         using value_type = T;
 
-        explicit AlignedAllocator(size_t align = alignof(T)) : align(align) {
+        explicit aligned_allocator(size_t align = alignof(T)) : align(align) {
             if (align < alignof(T)) align = alignof(T);
             if (align && ((align & (align - 1)) != 0)) {
                 throw std::bad_alloc();
             }
         }
 
-        template <typename U> AlignedAllocator(const AlignedAllocator<U>& other) : align(other.alignment()) {}
+        template <typename U> aligned_allocator(const aligned_allocator<U>& other) : align(other.alignment()) {}
 
         T* allocate(size_t n) {
             if (n == 0) return nullptr;
@@ -78,7 +79,7 @@ class AlignedAllocator {
         }
 
         size_t alignment() const noexcept { return align; }
-        bool operator==(const AlignedAllocator& other) const noexcept { return align == other.alignment(); }
+        bool operator==(const aligned_allocator& other) const noexcept { return align == other.alignment(); }
 
     private:
         size_t align;
@@ -89,9 +90,9 @@ class AlignedAllocator {
 
 
 template<mio::access_mode AccessMode, typename ByteT>
-class BasicMMapStreambuf : public std::streambuf {
+class basic_mmap_streambuf : public std::streambuf {
     public:
-        explicit BasicMMapStreambuf(const mio::basic_mmap<AccessMode, ByteT>& mmap) {
+        explicit basic_mmap_streambuf(const mio::basic_mmap<AccessMode, ByteT>& mmap) {
             char* begin = const_cast<char*>(reinterpret_cast<const char*>(mmap.data()));
             setg(begin, begin, begin + mmap.size());
         }
@@ -127,13 +128,13 @@ class BasicMMapStreambuf : public std::streambuf {
             return seekoff(off_type(pos), std::ios_base::beg, which);
         }
 };
-template <typename ByteT> using BasicMMapSinkStreambuf = BasicMMapStreambuf<mio::access_mode::write, ByteT>;
-template <typename ByteT> using BasicMMapSourceStreambuf = BasicMMapStreambuf<mio::access_mode::read, ByteT>;
-using MMapSinkStreambuf = BasicMMapSinkStreambuf<std::byte>;
-using MMapSourceStreambuf = BasicMMapSourceStreambuf<std::byte>;
+template <typename ByteT> using basic_mmap_sink_streambuf = basic_mmap_streambuf<mio::access_mode::write, ByteT>;
+template <typename ByteT> using basic_mmap_source_streambuf = basic_mmap_streambuf<mio::access_mode::read, ByteT>;
+using mmap_byte_sink_streambuf = basic_mmap_sink_streambuf<std::byte>;
+using mmap_byte_source_streambuf = basic_mmap_source_streambuf<std::byte>;
 
-using MMapSink = mio::basic_mmap_sink<std::byte>;
-using MMapSource = mio::basic_mmap_source<std::byte>;
+using mmap_byte_sink = mio::basic_mmap_sink<std::byte>;
+using mmap_byte_source = mio::basic_mmap_source<std::byte>;
 
 
 
@@ -149,8 +150,6 @@ class ResourceRegistry {
         ResourceRegistry(Logger& rLogger);
         ~ResourceRegistry() noexcept;
 
-        void update();
-
         expected<TprResource, TprResult> openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags = 0, size_t alignment = 1);
         expected<TprResource, TprResult> openResource(size_t size, TprOpenEmptyResourceFlags flags = 0, size_t alignment = 1);
         expected<TprResource, TprResult> openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags = 0, size_t alignment = 1);
@@ -162,7 +161,8 @@ class ResourceRegistry {
         expected<const std::byte*, TprResult> getResourceConstPointer(TprResource resource);
         void closeResource(TprResource resource) noexcept;
 
-        [[deprecated("breaks the architecture, no replacement yet")]] std::filesystem::path getResourceFilepath(TprResource resource);
+        expected<std::filesystem::path, TprResult> matchFile(std::filesystem::path path);
+        expected<std::filesystem::path, TprResult> matchDir(std::filesystem::path path);
 
         std::vector<std::filesystem::path> enumDir(std::filesystem::path dirpath, TprEnumDirFlags flags, size_t depth);
 
@@ -175,18 +175,18 @@ class ResourceRegistry {
         };
 
         struct ResourceROFile : public ResourceBase {
-            MMapSource mmapSource;
+            std::optional<mmap_byte_source> mmapSource;
             std::filesystem::path path;
         };
 
         struct ResourceRWFile : public ResourceBase {
-            MMapSink mmapSink;
+            std::optional<mmap_byte_sink> mmapSink;
             std::filesystem::path path;
         };
 
         struct ResourceData : public ResourceBase {
-            std::vector<std::byte, AlignedAllocator<std::byte>> data;
-            ResourceData(AlignedAllocator<std::byte> alloc)
+            std::vector<std::byte, aligned_allocator<std::byte>> data;
+            ResourceData(aligned_allocator<std::byte> alloc)
                 : data(alloc) {}
         };
 

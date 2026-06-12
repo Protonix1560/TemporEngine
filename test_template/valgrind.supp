@@ -1,0 +1,17 @@
+
+{
+   SDL2_Leaks
+   Memcheck:Leak
+   match-leak-kinds: all
+   ...
+   fun:X11_VideoInit
+   ...
+}
+{
+   SDL_DBus_Leaks
+   Memcheck:Leak
+   match-leak-kinds: all
+   ...
+   fun:SDL_DBus_Init
+   ...
+}

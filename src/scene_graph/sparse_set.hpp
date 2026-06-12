@@ -90,7 +90,7 @@ class basic_sparse_set {
             }
         }
 
-        void index_erase(SizeT index) {
+        SizeT index_erase(SizeT index) {
             assert(index < m_sparse.size());
             SizeT offset = m_sparse[index];
             if (offset != m_indices.size() - 1) {

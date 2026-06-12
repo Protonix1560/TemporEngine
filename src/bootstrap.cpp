@@ -1,12 +1,15 @@
 
 
+#include "hardware_layer_interface.hpp"
+#include "plugin_loader.hpp"
+#include "settings.hpp"
 #if !defined(__linux__)
     #error "Unsupported OS type"
 #endif
 
 
-// everything in snake_case is considered to be low-level
-// everything in camelCase or PascalCase is considered to be high-level
+// everything low-level, that is a part of bootstrap sequence or is a generally useful helper is in snake_case or ALL_CAPS
+// everything else is in camelCase, PascalCase or ALL_CAPS
 
 
 #include "core.hpp"
@@ -16,382 +19,548 @@
 #include "arg_parser.hpp"
 
 #include <cstdio>
-#include <type_traits>
 #include <csignal>
-
 
 
 namespace {
     TemporEngine* g_engine = nullptr;
+}
 
-    namespace api {
+namespace api {
 
-
-        template <typename F, typename E = void, typename... Args>
-        class std_handler {
-            public:
-                std_handler(F&& f, Args&&... args) {
-                    static_assert(dependent_false_v<F>, "Unsupported type");
-                }
-        };
-
-        // for TprResult
-        template <typename F, typename... Args>
-        class std_handler<F, std::enable_if_t<std::is_same_v<TprResult, std::invoke_result_t<F, Args...>>>, Args...> {
-            private:
-                TprResult ret;
-            public:
-                std_handler(F&& f, Args&&... args) noexcept {
-                    try {
-                        assert(g_engine != nullptr);
-                        ret = std::forward<F>(f)(std::forward<Args>(args)...);
-
-                    } catch (const std::bad_alloc& e) {
-                        g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << "Bad alloc: "<< e.what() << "\n";
-                        ret = TPR_BAD_ALLOC;
-
-                    } catch (const std::exception& e) {
-                        g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << "Exception: " << e.what() << "\n";
-                        ret = TPR_UNKNOWN_ERROR;
-
-                    } catch (...) {
-                        g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                        ret = TPR_UNKNOWN_ERROR;
-                    }
-                }
-                TprResult operator()() { return ret; }
-        };
-
-        // for void
-        template <typename F, typename... Args>
-        class std_handler<F, std::enable_if_t<std::is_same_v<void, std::invoke_result_t<F, Args...>>>, Args...> {
-            public:
-                std_handler(F&& f, Args&&... args) noexcept {
-                    try {
-                        assert(g_engine != nullptr);
-                        std::forward<F>(f)(std::forward<Args>(args)...);
-
-                    } catch (const std::bad_alloc& e) {
-                        g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << "Bad alloc: "<< e.what() << "\n";
-
-                    } catch (const std::exception& e) {
-                        g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << "Exception: " << e.what() << "\n";
-
-                    } catch (...) {
-                        g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << "Unknown exception\n";
-                    }
-                }
-                void operator()() {}
-        };
-
-
-        namespace log {
-            void log(TprLogLevel logLevel, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().log(logLevel) << message;
-            })(); }
-
-            void error(const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().error(TPR_LOG_STYLE_ERROR1) << message;
-            })(); }
-
-            void warn(const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().warn(TPR_LOG_STYLE_WARN1) << message;
-            })(); }
-
-            void info(const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().info() << message;
-            })(); }
-
-            void debug(const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().debug() << message;
-            })(); }
-
-            void trace(const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().trace() << message;
-            })(); }
-
-            void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().log(logLevel, logStyle) << message;
-            })(); }
-
-            void errorStyled(TprLogStyle logStyle, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().error(logStyle) << message;
-            })(); }
-
-            void warnStyled(TprLogStyle logStyle, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().warn(logStyle) << message;
-            })(); }
-
-            void infoStyled(TprLogStyle logStyle, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().info(logStyle) << message;
-            })(); }
-
-            void debugStyled(TprLogStyle logStyle, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().debug(logStyle) << message;
-            })(); }
-
-            void traceStyled(TprLogStyle logStyle, const char* message) noexcept { return std_handler([=] {
-                g_engine->getLogger().trace(logStyle) << message;
-            })(); }
+    namespace log {
+        void log(TprLogLevel logLevel, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->log(logLevel) << message;
         }
 
-        namespace vfs {
-            TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.openResource(std::filesystem::path(path), flags, alignment);
-                if (!exp.has_value()) return exp.error();
-                *pResource = exp.value();
-                return TPR_SUCCESS;
-            })(); }
-
-            TprResult openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.openResource(reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags);
-                if (!exp.has_value()) return exp.error();
-                *pResource = exp.value();
-                return TPR_SUCCESS;
-            })(); }
-
-            TprResult openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.openResource(size, flags, alignment);
-                if (!exp.has_value()) return exp.error();
-                *pResource = exp.value();
-                return TPR_SUCCESS;
-            })(); }
-
-            TprResult openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.openResource(protectResource, flags, protectFlags);
-                if (!exp.has_value()) return exp.error();
-                *pResource = exp.value();
-                return TPR_SUCCESS;
-            })(); }
-
-            TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                return rreg.resizeResource(resource, newSize);
-            })(); }
-
-            TprResult sizeofResource(TprResource resource, uint64_t* pSize) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.sizeofResource(resource);
-                if (!exp.has_value()) return exp.error();
-                *pSize = exp.value();
-                return TPR_SUCCESS;
-            })(); }
-
-            TprResult getResourceRawDataPointer(TprResource resource, char** pData) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.getResourceRawDataPointer(resource);
-                if (!exp.has_value()) return exp.error();
-                *pData = reinterpret_cast<char*>(exp.value());
-                return TPR_SUCCESS;
-            })(); }
-
-            TprResult getResourceConstPointer(TprResource resource, const char** pData) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                auto exp = rreg.getResourceConstPointer(resource);
-                if (!exp.has_value()) return exp.error();
-                *pData = reinterpret_cast<const char*>(exp.value());
-                return TPR_SUCCESS;
-            })(); }
-
-            void closeResource(TprResource resource) noexcept { return std_handler([=]() {
-                ResourceRegistry& rreg = g_engine->getResourceRegistry();
-                rreg.closeResource(resource);
-            })(); }
-
+        void error(const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->error(TPR_LOG_STYLE_ERROR1) << message;
         }
 
-        namespace input {
-            TprResult createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept { return std_handler([=]() {
-                WindowManager& win = g_engine->getWindowManager();
-                auto exp = win.createAction(window, pCreateInfo);
-                if (exp.has_value()) {
-                    *pAction = exp.value();
-                } else {
-                    return exp.error();
-                }
-                return TPR_SUCCESS;
-            })(); }
-
-            void destroyAction(TprAction action) noexcept { return std_handler([=]() {
-                WindowManager& win = g_engine->getWindowManager();
-                win.destroyAction(action);
-            })(); }
-
-            TprResult getActionState(TprAction action, TprActionState* pState) noexcept { return std_handler([=]() {
-                WindowManager& win = g_engine->getWindowManager();
-                return win.getActionState(action, pState);
-            })(); }
-
-            TprResult getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept { return std_handler([=]() {
-                WindowManager& win = g_engine->getWindowManager();
-                return win.getInputElementVector(window, element, pVector);
-            })(); }
+        void warn(const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->warn(TPR_LOG_STYLE_WARN1) << message;
         }
 
-        namespace wm {
-            TprResult openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept { return std_handler([=]() {
-                WindowManager& win = g_engine->getWindowManager();
-                HardwareLayer& hwli = g_engine->getHWLI();
-                TprWindow handle;
-                auto exp = win.openWindow(pCreateInfo);
-                if (exp.has_value()) {
-                    handle = exp.value();
-                } else {
-                    return exp.error();
-                }
-                TprResult r = hwli.registerWindow(handle);
-                // TODO: add HWLI recreation when result is TPR_INSUFFICIENT_INIT
-                if (r < 0) {
-                    win.closeWindow(handle);
-                    return r;
-                }
-                *pWindow = handle;
-                return TPR_SUCCESS;
-            })(); }
-
-            void closeWindow(TprWindow window) noexcept { return std_handler([=]() {
-                HardwareLayer& hwli = g_engine->getHWLI();
-                WindowManager& win = g_engine->getWindowManager();
-                hwli.unregisterWindow(window);
-                win.closeWindow(window);
-            })(); }
+        void info(const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->info() << message;
         }
 
-        namespace scene {
-            TprResult createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                auto exp = scgr.createComponent(componentSize);
-                if (!exp.has_value()) {
-                    return exp.error();
-                }
-                *pComponent = exp.value();
-                return TPR_SUCCESS;
-            })(); }
+        void debug(const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->debug() << message;
+        }
 
-            void destroyComponent(TprComponent component) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                scgr.destroyComponent(component);
-            })(); }
+        void trace(const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->trace() << message;
+        }
 
-            TprResult createEntity(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                auto exp = scgr.spawnEntity(pComponents, componentCount);
-                if (!exp.has_value()) {
-                    return exp.error();
-                }
-                *pEntity = exp.value();
-                return TPR_SUCCESS;
-            })(); }
+        void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->log(logLevel, logStyle) << message;
+        }
 
-            void destroyEntity(TprEntity entity) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                scgr.killEntity(entity);
-            })(); }
+        void errorStyled(TprLogStyle logStyle, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->error(logStyle) << message;
+        }
 
-            TprResult modifyEntityComponentSet(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.modifyEntityComponentSet(entity, pComponents, componentCount);
-            })(); }
+        void warnStyled(TprLogStyle logStyle, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->warn(logStyle) << message;
+        }
 
-            TprResult copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t offset, uint32_t n, char* pData) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.copyEntityComponentData(entity, component, offset, n, pData);
-            })(); }
+        void infoStyled(TprLogStyle logStyle, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->info(logStyle) << message;
+        }
 
-            TprResult readEntityComponent8bit(TprEntity entity, TprComponent component, uint32_t offset, uint8_t* pData) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                auto exp = scgr.readEntityComponent8bit(entity, component, offset);
-                if (!exp.has_value()) {
-                    return exp.error();
-                }
-                *pData = exp.value();
-                return TPR_SUCCESS;
-            })(); }
+        void debugStyled(TprLogStyle logStyle, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->debug(logStyle) << message;
+        }
 
-            TprResult readEntityComponent16bit(TprEntity entity, TprComponent component, uint32_t offset, uint16_t* pData) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                auto exp = scgr.readEntityComponent16bit(entity, component, offset);
-                if (!exp.has_value()) {
-                    return exp.error();
-                }
-                *pData = exp.value();
-                return TPR_SUCCESS;
-            })(); }
+        void traceStyled(TprLogStyle logStyle, const char* message) noexcept {
+            Logger* logger = g_engine->getLogger();
+            if (!logger) return;
+            logger->trace(logStyle) << message;
+        }
+    }
 
-            TprResult readEntityComponent32bit(TprEntity entity, TprComponent component, uint32_t offset, uint32_t* pData) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                auto exp = scgr.readEntityComponent32bit(entity, component, offset);
-                if (!exp.has_value()) {
-                    return exp.error();
-                }
-                *pData = exp.value();
-                return TPR_SUCCESS;
-            })(); }
+    namespace vfs {
+        TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
+            if (!pResource) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->openResource(std::filesystem::path(path), flags, alignment);
+            if (!exp.has_value()) return exp.error();
+            *pResource = exp.value();
+            return TPR_SUCCESS;
+        }
 
-            TprResult readEntityComponent64bit(TprEntity entity, TprComponent component, uint32_t offset, uint64_t* pData) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                auto exp = scgr.readEntityComponent64bit(entity, component, offset);
-                if (!exp.has_value()) {
-                    return exp.error();
-                }
-                *pData = exp.value();
-                return TPR_SUCCESS;
-            })(); }
+        TprResult openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept {
+            if (!pResource) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->openResource(reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags);
+            if (!exp.has_value()) return exp.error();
+            *pResource = exp.value();
+            return TPR_SUCCESS;
+        }
 
-            TprResult writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t offset, uint32_t n) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.writeEntityComponentData(entity, component, pData, offset, n);
-            })(); }
+        TprResult openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
+            if (!pResource) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->openResource(size, flags, alignment);
+            if (!exp.has_value()) return exp.error();
+            *pResource = exp.value();
+            return TPR_SUCCESS;
+        }
 
-            TprResult writeEntityComponent8bit(TprEntity entity, TprComponent component, uint8_t data, uint32_t offset) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.writeEntityComponent8bit(entity, component, offset, data);
-            })(); }
+        TprResult openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept {
+            if (!pResource) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->openResource(protectResource, flags, protectFlags);
+            if (!exp.has_value()) return exp.error();
+            *pResource = exp.value();
+            return TPR_SUCCESS;
+        }
 
-            TprResult writeEntityComponent16bit(TprEntity entity, TprComponent component, uint16_t data, uint32_t offset) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.writeEntityComponent16bit(entity, component, offset, data);
-            })(); }
+        TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept {
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            return rreg->resizeResource(resource, newSize);
+        }
 
-            TprResult writeEntityComponent32bit(TprEntity entity, TprComponent component, uint32_t data, uint32_t offset) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.writeEntityComponent32bit(entity, component, offset, data);
-            })(); }
+        TprResult sizeofResource(TprResource resource, uint64_t* pSize) noexcept {
+            if (!pSize) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->sizeofResource(resource);
+            if (!exp.has_value()) return exp.error();
+            *pSize = exp.value();
+            return TPR_SUCCESS;
+        }
 
-            TprResult writeEntityComponent64bit(TprEntity entity, TprComponent component, uint64_t data, uint32_t offset) noexcept { return std_handler([=]() {
-                SceneGraph& scgr = g_engine->getSceneGraph();
-                return scgr.writeEntityComponent64bit(entity, component, offset, data);
-            })(); }
+        TprResult getResourceRawDataPointer(TprResource resource, char** pData) noexcept {
+            if (!pData) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->getResourceRawDataPointer(resource);
+            if (!exp.has_value()) return exp.error();
+            *pData = reinterpret_cast<char*>(exp.value());
+            return TPR_SUCCESS;
+        }
 
+        TprResult getResourceConstPointer(TprResource resource, const char** pData) noexcept {
+            if (!pData) return TPR_INVALID_VALUE;
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return TPR_UNKNOWN_ERROR;
+            auto exp = rreg->getResourceConstPointer(resource);
+            if (!exp.has_value()) return exp.error();
+            *pData = reinterpret_cast<const char*>(exp.value());
+            return TPR_SUCCESS;
+        }
+
+        void closeResource(TprResource resource) noexcept {
+            ResourceRegistry* rreg = g_engine->getResourceRegistry();
+            if (!rreg) return;
+            rreg->closeResource(resource);
         }
 
     }
 
+    namespace input {
+        TprResult createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept {
+            if (!pAction) return TPR_INVALID_VALUE;
+            WindowManager* win = g_engine->getWindowManager();
+            if (!win) return TPR_UNKNOWN_ERROR;
+            auto exp = win->createAction(window, pCreateInfo);
+            if (exp.has_value()) {
+                *pAction = exp.value();
+            } else {
+                return exp.error();
+            }
+            return TPR_SUCCESS;
+        }
+
+        void destroyAction(TprAction action) noexcept {
+            WindowManager* win = g_engine->getWindowManager();
+            if (!win) return;
+            win->destroyAction(action);
+        }
+
+        TprResult getActionState(TprAction action, TprActionState* pState) noexcept {
+            if (!pState) return TPR_INVALID_VALUE;
+            WindowManager* win = g_engine->getWindowManager();
+            if (!win) return TPR_UNKNOWN_ERROR;
+            return win->getActionState(action, pState);
+        }
+
+        TprResult getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept {
+            WindowManager* win = g_engine->getWindowManager();
+            if (!win) return TPR_UNKNOWN_ERROR;
+            return win->getInputElementVector(window, element, pVector);
+        }
+    }
+
+    namespace wm {
+        TprResult openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept {
+            if (!pWindow) return TPR_INVALID_VALUE;
+            WindowManager* win = g_engine->getWindowManager();
+            if (!win) return TPR_UNKNOWN_ERROR;
+            TprWindow handle;
+            auto exp = win->openWindow(pCreateInfo);
+            if (exp.has_value()) {
+                handle = exp.value();
+            } else {
+                return exp.error();
+            }
+            HardwareLayer* phwl = g_engine->getPHWL();
+            if (phwl) {
+                TprResult r = phwl->registerWindow(handle);
+                // TODO: add HWLI recreation when result is TPR_INSUFFICIENT_INIT
+                if (r < 0) {
+                    win->closeWindow(handle);
+                    return r;
+                }
+            }
+            *pWindow = handle;
+            return TPR_SUCCESS;
+        }
+
+        void closeWindow(TprWindow window) noexcept {
+            HardwareLayer* phwl = g_engine->getPHWL();
+            if (phwl) phwl->unregisterWindow(window);
+            WindowManager* win = g_engine->getWindowManager();
+            if (win) win->closeWindow(window);
+        }
+    }
+
+    namespace scene {
+        TprResult createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept {
+            if (!pComponent) return TPR_INVALID_VALUE;
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            auto exp = scgr->createComponent(componentSize);
+            if (!exp.has_value()) {
+                return exp.error();
+            }
+            *pComponent = exp.value();
+            return TPR_SUCCESS;
+        }
+
+        void destroyComponent(TprComponent component) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return;
+            scgr->destroyComponent(component);
+        }
+
+        TprResult createEntity(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) noexcept {
+            if (!pEntity) return TPR_INVALID_VALUE;
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            auto exp = scgr->spawnEntity(pComponents, componentCount);
+            if (!exp.has_value()) {
+                return exp.error();
+            }
+            *pEntity = exp.value();
+            return TPR_SUCCESS;
+        }
+
+        void destroyEntity(TprEntity entity) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return;
+            scgr->killEntity(entity);
+        }
+
+        TprResult modifyEntityComponentSet(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            return scgr->modifyEntityComponentSet(entity, pComponents, componentCount);
+        }
+
+        TprResult copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t offset, uint32_t n, char* pData) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            return scgr->copyEntityComponentData(entity, component, offset, n, pData);
+        }
+
+        TprResult writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t offset, uint32_t n) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            return scgr->writeEntityComponentData(entity, component, pData, offset, n);
+        }
+
+        TprResult getComponentChunkHandles(TprComponent component, TprResource resource) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            return scgr->getComponentChunkHandles(component, resource);
+        }
+
+        uint32_t getComponentChunkMaxElementCount() noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return 0;
+            return scgr->getComponentChunkMaxElementCount();
+        }
+
+        TprResult getComponentChunkElementCount(TprComponentChunk chunk, uint32_t* pCount) noexcept {
+            if (!pCount) return TPR_INVALID_VALUE;
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            auto exp = scgr->getComponentChunkElementCount(chunk);
+            if (exp.has_value()) {
+                *pCount = exp.value();
+                return TPR_SUCCESS;
+            }
+            return exp.error();
+        }
+
+        TprResult getComponentChunkVersion(TprComponentChunk chunk, uint32_t* pVersion) noexcept {
+            if (!pVersion) return TPR_INVALID_VALUE;
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            auto exp = scgr->getComponentChunkVersion(chunk);
+            if (exp.has_value()) {
+                *pVersion = exp.value();
+                return TPR_SUCCESS;
+            }
+            return exp.error();
+        }
+
+        TprResult copyComponentChunkData(TprComponentChunk chunk, uint32_t offset, uint32_t n, char* pData) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            return scgr->copyComponentChunkData(chunk, offset, n, pData);
+        }
+
+        TprResult writeComponentChunkData(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) noexcept {
+            SceneGraph* scgr = g_engine->getSceneGraph();
+            if (!scgr) return TPR_UNKNOWN_ERROR;
+            return scgr->writeComponentChunkData(chunk, version, pData, offset, n);
+        }
+    }
+
+    namespace geo {
+        TprResult createMesh(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) noexcept {
+            if (!pMesh) return TPR_INVALID_VALUE;
+            AssetStore* astr = g_engine->getAssetStore();
+            if (!astr) return TPR_UNKNOWN_ERROR;
+            auto exp = astr->createMesh(pInfo);
+            if (!exp.has_value()) {
+                return exp.error();
+            }
+            *pMesh = exp.value();
+            return TPR_SUCCESS;
+        }
+
+        TprResult loadMesh(TprMesh mesh, const TprMeshLoadInfo* pInfo) noexcept {
+            AssetStore* astr = g_engine->getAssetStore();
+            if (!astr) return TPR_UNKNOWN_ERROR;
+            return astr->loadMesh(mesh, pInfo);
+        }
+
+        void unloadMesh(TprMesh mesh) noexcept {
+            AssetStore* astr = g_engine->getAssetStore();
+            if (!astr) return;
+            astr->unloadMesh(mesh);
+        }
+
+        void destroyMesh(TprMesh mesh) noexcept {
+            AssetStore* astr = g_engine->getAssetStore();
+            if (!astr) return;
+            astr->destroyMesh(mesh);
+        }
+    }
+
+    namespace conf {
+        TprResult createSetting(const char* name, TprSetting* pSetting) noexcept {
+            if (!pSetting) return TPR_INVALID_VALUE;
+            PluginLoader* plLd = g_engine->getPluginLoader();
+            if (!plLd) return TPR_UNKNOWN_ERROR;
+            auto exp = plLd->createSetting(name);
+            if (!exp.has_value()) return exp.error();
+            *pSetting = exp.value();
+            return TPR_SUCCESS;
+        }
+        void destroySetting(TprSetting setting) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return;
+            set->destroySetting(setting);
+        }
+        TprResult getSettingType(TprSetting setting, TprSettingType* pType) noexcept {
+            if (!pType) return TPR_INVALID_VALUE;
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            auto exp = set->getSettingType(setting);
+            if (!exp.has_value()) return exp.error();
+            *pType = exp.value();
+            return TPR_SUCCESS;
+        }
+        TprResult getSettingDouble(TprSetting setting, double* pData) noexcept {
+            if (!pData) return TPR_INVALID_VALUE;
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            auto exp = set->getSettingDouble(setting);
+            if (!exp.has_value()) return exp.error();
+            *pData = exp.value();
+            return TPR_SUCCESS;
+        }
+        TprResult getSettingInteger(TprSetting setting, int64_t* pData) noexcept {
+            if (!pData) return TPR_INVALID_VALUE;
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            auto exp = set->getSettingInteger(setting);
+            if (!exp.has_value()) return exp.error();
+            *pData = exp.value();
+            return TPR_SUCCESS;
+        }
+        TprResult getSettingBool(TprSetting setting, TprBool8* pData) noexcept {
+            if (!pData) return TPR_INVALID_VALUE;
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            auto exp = set->getSettingBool(setting);
+            if (!exp.has_value()) return exp.error();
+            *pData = exp.value();
+            return TPR_SUCCESS;
+        }
+        TprResult getSettingStringSize(TprSetting setting, uint32_t* pSize) noexcept {
+            if (!pSize) return TPR_INVALID_VALUE;
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            auto exp = set->getSettingStringSize(setting);
+            if (!exp.has_value()) return exp.error();
+            *pSize = exp.value();
+            return TPR_SUCCESS;
+        }
+        TprResult copySettingString(TprSetting setting, char* pData) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            return set->copySettingString(setting, pData);
+        }
+        TprResult setSettingDouble(TprSetting setting, double data) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            return set->setSettingDouble(setting, data);
+        }
+        TprResult setSettingInteger(TprSetting setting, int64_t data) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            return set->setSettingInteger(setting, data);
+        }
+        TprResult setSettingBool(TprSetting setting, TprBool8 data) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            return set->setSettingBool(setting, data);
+        }
+        TprResult setSettingString(TprSetting setting, const char* pData) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            return set->setSettingString(setting, pData);
+        }
+        TprResult setSettingNull(TprSetting setting) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return TPR_UNKNOWN_ERROR;
+            return set->setSettingNull(setting);
+        }
+        double getSettingDoubleOr(TprSetting setting, double fallback) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return fallback;
+            return set->getSettingDoubleOr(setting, fallback);
+        }
+        int64_t getSettingIntegerOr(TprSetting setting, int64_t fallback) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return fallback;
+            return set->getSettingIntegerOr(setting, fallback);
+        }
+        TprBool8 getSettingBoolOr(TprSetting setting, TprBool8 fallback) noexcept {
+            Settings* set = g_engine->getSettings();
+            if (!set) return fallback;
+            return set->getSettingBoolOr(setting, fallback);
+        }
+    }
+
+    namespace render {
+        TprResult createDepthDomain(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) noexcept {
+            if (!pDomain) return TPR_INVALID_VALUE;
+            HardwareLayer* hwl = g_engine->getPHWL();
+            if (!hwl) return TPR_UNKNOWN_ERROR;
+            auto exp = hwl->createDepthDomain(pInfo);
+            if (!exp.has_value()) return exp.error();
+            *pDomain = exp.value();
+            return TPR_SUCCESS;
+        }
+        void destroyDepthDomain(TprDepthDomain domain) noexcept {
+            HardwareLayer* hwl = g_engine->getPHWL();
+            if (!hwl) return;
+            hwl->destroyDepthDomain(domain);
+        }
+        TprResult createRenderTarget(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) noexcept {
+            if (!pTarget) return TPR_INVALID_VALUE;
+            HardwareLayer* hwl = g_engine->getPHWL();
+            if (!hwl) return TPR_UNKNOWN_ERROR;
+            auto exp = hwl->createRenderTarget(pInfo);
+            if (!exp.has_value()) return exp.error();
+            *pTarget = exp.value();
+            return TPR_SUCCESS;
+        }
+        void destroyRenderTarget(TprRenderTarget target) noexcept {
+            HardwareLayer* hwl = g_engine->getPHWL();
+            if (!hwl) return;
+            hwl->destroyRenderTarget(target);
+        }
+        TprComponent getComponentRenderable() noexcept {
+            return g_engine->getComponentRenderable();
+        }
+        TprResult createObjectImage(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) noexcept {
+            if (!pImage) return TPR_INVALID_VALUE;
+            HardwareLayer* hwl = g_engine->getPHWL();
+            if (!hwl) return TPR_UNKNOWN_ERROR;
+            auto exp = hwl->createObjectImage(pInfo);
+            if (!exp.has_value()) return exp.error();
+            *pImage = exp.value();
+            return TPR_SUCCESS;
+        }
+        void destroyObjectImage(TprObjectImage image) noexcept {
+            HardwareLayer* hwl = g_engine->getPHWL();
+            if (!hwl) return;
+            hwl->destroyObjectImage(image);
+        }
+    }
 }
 
 
-
-enum bootstrap_err_code : int {
-    bootstrap_success = 0,
-    bootstrap_engine_lifetime_violation = 1,
-    bootstrap_unhandled_exception = 2,
-    bootstrap_invalid_argv = 3
+enum class bootstrap_err_code : int {
+    success = 0,
+    engine_lifetime_violation = 1,
+    unhandled_exception = 2,
+    invalid_argv = 3
 };
-
 
 
 void sigint_handler(int) noexcept {
     if (g_engine) g_engine->sigint();
 }
-
 void sigterm_handler(int) noexcept {
     if (g_engine) g_engine->sigterm();
 }
-
 
 
 int main(int argc, char* argv[]) {
@@ -430,17 +599,19 @@ int main(int argc, char* argv[]) {
     apiScene.killEntity = api::scene::destroyEntity;
     apiScene.modifyEntityComponentSet = api::scene::modifyEntityComponentSet;
     apiScene.copyEntityComponentData = api::scene::copyEntityComponentData;
-    apiScene.readEntityComponent8bit = api::scene::readEntityComponent8bit;
-    apiScene.readEntityComponent16bit = api::scene::readEntityComponent16bit;
-    apiScene.readEntityComponent32bit = api::scene::readEntityComponent32bit;
-    apiScene.readEntityComponent64bit = api::scene::readEntityComponent64bit;
     apiScene.writeEntityComponentData = api::scene::writeEntityComponentData;
-    apiScene.writeEntityComponent8bit = api::scene::writeEntityComponent8bit;
-    apiScene.writeEntityComponent16bit = api::scene::writeEntityComponent16bit;
-    apiScene.writeEntityComponent32bit = api::scene::writeEntityComponent32bit;
-    apiScene.writeEntityComponent64bit = api::scene::writeEntityComponent64bit;
+    apiScene.getComponentChunkHandles = api::scene::getComponentChunkHandles;
+    apiScene.getComponentChunkMaxElementCount = api::scene::getComponentChunkMaxElementCount;
+    apiScene.getComponentChunkElementCount = api::scene::getComponentChunkElementCount;
+    apiScene.getComponentChunkVersion = api::scene::getComponentChunkVersion;
+    apiScene.copyComponentChunkData = api::scene::copyComponentChunkData;
+    apiScene.writeComponentChunkData = api::scene::writeComponentChunkData;
 
     TprEngineAPI::Geo apiGeo;
+    apiGeo.createMesh = api::geo::createMesh;
+    apiGeo.loadMesh = api::geo::loadMesh;
+    apiGeo.unloadMesh = api::geo::unloadMesh;
+    apiGeo.destroyMesh = api::geo::destroyMesh;
     
     TprEngineAPI::WM apiWM;
     apiWM.openWindow = api::wm::openWindow;
@@ -452,6 +623,33 @@ int main(int argc, char* argv[]) {
     apiInput.destroyAction = api::input::destroyAction;
     apiInput.getActionState = api::input::getActionState;
 
+    TprEngineAPI::Conf apiConf;
+    apiConf.createSetting = api::conf::createSetting;
+    apiConf.destroySetting = api::conf::destroySetting;
+    apiConf.getSettingType = api::conf::getSettingType;
+    apiConf.getSettingDouble = api::conf::getSettingDouble;
+    apiConf.getSettingInteger = api::conf::getSettingInteger;
+    apiConf.getSettingBool = api::conf::getSettingBool;
+    apiConf.getSettingStringSize = api::conf::getSettingStringSize;
+    apiConf.copySettingString = api::conf::copySettingString;
+    apiConf.setSettingString = api::conf::setSettingString;
+    apiConf.setSettingBool = api::conf::setSettingBool;
+    apiConf.setSettingDouble = api::conf::setSettingDouble;
+    apiConf.setSettingInteger = api::conf::setSettingInteger;
+    apiConf.setSettingNull = api::conf::setSettingNull;
+    apiConf.getSettingDoubleOr = api::conf::getSettingDoubleOr;
+    apiConf.getSettingIntegerOr = api::conf::getSettingIntegerOr;
+    apiConf.getSettingBoolOr = api::conf::getSettingBoolOr;
+
+    TprEngineAPI::Render apiRender;
+    apiRender.createDepthDomain = api::render::createDepthDomain;
+    apiRender.destroyDepthDomain = api::render::destroyDepthDomain;
+    apiRender.createRenderTarget = api::render::createRenderTarget;
+    apiRender.destroyRenderTarget = api::render::destroyRenderTarget;
+    apiRender.getComponentRenderable = api::render::getComponentRenderable;
+    apiRender.createObjectImage = api::render::createObjectImage;
+    apiRender.destroyObjectImage = api::render::destroyObjectImage;
+
     TprEngineAPI api;
     api.log = &apiLog;
     api.wm = &apiWM;
@@ -459,6 +657,8 @@ int main(int argc, char* argv[]) {
     api.scene = &apiScene;
     api.geo = &apiGeo;
     api.input = &apiInput;
+    api.conf = &apiConf;
+    api.render = &apiRender;
 
     try {
 
@@ -496,9 +696,9 @@ int main(int argc, char* argv[]) {
         }
         if (root_verbose.present()) {
             verbose_level = root_verbose.value<size_t>(root_verbose.count() - 1);
-            if (verbose_level > 6) {
+            if (verbose_level > 5) {
                 std::fprintf(stderr, "--verbose value is not in [0-5]: %ld\n", verbose_level);
-                return bootstrap_invalid_argv;
+                return to_underlying(bootstrap_err_code::invalid_argv);
             }
         }
 
@@ -519,11 +719,11 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) {
         std::fprintf(stderr, "Failed to construct engine: %s\n", e.what());
         std::fflush(stderr);
-        return bootstrap_engine_lifetime_violation;
+        return to_underlying(bootstrap_err_code::engine_lifetime_violation);
     } catch (...) {
         std::fprintf(stderr, "Failed to construct engine\n");
         std::fflush(stderr);
-        return bootstrap_engine_lifetime_violation;
+        return to_underlying(bootstrap_err_code::engine_lifetime_violation);
     }
 
     int exit_code = 0;
@@ -531,17 +731,17 @@ int main(int argc, char* argv[]) {
     try {
 
         g_engine->init();
-        exit_code = g_engine->run();
+        exit_code = !g_engine->run() ? 0 : to_underlying(bootstrap_err_code::unhandled_exception);
         g_engine->shutdown();
 
     } catch (const std::exception& e) {
         std::fprintf(stderr, "Unhandled exception detected: %s\n", e.what());
         std::fflush(stderr);
-        exit_code = bootstrap_unhandled_exception;
+        exit_code = to_underlying(bootstrap_err_code::unhandled_exception);
     } catch (...) {
         std::fprintf(stderr, "Unhandled exception detected\n");
         std::fflush(stderr);
-        exit_code = bootstrap_unhandled_exception;
+        exit_code = to_underlying(bootstrap_err_code::unhandled_exception);
     }
 
     g_engine->~TemporEngine();

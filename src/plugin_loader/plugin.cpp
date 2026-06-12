@@ -8,7 +8,7 @@
 #include <cstdint>
 
 
-PluginInThread::PluginInThread(Logger& rLogger, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrAliveTokens(rAliveTokens) {}
+PluginInThread::PluginInThread(Logger& rLogger, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrAliveTokens(rAliveTokens), mPluginLib() {}
 
 
 TprResult PluginInThread::init(const PluginLoadInfo* pLoadInfo) {
@@ -63,5 +63,10 @@ void PluginInThread::shutdown() noexcept {
 int32_t PluginInThread::updatePerFrame() noexcept {
     if (mCallbacks.updatePerFrame) return mCallbacks.updatePerFrame(mCtx);
     return 0;
+}
+
+
+const std::string_view PluginInThread::name() noexcept {
+    return mName;
 }
 

@@ -1,9 +1,6 @@
 {
-    "asset": {
-        "format": "tempor",
-        "version": "1.0.0"
-    },
-    "settings": "settings.json",
-    "plugins-folders": ["plugins"],
-    "modules": ["renderer_vulkan_module"]
+    "standartVulkanHWL.enableKhronosValidationLayer": true,
+    "standartVulkanHWL.enableDebugUtils": true,
+    "maxFramesInFlight": 3,
+    "ECS.componentChunkSize": 1024
 }

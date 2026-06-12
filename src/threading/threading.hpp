@@ -33,7 +33,8 @@ struct JobEntry;
 struct Job {
     std::function<void(void* ctx)> func;
     void* ctx;
-    JobEntry& entry;
+    JobEntry* entry;
+    float priority;
 };
 
 struct JobEntry {
@@ -51,7 +52,9 @@ struct Queue {
         void push(Job job) {
             {
                 std::lock_guard<std::mutex> lock(mMutex);
-                mJobs.push_back(std::move(job));
+                auto it = mJobs.end();
+                while (it != mJobs.begin() && std::prev(it)->priority < job.priority) it--;
+                mJobs.insert(it, job);
             }
             mCv.notify_all();
         }
@@ -107,6 +110,7 @@ class Threading {
 
     public:
         Threading(Logger& rLogger, Settings& rSetting);
+        void update();
         ~Threading();
 
         expected<TprJob, TprResult> createJob(const TprJobCreateInfo* pInfo) noexcept;
@@ -125,8 +129,9 @@ class Threading {
         std::unique_ptr<Queue> mQueue;
 
         std::unordered_map<uint32_t, JobEntry> mJobs;
-        uint32_t mJobCounter = 0;
+        uint32_t mMapJobCounter = 0;
         std::vector<std::unique_ptr<JobEntry>> mDetachedJobs;
+        uint32_t mJobCounter = 0;
 
 };
 

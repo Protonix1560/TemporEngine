@@ -206,7 +206,7 @@ typedef enum TprSettingType {
 
 typedef enum TprJobType {
     TPR_JOB_TYPE_SHORT_TERM = 0,
-    TPR_JOB_TYPE_LONG_TERM = 1,
+    // TPR_JOB_TYPE_LONG_TERM = 1,
     TPR_JOB_TYPE_MAX_ENUM = INT32_MAX
 } TprJobType;
 
@@ -417,7 +417,7 @@ typedef struct TprJobInfo {
     // TprJobType type;
     void(*func)(void* ctx) NOEXCEPT_ATTR;
     void* ctx;
-    // float priority;
+    float priority;
     uint32_t dependencyJobCount;
     const TprJob* pDependencyJobs;
 

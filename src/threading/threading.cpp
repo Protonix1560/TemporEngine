@@ -26,22 +26,22 @@ void shortThread(std::stop_token stop, std::reference_wrapper<Queue> queueWrappe
         auto value = queue.tryPull(std::chrono::duration_cast<std::chrono::nanoseconds>(100ms));
         if (value.has_value()) {
             Job job = std::move(value.value());
-            std::lock_guard<std::mutex> lock(job.entry.mutex);
+            std::lock_guard<std::mutex> lock(job.entry->mutex);
             job.func(job.ctx);
-            if (!job.entry.dependentJobs.empty()) {
-                for (auto& dependent : job.entry.dependentJobs) {
-                    std::lock_guard<std::mutex> dependentLock(dependent.entry.mutex);
-                    auto it = dependent.entry.dependencies.find(job.entry.id);
-                    if (it != dependent.entry.dependencies.end()) {
-                        dependent.entry.dependencies.erase(it);
+            if (!job.entry->dependentJobs.empty()) {
+                for (auto& dependent : job.entry->dependentJobs) {
+                    std::lock_guard<std::mutex> dependentLock(dependent.entry->mutex);
+                    auto it = dependent.entry->dependencies.find(job.entry->id);
+                    if (it != dependent.entry->dependencies.end()) {
+                        dependent.entry->dependencies.erase(it);
                     }
-                    if (dependent.entry.dependencies.empty()) {
+                    if (dependent.entry->dependencies.empty()) {
                         queue.push(dependent);
                     }
                 }
             }
-            job.entry.finished.store(true);
-            job.entry.finished.notify_all();
+            job.entry->finished.store(true);
+            job.entry->finished.notify_all();
         }
     }
     running = false;
@@ -119,6 +119,13 @@ Threading::Threading(Logger& rLogger, Settings& rSett) : mrLogger(rLogger), mrSe
 }
 
 
+void Threading::update() {
+
+
+
+}
+
+
 Threading::~Threading() {
     mrLogger << logPrxThrd() << "Requesting all threads to stop\n";
     for (auto& thread : mShortPool) {
@@ -145,17 +152,19 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
     if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return unexpected(TPR_INVALID_VALUE);
     TprJob handle;
     try {
-        auto& entry = mJobs.try_emplace(mJobCounter).first->second;
+        auto& entry = mJobs.try_emplace(mMapJobCounter).first->second;
         {
             std::lock_guard<std::mutex> lock(entry.mutex);
-            Job job{pInfo->func, pInfo->ctx, entry};
-            entry.id = mJobCounter;
-            // TODO: make priority useful
+            float priority = std::clamp(pInfo->priority, 0.0f, 1.0f);
+            if (priority != pInfo->priority) mrLogger.warn(TPR_LOG_STYLE_WARN1)
+                << logPrxThrd() << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
+            Job job{pInfo->func, pInfo->ctx, &entry, priority};
+            entry.id = mJobCounter++;
             entry.dependencies.reserve(pInfo->dependencyJobCount);
             for (uint32_t i = 0; i < pInfo->dependencyJobCount; i++) {
                 TprJob dependency = pInfo->pDependencyJobs[i];
                 if (get_basic_handle_type(dependency) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
-                if (get_basic_handle_index(dependency) > mJobCounter) return unexpected(TPR_INVALID_VALUE);
+                if (get_basic_handle_index(dependency) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
                 auto it = mJobs.find(get_basic_handle_index(dependency));
                 if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
                 std::lock_guard<std::mutex> dependencyLock(it->second.mutex);
@@ -164,8 +173,8 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
             }
             if (pInfo->dependencyJobCount == 0) mQueue->push(job);
         }
-        handle = construct_basic_handle<TprJob>(mJobCounter, 0, handle_type::job);
-        mJobCounter++;
+        handle = construct_basic_handle<TprJob>(mMapJobCounter, 0, handle_type::job);
+        mMapJobCounter++;
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
     }
@@ -176,10 +185,29 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
 TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
     if (!pInfo) return TPR_INVALID_VALUE;
     if (!pInfo->func) return TPR_INVALID_VALUE;
+    if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return TPR_INVALID_VALUE;
     try {
         auto& entry = *mDetachedJobs.emplace_back(std::make_unique<JobEntry>()).get();
-        // TODO: add dependency checking, make priority useful
-        mQueue->push(Job{pInfo->func, pInfo->ctx, entry});
+        {
+            std::lock_guard<std::mutex> lock(entry.mutex);
+            float priority = std::clamp(pInfo->priority, 0.0f, 1.0f);
+            if (priority != pInfo->priority) mrLogger.warn(TPR_LOG_STYLE_WARN1)
+                << logPrxThrd() << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
+            Job job{pInfo->func, pInfo->ctx, &entry, priority};
+            entry.id = mJobCounter++;
+            entry.dependencies.reserve(pInfo->dependencyJobCount);
+            for (uint32_t i = 0; i < pInfo->dependencyJobCount; i++) {
+                TprJob dependency = pInfo->pDependencyJobs[i];
+                if (get_basic_handle_type(dependency) != handle_type::job) return TPR_INVALID_VALUE;
+                if (get_basic_handle_index(dependency) > mMapJobCounter) return TPR_INVALID_VALUE;
+                auto it = mJobs.find(get_basic_handle_index(dependency));
+                if (it == mJobs.end()) return TPR_INVALID_VALUE;
+                std::lock_guard<std::mutex> dependencyLock(it->second.mutex);
+                entry.dependencies.insert(it->second.id);
+                it->second.dependentJobs.push_back(job);
+            }
+            if (pInfo->dependencyJobCount == 0) mQueue->push(job);
+        }
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
     }
@@ -190,7 +218,7 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
 expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
     try {
         if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
-        if (get_basic_handle_index(job) > mJobCounter) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
         auto it = mJobs.find(get_basic_handle_index(job));
         if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
         auto& job = it->second;
@@ -204,7 +232,7 @@ expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
 void Threading::joinJob(TprJob job) noexcept {
     try {
         if (get_basic_handle_type(job) != handle_type::job) return;
-        if (get_basic_handle_index(job) > mJobCounter) return;
+        if (get_basic_handle_index(job) > mMapJobCounter) return;
         auto it = mJobs.find(get_basic_handle_index(job));
         if (it == mJobs.end()) return;
         auto& job = it->second;

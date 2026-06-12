@@ -2,14 +2,12 @@
 #include "plugin.h"
 #include "plugin_core.h"
 
-#include <chrono>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <string>  // IWYU pragma: keep
 #include <format>  // IWYU pragma: keep
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <thread>
 
 
 using namespace std::string_literals;
@@ -166,33 +164,6 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     ROF(plugin->api->scene->writeEntityComponentData(
         plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
     ));
-
-    TprJob longjob;
-    TprJobCreateInfo longjobInfo{};
-    longjobInfo.func = [](void* ctx) noexcept {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-    };
-    ROF(plugin->api->thread->createJob(&longjobInfo, &longjob));
-
-    struct JobCtx {
-        const TprEngineAPI* api;
-    } jobCtx{plugin->api};
-    TprJob job;
-    TprJobCreateInfo jobInfo{};
-    jobInfo.func = [](void* ctx) noexcept {
-        JobCtx* j = reinterpret_cast<JobCtx*>(ctx);
-        j->api->log->info("IN-THREAD 1\n");
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        j->api->log->info("IN-THREAD 2\n");
-    };
-    jobInfo.ctx = &jobCtx;
-    jobInfo.pDependencyJobs = &longjob;
-    jobInfo.dependencyJobCount = 1;
-    ROF(plugin->api->thread->createJob(&jobInfo, &job));
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    plugin->api->log->info("MAIN\n");
-    plugin->api->thread->joinJob(longjob);
-    plugin->api->thread->joinJob(job);
 
     return 0;
 }

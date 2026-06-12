@@ -208,6 +208,8 @@ int TemporEngine::run() {
 
         mpPlugLd->triggerCallback(PluginCallback::UpdatePerFrame);
 
+        mpThread->update();
+
         if (mpHWLI) {
             TprResult ret;
             ret = mpHWLI->update();

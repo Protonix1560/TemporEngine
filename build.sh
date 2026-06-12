@@ -9,12 +9,14 @@ fi
 
 # tempor build
 if [[ COMPILE_ENGINE -eq 1 ]]; then
-    cmake -DCMAKE_BUILD_TYPE=Debug -B build/tempor -S . -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=test || exit 1
+    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=test \
+        -B build/tempor -S . -G "Unix Makefiles" || exit 1
 fi
 
 # test plugin build
 if [[ COMPILE_TEST_PLUGIN -eq 1 ]]; then
-    cmake -DCMAKE_BUILD_TYPE=Debug -B build/plugins/test -S plugins/test/ -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=test || exit 1
+    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=test \
+        -B build/plugins/test -S plugins/test/ -G "Unix Makefiles" || exit 1
 fi
 
 # generating final compile_commands.json

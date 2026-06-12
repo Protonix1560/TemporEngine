@@ -7,6 +7,18 @@
 #include <cstdint>
 
 
+#if defined(__cplusplus) && __cplusplus >= 201703L
+    #define NOEXCEPT_ATTR noexcept
+#else
+    #define NOEXCEPT_ATTR
+#endif
+
+#if defined(__cplusplus)
+    #define NOEXCEPT noexcept
+#else
+    #define NOEXCEPT
+#endif
+
 
 // types
 
@@ -15,7 +27,6 @@ typedef uint8_t TprBool8;
 #define TPR_FALSE 0
 
 typedef uint32_t TprFlag_T;
-
 
 
 // enums
@@ -193,6 +204,11 @@ typedef enum TprSettingType {
     TPR_SETTING_MAX_ENUM = INT32_MAX
 } TprSettingType;
 
+typedef enum TprJobType {
+    TPR_JOB_TYPE_SHORT_TERM = 0,
+    TPR_JOB_TYPE_LONG_TERM = 1,
+    TPR_JOB_TYPE_MAX_ENUM = INT32_MAX
+} TprJobType;
 
 
 // flags
@@ -203,7 +219,6 @@ typedef enum TprEntityDrawDescFlagBits {
 } TprEntityDrawFlagBits;
 typedef TprFlag_T TprEntityDrawDescFlags;
 
-
 typedef enum TprCreateWindowFlagBits {
     TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT = 0x1,
     TPR_CREATE_WINDOW_UNRESIZEABLE_FLAG_BIT = 0x2,
@@ -211,6 +226,10 @@ typedef enum TprCreateWindowFlagBits {
 } TprCreateWindowFlagBits;
 typedef TprFlag_T TprCreateWindowFlags;
 
+typedef enum TprCreateActionFlagBits {
+    TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprCreateActionFlagBits;
+typedef TprFlag_T TprCreateActionFlags;
 
 typedef enum TprOpenReferenceResourceFlagBits {
     TPR_OPEN_REFERENCE_RESOURCE_DONT_COPY_FLAG_BIT = 0x1,
@@ -237,7 +256,6 @@ typedef enum TprOpenCapabilityResourceFlagBits {
 } TprOpenCapabilityResourceFlagBits;
 typedef TprFlag_T TprOpenCapabilityResourceFlags;
 
-
 typedef enum TprProtectResourceFlagBits {
     TPR_PROTECT_RESOURCE_READ_FLAG_BIT = 0x1,
     TPR_PROTECT_RESOURCE_WRITE_FLAG_BIT = 0x2,
@@ -246,7 +264,6 @@ typedef enum TprProtectResourceFlagBits {
     TPR_PROTECT_RESOURCE_FLAG_BITS_MAX_ENUM = INT32_MAX
 } TprProtectResourceFlagBits;
 typedef TprFlag_T TprProtectResourceFlags;
-
 
 typedef enum TprEnumDirFlagBits {
     TPR_ENUM_DIR_DIRS_FLAG_BIT = 0x1,
@@ -257,13 +274,36 @@ typedef enum TprEnumDirFlagBits {
 } TprEnumDirFlagBits;
 typedef TprFlag_T TprEnumDirFlags;
 
-
 typedef enum TprCreateDepthDomainFlagBits {
-    TPR_CREATE_DEPTH_DOMAIN_BEFORE_BIT = 0x1,
-    TPR_CREATE_DEPTH_DOMAIN_ANCHOR_BIT = 0x2,
-    TPR_CREATE_DEPTH_DOMAIN_MAX_ENUM = INT32_MAX
+    TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_BIT = 0x1,
+    TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = INT32_MAX
 } TprCreateDepthDomainFlagBits;
+typedef TprFlag_T TprCreateDepthDomainFlags;
 
+typedef enum TprCreateJobFlagBits {
+    TPR_CREATE_JOB_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprCreateJobFlagBits;
+typedef TprFlag_T TprCreateJobFlags;
+
+typedef enum TprCreateMeshFlagBits {
+    TPR_CREATE_MESH_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprCreateMeshFlagBits;
+typedef TprFlag_T TprCreateMeshFlags;
+
+typedef enum TprLoadMeshFlagBits {
+    TPR_LOAD_MESH_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprLoadMeshFlagBits;
+typedef TprFlag_T TprLoadMeshFlags;
+
+typedef enum TprCreateRenderTargetFlagBits {
+    TPR_CREATE_RENDER_TARGET_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprCreateRenderTargetFlagBits;
+typedef TprFlag_T TprCreateRenderTargetFlags;
+
+typedef enum TprCreateObjectImageFlagBits {
+    TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprCreateObjectImageFlagBits;
+typedef TprFlag_T TprCreateObjectImageFlags;
 
 
 // handles
@@ -278,9 +318,9 @@ typedef struct TprDepthDomain { uint64_t _d; } TprDepthDomain;
 typedef struct TprRenderTarget {  uint64_t _d; } TprRenderTarget;
 typedef struct TprObjectImage { uint64_t _d; } TprObjectImage;
 typedef struct TprComponentChunk { uint64_t _d; } TprComponentChunk;
+typedef struct TprJob { uint64_t _d; } TprJob;
 
 typedef struct TprEntity { uint32_t id; } TprEntity;
-
 
 
 // data structs
@@ -326,7 +366,6 @@ typedef struct TprComponentRenderable {
 } TprComponentRenderable;
 
 
-
 // create infos
 
 typedef struct TprWindowCreateInfo {
@@ -337,25 +376,29 @@ typedef struct TprWindowCreateInfo {
 } TprWindowCreateInfo;
 
 typedef struct TprActionCreateInfo {
+    TprCreateActionFlags flags;
     TprInputElement element;
     float highThreshold;
     float lowThreshold;
 } TprActionCreateInfo;
 
 typedef struct TprMeshCreateInfo {
+    TprCreateMeshFlags flags;
     TprResource resource;
     uint32_t index;
 } TprMeshCreateInfo;
 
 typedef struct TprMeshLoadInfo {
+    TprLoadMeshFlags flags;
 } TprMeshLoadInfo;
 
 typedef struct TprDepthDomainCreateInfo {
-    TprCreateDepthDomainFlagBits flags;
+    TprCreateDepthDomainFlags flags;
     const TprDepthDomain* pAnchor;
 } TprDepthDomainCreateInfo;
 
 typedef struct TprRenderTargetCreateInfo {
+    TprCreateRenderTargetFlags flags;
     TprWindow window;
     TprDepthDomain depthDomain;
     TprViewport viewport;
@@ -363,11 +406,22 @@ typedef struct TprRenderTargetCreateInfo {
 } TprRenderTargetCreateInfo;
 
 typedef struct TprObjectImageCreateInfo {
+    TprCreateObjectImageFlags flags;
     TprMesh mesh;
     uint32_t renderTargetCount;
     const TprRenderTarget* pRenderTargets;
 } TprObjectImageCreateInfo;
 
+typedef struct TprJobInfo {
+    TprCreateJobFlags flags;
+    // TprJobType type;
+    void(*func)(void* ctx) NOEXCEPT_ATTR;
+    void* ctx;
+    // float priority;
+    // uint32_t dependencyJobCount;
+    // const TprJob* pDependencyJobs;
+
+} TprJobCreateInfo;
 
 
 #endif  // TEMPOR_PLUGIN_CORE_H_

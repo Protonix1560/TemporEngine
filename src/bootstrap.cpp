@@ -1,8 +1,5 @@
 
 
-#include "hardware_layer_interface.hpp"
-#include "plugin_loader.hpp"
-#include "settings.hpp"
 #if !defined(__linux__)
     #error "Unsupported OS type"
 #endif
@@ -544,6 +541,40 @@ namespace api {
             hwl->destroyObjectImage(image);
         }
     }
+
+    namespace thread {
+        TprResult createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept {
+            if (!pJob) return TPR_INVALID_VALUE;
+            Threading* thread = g_engine->getThreading();
+            if (!thread) return TPR_UNKNOWN_ERROR;
+            auto exp = thread->createJob(pInfo);
+            if (!exp.has_value()) return exp.error();
+            *pJob = exp.value();
+            return TPR_SUCCESS;
+        }
+
+        TprResult createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
+            Threading* thread = g_engine->getThreading();
+            if (!thread) return TPR_UNKNOWN_ERROR;
+            return thread->createDetachedJob(pInfo);
+        }
+
+        TprResult jobFinished(TprJob job, TprBool8* pData) noexcept {
+            if (!pData) return TPR_INVALID_VALUE;
+            Threading* thread = g_engine->getThreading();
+            if (!thread) return TPR_UNKNOWN_ERROR;
+            auto exp = thread->jobFinished(job);
+            if (!exp.has_value()) return exp.error();
+            *pData = exp.value();
+            return TPR_SUCCESS;
+        }
+
+        void joinJob(TprJob job) noexcept {
+            Threading* thread = g_engine->getThreading();
+            if (!thread) return;
+            thread->joinJob(job);
+        }
+    }
 }
 
 
@@ -650,6 +681,12 @@ int main(int argc, char* argv[]) {
     apiRender.createObjectImage = api::render::createObjectImage;
     apiRender.destroyObjectImage = api::render::destroyObjectImage;
 
+    TprEngineAPI::Thread apiThread;
+    apiThread.createJob = api::thread::createJob;
+    apiThread.createDetachedJob = api::thread::createDetachedJob;
+    apiThread.jobFinished = api::thread::jobFinished;
+    apiThread.joinJob = api::thread::joinJob;
+
     TprEngineAPI api;
     api.log = &apiLog;
     api.wm = &apiWM;
@@ -659,6 +696,7 @@ int main(int argc, char* argv[]) {
     api.input = &apiInput;
     api.conf = &apiConf;
     api.render = &apiRender;
+    api.thread = &apiThread;
 
     try {
 

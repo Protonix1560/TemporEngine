@@ -295,7 +295,8 @@ enum class handle_type : uint8_t {
     depth_domain = 7,
     render_target = 8,
     object_image = 9,
-    component_chunk = 10
+    component_chunk = 10,
+    job = 11
 };
 
 template <typename T>
@@ -401,6 +402,14 @@ consteval auto logPrxSett() {
     return logSettName() + ": ";
 }
 
+consteval auto logThrdName() {
+    const char name[] = "Thrd";
+    return consteval_string<std::size(name)>(name);
+}
+consteval auto logPrxThrd() {
+    return logThrdName() + ": ";
+}
+
 
 
 // manual std::expected
@@ -504,6 +513,13 @@ class expected {
         }
         T& operator*() { return value(); }
         T* operator->() { return &value(); }
+
+        template <typename U>
+        requires std::is_convertible_v<U, T>
+        T value_or(U value) {
+            if (!m_has_value) return value;
+            return m_data.value;
+        }
 
     private:
         union data {

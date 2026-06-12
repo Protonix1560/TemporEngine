@@ -2,24 +2,8 @@
 #ifndef TEMPOR_PLUGIN_H_
 #define TEMPOR_PLUGIN_H_
 
-
 #include "plugin_core.h"
 #include <stdint.h>
-
-
-
-#if defined(__cplusplus) && __cplusplus >= 201703L
-    #define NOEXCEPT_ATTR noexcept
-#else
-    #define NOEXCEPT_ATTR
-#endif
-
-#if defined(__cplusplus)
-    #define NOEXCEPT noexcept
-#else
-    #define NOEXCEPT
-#endif
-
 
 
 typedef struct TprEngineAPI {
@@ -145,8 +129,16 @@ typedef struct TprEngineAPI {
 
     } *render;
 
-} TprEngineAPI;
+    struct Thread {
 
+        TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) NOEXCEPT_ATTR;
+        TprResult(*createDetachedJob)(const TprJobCreateInfo* pInfo) NOEXCEPT_ATTR;
+        TprResult(*jobFinished)(TprJob job, TprBool8* pData) NOEXCEPT_ATTR;
+        void(*joinJob)(TprJob job) NOEXCEPT_ATTR;
+
+    } *thread;
+
+} TprEngineAPI;
 
 
 typedef struct TprPluginCallbacks {
@@ -159,19 +151,15 @@ typedef struct TprPluginCallbacks {
 } TprPluginCallbacks;
 
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
 int32_t getPluginCallbacks(TprPluginCallbacks* pCallbacks) NOEXCEPT;
-
 
 #ifdef __cplusplus
 }
 #endif
-
 
 
 #endif  // TEMPOR_PLUGIN_H_

@@ -10,12 +10,12 @@ expected<TprDepthDomain, TprResult> HardwareLayerVulkan::createDepthDomain(const
     TprDepthDomain handle;
 
     try {
-        if (pInfo->flags & TPR_CREATE_DEPTH_DOMAIN_ANCHOR_BIT) {
+        if (pInfo->pAnchor) {
             if (!pInfo->pAnchor) return unexpected(TPR_INVALID_VALUE);
             auto anchorIt = std::ranges::find(mDepthDomainOrder, get_basic_handle_index(*pInfo->pAnchor));
             if (anchorIt == mDepthDomainOrder.end()) return unexpected(TPR_INVALID_VALUE);
             auto insertIt = anchorIt;
-            if (!(pInfo->flags & TPR_CREATE_DEPTH_DOMAIN_BEFORE_BIT)) insertIt = std::next(insertIt);
+            if (!(pInfo->flags & TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_BIT)) insertIt = std::next(insertIt);
             auto& domain = mDepthDomains.try_emplace(mDepthDomainCounter).first->second;
             mDepthDomainOrder.insert(insertIt, mDepthDomainCounter);
             handle = construct_basic_handle<TprDepthDomain>(mDepthDomainCounter, 0, handle_type::depth_domain);
@@ -23,7 +23,11 @@ expected<TprDepthDomain, TprResult> HardwareLayerVulkan::createDepthDomain(const
 
         } else {
             auto& domain = mDepthDomains.try_emplace(mDepthDomainCounter).first->second;
-            mDepthDomainOrder.push_back(mDepthDomainCounter);
+            if (pInfo->flags & TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_BIT) {
+                mDepthDomainOrder.insert(mDepthDomainOrder.begin(), mDepthDomainCounter);
+            } else {
+                mDepthDomainOrder.push_back(mDepthDomainCounter);
+            }
             handle = construct_basic_handle<TprDepthDomain>(mDepthDomainCounter, 0, handle_type::depth_domain);
             mDepthDomainCounter++;
         }

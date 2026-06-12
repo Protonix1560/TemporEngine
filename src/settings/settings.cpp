@@ -435,3 +435,18 @@ TprBool8 Settings::createSettingBoolOr(std::string_view name, TprBool8 fallback)
     return getSettingBoolOr(createExp.value(), fallback);
 }
 
+
+std::string Settings::createSettingStringOr(std::string_view name, std::string fallback) noexcept {
+    auto createExp = createSetting(name);
+    if (!createExp.has_value()) return fallback;
+    auto setting = createExp.value();
+    auto sizeExp = getSettingStringSize(setting);
+    if (!sizeExp.has_value()) return fallback;
+    auto size = sizeExp.value();
+    std::string string(size, '\0');
+    auto copyRes = copySettingString(setting, string.data());
+    if (copyRes != TPR_SUCCESS) return fallback;
+    return string;
+}
+
+

@@ -167,6 +167,13 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
         plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
     ));
 
+    TprJob longjob;
+    TprJobCreateInfo longjobInfo{};
+    longjobInfo.func = [](void* ctx) noexcept {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    };
+    ROF(plugin->api->thread->createJob(&longjobInfo, &longjob));
+
     struct JobCtx {
         const TprEngineAPI* api;
     } jobCtx{plugin->api};
@@ -179,9 +186,12 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
         j->api->log->info("IN-THREAD 2\n");
     };
     jobInfo.ctx = &jobCtx;
+    jobInfo.pDependencyJobs = &longjob;
+    jobInfo.dependencyJobCount = 1;
     ROF(plugin->api->thread->createJob(&jobInfo, &job));
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     plugin->api->log->info("MAIN\n");
+    plugin->api->thread->joinJob(longjob);
     plugin->api->thread->joinJob(job);
 
     return 0;

@@ -418,8 +418,8 @@ typedef struct TprJobInfo {
     void(*func)(void* ctx) NOEXCEPT_ATTR;
     void* ctx;
     // float priority;
-    // uint32_t dependencyJobCount;
-    // const TprJob* pDependencyJobs;
+    uint32_t dependencyJobCount;
+    const TprJob* pDependencyJobs;
 
 } TprJobCreateInfo;
 

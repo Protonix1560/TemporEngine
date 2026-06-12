@@ -13,6 +13,7 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <functional>
@@ -27,15 +28,20 @@ class Logger;
 class Settings;
 
 
-struct JobEntry {
-    std::atomic<bool> finished = false;
-};
-
+struct JobEntry;
 
 struct Job {
     std::function<void(void* ctx)> func;
     void* ctx;
     JobEntry& entry;
+};
+
+struct JobEntry {
+    uint32_t id;
+    std::atomic<bool> finished = false;
+    std::mutex mutex;
+    std::vector<Job> dependentJobs;
+    std::unordered_set<uint32_t> dependencies;
 };
 
 

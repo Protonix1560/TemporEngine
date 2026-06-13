@@ -13,6 +13,7 @@
 #include "resource_registry.hpp"
 #include "scene_graph.hpp"
 #include "settings.hpp"
+#include "threading.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -77,6 +78,11 @@ Settings* TemporEngine::getSettings() noexcept {
     return &mServHolder.get<Settings>();
 }
 
+Threading* TemporEngine::getThreading() noexcept {
+    if (!mServHolder.alive<Threading>()) return nullptr;
+    return &mServHolder.get<Threading>();
+}
+
 
 TprComponent TemporEngine::getComponentRenderable() noexcept {
     return mComponentRenderable;
@@ -109,6 +115,8 @@ int TemporEngine::init() {
 
     mpSettings = &mServHolder.construct<Settings>(*mpLogger, *mpResReg);
 
+    mpThread = &mServHolder.construct<Threading>(*mpLogger, *mpSettings);
+
     mpSceneGraph = &mServHolder.construct<SceneGraph>(*mpLogger, *mpSettings, *mpResReg);
 
     {
@@ -127,7 +135,7 @@ int TemporEngine::init() {
 
         try {
 
-            mpLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend=" << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "...\n";
+            mpLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend=" << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "\n";
 
             WindowManager* localWinMan = &mServHolder.construct<WindowManager>(manifest.graphicsBackend, *mpLogger, mAliveTokens);
 
@@ -200,6 +208,8 @@ int TemporEngine::run() {
 
         mpPlugLd->triggerCallback(PluginCallback::UpdatePerFrame);
 
+        mpThread->update();
+
         if (mpHWLI) {
             TprResult ret;
             ret = mpHWLI->update();
@@ -248,6 +258,9 @@ void TemporEngine::shutdown() {
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down\n";
 
     mpPlugLd->triggerCallback(PluginCallback::PreShutdown).value();
+
+    mpThread->joinAll();
+    
     mpPlugLd->triggerCallback(PluginCallback::Shutdown).value();
 
     mServHolder.destruct<PluginLoader>();
@@ -255,6 +268,7 @@ void TemporEngine::shutdown() {
     mServHolder.destruct<SceneGraph>();
     mServHolder.destruct<WindowManager>();
     mServHolder.destruct<AssetStore>();
+    mServHolder.destruct<Threading>();
     mServHolder.destruct<Settings>();
     mServHolder.destruct<ResourceRegistry>();
 

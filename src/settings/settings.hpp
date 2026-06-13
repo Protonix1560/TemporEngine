@@ -75,6 +75,8 @@ class Settings {
         int64_t createSettingIntegerOr(std::string_view name, int64_t fallback) noexcept;
         TprBool8 createSettingBoolOr(std::string_view name, TprBool8 fallback) noexcept;
 
+        std::string createSettingStringOr(std::string_view name, std::string fallback) noexcept;
+
         void finalizeRead();
         TprResult sync();
 

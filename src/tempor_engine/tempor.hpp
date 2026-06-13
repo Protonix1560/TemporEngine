@@ -5,8 +5,10 @@
 
 
 #include "core.hpp"
+
 #include "plugin.h"
 #include "plugin_core.h"
+
 #include "plugin_loader.hpp"
 #include "scene_graph.hpp"
 #include "logger.hpp"
@@ -15,6 +17,7 @@
 #include "hardware_layer_interface.hpp"
 #include "asset_store.hpp"
 #include "settings.hpp"
+#include "threading.hpp"
 
 #include "sleep_clock.hpp"
 
@@ -174,6 +177,7 @@ class TemporEngine {
         AssetStore* getAssetStore() noexcept;
         Settings* getSettings() noexcept;
         PluginLoader* getPluginLoader() noexcept;
+        Threading* getThreading() noexcept;
 
         TprComponent getComponentRenderable() noexcept;
 
@@ -181,7 +185,10 @@ class TemporEngine {
         sleep_clock mClock;
         const TprEngineAPI* mpAPI;
 
-        service_singleton_holder<Logger, WindowManager, PHardwareLayer, AssetStore, SceneGraph, PluginLoader, ResourceRegistry, Settings> mServHolder;
+        service_singleton_holder<
+            Logger, WindowManager, PHardwareLayer, AssetStore, SceneGraph, PluginLoader, ResourceRegistry,
+            Settings, Threading
+        > mServHolder;
 
         ResourceRegistry* mpResReg = nullptr;
         Logger* mpLogger = nullptr;
@@ -191,6 +198,7 @@ class TemporEngine {
         PluginLoader* mpPlugLd = nullptr;
         SceneGraph* mpSceneGraph = nullptr;
         Settings* mpSettings = nullptr;
+        Threading* mpThread = nullptr;
 
         TprComponent mComponentRenderable;
 

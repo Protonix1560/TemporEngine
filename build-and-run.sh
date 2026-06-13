@@ -11,10 +11,10 @@ echo -e "\033[92m    //// BUILD ////\033[0m\n"
 ./build.sh &&
 {
     if [[ COMPILE_ENGINE -eq 1 ]]; then
-        make install -j${nproc} -C build/tempor || exit 1
+        make install -j$(( $(nproc) - 1 )) -C build/tempor || exit 1
     fi
     if [[ COMPILE_TEST_PLUGIN -eq 1 ]]; then
-        make install -j${nproc} -C build/plugins/test || exit 1
+        make install -j$(( $(nproc) - 1 )) -C build/plugins/test || exit 1
     fi
 
 } && {

@@ -111,14 +111,14 @@ expected<TprSetting, TprResult> Settings::createSetting(std::string_view name) n
             mSettingCount++;
 
             auto l = mrLogger.debug();
-            l << logPrxSett() << "Created setting " << name << " = ";
+            l << logPrxSett() << "Read setting " << name;
             std::visit(overload{
-                [&l](const double& value) { l << value; },
-                [&l](const int64_t& value) { l << value; },
-                [&l](const std::nullptr_t& value) { l << "null"; },
-                [&l](const std::monostate& value) { l << "unset"; },
-                [&l](const bool& value) { l << (value ? "true" : "false"); },
-                [&l](const std::string& value) { l << value; }
+                [&l](const double& value) { l << " = " << value; },
+                [&l](const int64_t& value) { l << " = " << value; },
+                [&l](const std::nullptr_t& value) { l << " = null"; },
+                [&l](const std::monostate& value) { l << " <unset>"; },
+                [&l](const bool& value) { l << (value ? " = true" : " = false"); },
+                [&l](const std::string& value) { l << " = " << value; }
             }, setting.data);
             l << "\n";
         }
@@ -434,4 +434,19 @@ TprBool8 Settings::createSettingBoolOr(std::string_view name, TprBool8 fallback)
     if (!createExp.has_value()) return fallback;
     return getSettingBoolOr(createExp.value(), fallback);
 }
+
+
+std::string Settings::createSettingStringOr(std::string_view name, std::string fallback) noexcept {
+    auto createExp = createSetting(name);
+    if (!createExp.has_value()) return fallback;
+    auto setting = createExp.value();
+    auto sizeExp = getSettingStringSize(setting);
+    if (!sizeExp.has_value()) return fallback;
+    auto size = sizeExp.value();
+    std::string string(size, '\0');
+    auto copyRes = copySettingString(setting, string.data());
+    if (copyRes != TPR_SUCCESS) return fallback;
+    return string;
+}
+
 

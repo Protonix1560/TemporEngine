@@ -19,15 +19,70 @@
 using namespace std::chrono_literals;
 
 
-void shortThread(std::stop_token stop, std::reference_wrapper<Queue> queueWrapper, std::reference_wrapper<std::atomic<bool>> runningWrapper) {
+void shortThread(std::stop_token stop, std::reference_wrapper<Queue> queueWrapper, std::reference_wrapper<std::atomic<ThreadState>> stateWrapper) noexcept {
     Queue& queue = queueWrapper.get();
-    std::atomic<bool>& running = runningWrapper.get();
-    while (!stop.stop_requested()) {
-        auto value = queue.tryPull(std::chrono::duration_cast<std::chrono::nanoseconds>(100ms));
-        if (value.has_value()) {
-            Job job = std::move(value.value());
+    std::atomic<ThreadState>& state = stateWrapper.get();
+    try {
+        while (!stop.stop_requested()) {
+            auto value = queue.tryPull(std::chrono::duration_cast<std::chrono::nanoseconds>(100ms));
+            if (value.has_value()) {
+                state.store(ThreadState::Working);
+                state.notify_all();
+                Job job = value.value();
+                {
+                    std::lock_guard<std::mutex> lock(job.entry->mutex);
+                    job.entry->func(job.entry->ctx);
+                    if (!job.entry->dependentJobs.empty()) {
+                        for (auto& dependent : job.entry->dependentJobs) {
+                            std::lock_guard<std::mutex> dependentLock(dependent.entry->mutex);
+                            auto it = dependent.entry->dependencies.find(job.entry->id);
+                            if (it != dependent.entry->dependencies.end()) {
+                                dependent.entry->dependencies.erase(it);
+                            }
+                            if (dependent.entry->dependencies.empty()) {
+                                switch (dependent.entry->type) {
+                                    case TPR_JOB_TYPE_SHORT_TERM: {
+                                        dependent.entry->state.store(JobState::Running);
+                                        dependent.entry->state.notify_all();
+                                        queue.push(dependent);
+                                        break;
+                                    }
+                                    case TPR_JOB_TYPE_LONG_TERM:
+                                    default: {
+                                        dependent.entry->state.store(JobState::Running);
+                                        dependent.entry->state.notify_all();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                job.entry->state.store(JobState::Finished);
+                job.entry->state.notify_all();
+
+                state.store(ThreadState::Idle);
+                state.notify_all();
+            }
+        }
+
+    } catch (...) {}
+
+    state.store(ThreadState::Finished);
+    state.notify_all();
+}
+
+
+void longThread(std::stop_token stop, Job job, std::reference_wrapper<Queue> queueWrapper, std::reference_wrapper<std::atomic<ThreadState>> stateWrapper) noexcept {
+    Queue& queue = queueWrapper.get();
+    std::atomic<ThreadState>& state = stateWrapper.get();
+    try {
+        job.entry->state.wait(JobState::WaitingDependencies);
+        state.store(ThreadState::Working);
+        state.notify_all();
+        {
             std::lock_guard<std::mutex> lock(job.entry->mutex);
-            job.func(job.ctx);
+            job.entry->func(job.entry->ctx);
             if (!job.entry->dependentJobs.empty()) {
                 for (auto& dependent : job.entry->dependentJobs) {
                     std::lock_guard<std::mutex> dependentLock(dependent.entry->mutex);
@@ -36,15 +91,34 @@ void shortThread(std::stop_token stop, std::reference_wrapper<Queue> queueWrappe
                         dependent.entry->dependencies.erase(it);
                     }
                     if (dependent.entry->dependencies.empty()) {
-                        queue.push(dependent);
+                        switch (dependent.entry->type) {
+                            case TPR_JOB_TYPE_SHORT_TERM: {
+                                dependent.entry->state.store(JobState::Running);
+                                dependent.entry->state.notify_all();
+                                queue.push(dependent);
+                                break;
+                            }
+                            case TPR_JOB_TYPE_LONG_TERM:
+                            default: {
+                                dependent.entry->state.store(JobState::Running);
+                                dependent.entry->state.notify_all();
+                                break;
+                            }
+                        }
                     }
                 }
             }
-            job.entry->finished.store(true);
-            job.entry->finished.notify_all();
         }
-    }
-    running = false;
+        job.entry->state.store(JobState::Finished);
+        job.entry->state.notify_all();
+
+        state.store(ThreadState::Idle);
+        state.notify_all();
+
+    } catch (...) {}
+
+    state.store(ThreadState::Finished);
+    state.notify_all();
 }
 
 
@@ -110,39 +184,87 @@ Threading::Threading(Logger& rLogger, Settings& rSett) : mrLogger(rLogger), mrSe
         mrSett.createSettingStringOr("threadTotalTimeout", "200ms")
     ).value_or(std::chrono::duration_cast<std::chrono::nanoseconds>(200ms));
 
+    mShortThreadMigrationTimeout = parse_duration(
+        mrSett.createSettingStringOr("shortThreadMigrationTimeout", "50ms")
+    ).value_or(std::chrono::duration_cast<std::chrono::nanoseconds>(50ms));
+
     mQueue = std::make_unique<Queue>();
 
     for (uint32_t i = 0; i < mShortPoolSize; i++) {
         auto* thread = mShortPool.emplace_back(std::make_unique<Thread>()).get();
-        thread->thread = std::jthread(shortThread, std::ref(*mQueue.get()), std::ref(thread->running));
+        thread->thread = std::jthread(shortThread, std::ref(*mQueue.get()), std::ref(thread->state));
     }
 }
 
 
 void Threading::update() {
 
+    for (auto it = mDetachedJobs.begin(); it != mDetachedJobs.end();) {
+        auto& job = *it->get();
+        if (job.state.load() == JobState::Finished) {
+            it = mDetachedJobs.erase(it);
+        } else {
+            it++;
+        }
+    }
 
+    for (auto& thread : mShortPool) {
+        auto now = std::chrono::steady_clock::now();
+        if (now - thread->jobBegin.load() > mShortThreadMigrationTimeout) {
+            if (thread->state.load() == ThreadState::Working) {
+                mrLogger << logPrxThrd() << "Short thread " << thread->thread.get_id() << " is working overtime; moving it to long threads\n";
+                thread->thread.request_stop();
+                mLongThreads.emplace_back(std::move(thread));
+                thread = std::make_unique<Thread>();
+                thread->thread = std::jthread(shortThread, std::ref(*mQueue.get()), std::ref(thread->state));
+            }
+        }
+    }
+
+    for (auto it = mLongThreads.begin(); it != mLongThreads.end();) {
+        auto& thread = *it->get();
+        if (thread.state.load() == ThreadState::Finished) {
+            mrLogger << logPrxThrd() << "Long thread " << thread.thread.get_id() << " finished\n";
+            it = mLongThreads.erase(it);
+        } else {
+            it++;
+        }
+    }
 
 }
 
 
-Threading::~Threading() {
+void Threading::joinAll() noexcept {
     mrLogger << logPrxThrd() << "Requesting all threads to stop\n";
     for (auto& thread : mShortPool) {
+        thread->thread.request_stop();
+    }
+    for (auto& thread : mLongThreads) {
         thread->thread.request_stop();
     }
     mQueue->notifyAll();
     mrLogger << logPrxThrd() << "Waiting total thread timeout\n";
     std::this_thread::sleep_for(mThreadTotalTimeout);
     mrLogger << logPrxThrd() << "Joining threads\n";
-    for (uint32_t i = 0; i < mShortPool.size(); i++) {
-        auto& thread = mShortPool[i];
-        if (thread->running.load()) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxThrd() << "Thread " << i << " didn't stop on time!\n";
+    for (auto& thread : mShortPool) {
+        if (thread->state.load() != ThreadState::Finished) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxThrd() << "Short thread " << thread->thread.get_id() << " didn't stop on time!\n";
         }
-        mrLogger.trace() << logPrxThrd() << "Calling join on thread " << i << "\n";
+        mrLogger.trace() << logPrxThrd() << "Calling join on short thread " << thread->thread.get_id() << "\n";
         if (thread->thread.joinable()) thread->thread.join();
     }
+    for (auto& thread : mLongThreads) {
+        if (thread->state.load() != ThreadState::Finished) {
+            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxThrd() << "Long thread " << thread->thread.get_id() << " didn't stop on time!\n";
+        }
+        mrLogger.trace() << logPrxThrd() << "Calling join on long thread " << thread->thread.get_id() << "\n";
+        if (thread->thread.joinable()) thread->thread.join();
+    }
+}
+
+
+Threading::~Threading() {
+    joinAll();
 }
 
 
@@ -155,12 +277,19 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
         auto& entry = mJobs.try_emplace(mMapJobCounter).first->second;
         {
             std::lock_guard<std::mutex> lock(entry.mutex);
+            Job job{&entry};
+            
             float priority = std::clamp(pInfo->priority, 0.0f, 1.0f);
             if (priority != pInfo->priority) mrLogger.warn(TPR_LOG_STYLE_WARN1)
                 << logPrxThrd() << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
-            Job job{pInfo->func, pInfo->ctx, &entry, priority};
+            
             entry.id = mJobCounter++;
+            entry.type = pInfo->type;
+            entry.ctx = pInfo->ctx;
+            entry.func = pInfo->func;
+            entry.priority = priority;
             entry.dependencies.reserve(pInfo->dependencyJobCount);
+
             for (uint32_t i = 0; i < pInfo->dependencyJobCount; i++) {
                 TprJob dependency = pInfo->pDependencyJobs[i];
                 if (get_basic_handle_type(dependency) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
@@ -171,7 +300,16 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
                 entry.dependencies.insert(it->second.id);
                 it->second.dependentJobs.push_back(job);
             }
-            if (pInfo->dependencyJobCount == 0) mQueue->push(job);
+            if (pInfo->type == TPR_JOB_TYPE_SHORT_TERM) {
+                entry.state.store(JobState::Running);
+                if (pInfo->dependencyJobCount == 0) mQueue->push(job);
+            } else {
+                if (pInfo->dependencyJobCount == 0) {
+                    entry.state.store(JobState::Running);
+                }
+                auto* thread = mLongThreads.emplace_back(std::make_unique<Thread>()).get();
+                thread->thread = std::jthread(longThread, job, std::ref(*mQueue.get()), std::ref(thread->state));
+            }
         }
         handle = construct_basic_handle<TprJob>(mMapJobCounter, 0, handle_type::job);
         mMapJobCounter++;
@@ -190,12 +328,19 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
         auto& entry = *mDetachedJobs.emplace_back(std::make_unique<JobEntry>()).get();
         {
             std::lock_guard<std::mutex> lock(entry.mutex);
+            Job job{&entry};
+
             float priority = std::clamp(pInfo->priority, 0.0f, 1.0f);
             if (priority != pInfo->priority) mrLogger.warn(TPR_LOG_STYLE_WARN1)
                 << logPrxThrd() << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
-            Job job{pInfo->func, pInfo->ctx, &entry, priority};
+
             entry.id = mJobCounter++;
+            entry.type = pInfo->type;
+            entry.ctx = pInfo->ctx;
+            entry.func = pInfo->func;
+            entry.priority = priority;
             entry.dependencies.reserve(pInfo->dependencyJobCount);
+
             for (uint32_t i = 0; i < pInfo->dependencyJobCount; i++) {
                 TprJob dependency = pInfo->pDependencyJobs[i];
                 if (get_basic_handle_type(dependency) != handle_type::job) return TPR_INVALID_VALUE;
@@ -206,7 +351,19 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
                 entry.dependencies.insert(it->second.id);
                 it->second.dependentJobs.push_back(job);
             }
-            if (pInfo->dependencyJobCount == 0) mQueue->push(job);
+
+            if (pInfo->type == TPR_JOB_TYPE_SHORT_TERM) {
+                if (pInfo->dependencyJobCount == 0) {
+                    entry.state.store(JobState::Running);
+                    mQueue->push(job);
+                }
+            } else {
+                if (pInfo->dependencyJobCount == 0) {
+                    entry.state.store(JobState::Running);
+                }
+                auto* thread = mLongThreads.emplace_back(std::make_unique<Thread>()).get();
+                thread->thread = std::jthread(longThread, job, std::ref(*mQueue.get()), std::ref(thread->state));
+            }
         }
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
@@ -222,7 +379,7 @@ expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
         auto it = mJobs.find(get_basic_handle_index(job));
         if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
         auto& job = it->second;
-        return TprBool8(job.finished.load());
+        return TprBool8(job.state.load());
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
     }
@@ -236,7 +393,8 @@ void Threading::joinJob(TprJob job) noexcept {
         auto it = mJobs.find(get_basic_handle_index(job));
         if (it == mJobs.end()) return;
         auto& job = it->second;
-        job.finished.wait(false);
+        job.state.wait(JobState::WaitingDependencies);
+        job.state.wait(JobState::Running);
         mJobs.erase(it);
     } catch (...) {
         return;

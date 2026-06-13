@@ -258,6 +258,9 @@ void TemporEngine::shutdown() {
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down\n";
 
     mpPlugLd->triggerCallback(PluginCallback::PreShutdown).value();
+
+    mpThread->joinAll();
+    
     mpPlugLd->triggerCallback(PluginCallback::Shutdown).value();
 
     mServHolder.destruct<PluginLoader>();

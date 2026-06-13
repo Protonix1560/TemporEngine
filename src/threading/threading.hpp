@@ -6,6 +6,7 @@
 #include "core.hpp"
 #include "plugin_core.h"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -31,15 +32,22 @@ class Settings;
 struct JobEntry;
 
 struct Job {
-    std::function<void(void* ctx)> func;
-    void* ctx;
     JobEntry* entry;
-    float priority;
+};
+
+enum class JobState {
+    WaitingDependencies = 0,
+    Running = 1,
+    Finished = 2
 };
 
 struct JobEntry {
     uint32_t id;
-    std::atomic<bool> finished = false;
+    TprJobType type;
+    std::function<void(void* ctx)> func;
+    void* ctx;
+    float priority;
+    std::atomic<JobState> state = JobState::WaitingDependencies;
     std::mutex mutex;
     std::vector<Job> dependentJobs;
     std::unordered_set<uint32_t> dependencies;
@@ -53,7 +61,7 @@ struct Queue {
             {
                 std::lock_guard<std::mutex> lock(mMutex);
                 auto it = mJobs.end();
-                while (it != mJobs.begin() && std::prev(it)->priority < job.priority) it--;
+                while (it != mJobs.begin() && std::prev(it)->entry->priority < job.entry->priority) it--;
                 mJobs.insert(it, job);
             }
             mCv.notify_all();
@@ -62,7 +70,7 @@ struct Queue {
         std::optional<Job> pull() {
             std::unique_lock<std::mutex> lock(mMutex);
             mCv.wait(lock, [this]() { return !mJobs.empty(); });
-            Job job = std::move(mJobs.front());
+            Job job = mJobs.front();
             mJobs.pop_front();
             return job;
         }
@@ -72,7 +80,7 @@ struct Queue {
             if (!mCv.wait_for(lock, timeout, [this]() { return !mJobs.empty(); })) {
                 return std::nullopt;
             }
-            Job job = std::move(mJobs.front());
+            Job job = mJobs.front();
             mJobs.pop_front();
             return job;
         }
@@ -98,11 +106,19 @@ struct Queue {
 };
 
 
+enum class ThreadState {
+    Idle = 0,
+    Working = 1,
+    Finished = 2
+};
+
+
 struct Thread {
     std::jthread thread;
-    std::atomic<bool> running;
-    Thread() : thread(), running(true) {}
-    Thread(Thread&& other) : thread(std::move(other.thread)), running(other.running.load()) {}
+    std::atomic<ThreadState> state;
+    std::atomic<std::chrono::time_point<std::chrono::steady_clock>> jobBegin;
+    Thread() : thread(), state(ThreadState::Idle) {}
+    Thread(Thread&& other) : thread(std::move(other.thread)), state(other.state.load()) {}
 };
 
 
@@ -118,14 +134,18 @@ class Threading {
         expected<TprBool8, TprResult> jobFinished(TprJob job) noexcept;
         void joinJob(TprJob job) noexcept;
 
+        void joinAll() noexcept;
+
     private:
         Logger& mrLogger;
         Settings& mrSett;
 
         uint32_t mShortPoolSize;
         std::chrono::nanoseconds mThreadTotalTimeout;
+        std::chrono::nanoseconds mShortThreadMigrationTimeout;
 
         std::vector<std::unique_ptr<Thread>> mShortPool;
+        std::vector<std::unique_ptr<Thread>> mLongThreads;
         std::unique_ptr<Queue> mQueue;
 
         std::unordered_map<uint32_t, JobEntry> mJobs;

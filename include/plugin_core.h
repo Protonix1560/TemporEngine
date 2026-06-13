@@ -206,7 +206,7 @@ typedef enum TprSettingType {
 
 typedef enum TprJobType {
     TPR_JOB_TYPE_SHORT_TERM = 0,
-    // TPR_JOB_TYPE_LONG_TERM = 1,
+    TPR_JOB_TYPE_LONG_TERM = 1,
     TPR_JOB_TYPE_MAX_ENUM = INT32_MAX
 } TprJobType;
 
@@ -275,7 +275,7 @@ typedef enum TprEnumDirFlagBits {
 typedef TprFlag_T TprEnumDirFlags;
 
 typedef enum TprCreateDepthDomainFlagBits {
-    TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_BIT = 0x1,
+    TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_FLAG_BIT = 0x1,
     TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = INT32_MAX
 } TprCreateDepthDomainFlagBits;
 typedef TprFlag_T TprCreateDepthDomainFlags;
@@ -414,7 +414,7 @@ typedef struct TprObjectImageCreateInfo {
 
 typedef struct TprJobInfo {
     TprCreateJobFlags flags;
-    // TprJobType type;
+    TprJobType type;
     void(*func)(void* ctx) NOEXCEPT_ATTR;
     void* ctx;
     float priority;

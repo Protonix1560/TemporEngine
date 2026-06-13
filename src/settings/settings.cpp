@@ -111,14 +111,14 @@ expected<TprSetting, TprResult> Settings::createSetting(std::string_view name) n
             mSettingCount++;
 
             auto l = mrLogger.debug();
-            l << logPrxSett() << "Created setting " << name << " = ";
+            l << logPrxSett() << "Read setting " << name;
             std::visit(overload{
-                [&l](const double& value) { l << value; },
-                [&l](const int64_t& value) { l << value; },
-                [&l](const std::nullptr_t& value) { l << "null"; },
-                [&l](const std::monostate& value) { l << "unset"; },
-                [&l](const bool& value) { l << (value ? "true" : "false"); },
-                [&l](const std::string& value) { l << value; }
+                [&l](const double& value) { l << " = " << value; },
+                [&l](const int64_t& value) { l << " = " << value; },
+                [&l](const std::nullptr_t& value) { l << " = null"; },
+                [&l](const std::monostate& value) { l << " <unset>"; },
+                [&l](const bool& value) { l << (value ? " = true" : " = false"); },
+                [&l](const std::string& value) { l << " = " << value; }
             }, setting.data);
             l << "\n";
         }

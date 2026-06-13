@@ -33,7 +33,11 @@ else()
 endif()
 set(BUILD_VERSION "v0.0.0")
 
-target_compile_options(common INTERFACE -O0 -g)
+target_compile_options(
+    common INTERFACE
+    -Os -fno-rtti -flto -DNDEBUG
+    -ffunction-sections -fdata-sections
+)
 target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}")
 
 # main executable
@@ -65,6 +69,7 @@ add_subdirectory(src/settings)
 add_subdirectory(src/threading)
 add_subdirectory(src/tempor_engine)
 
+set(FASTGLTF_ENABLE_INSTALL OFF)
 add_subdirectory(3rd_party/fastgltf)
 
 target_link_libraries(

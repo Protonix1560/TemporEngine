@@ -99,6 +99,11 @@ struct Queue {
             mCv.notify_all();
         }
 
+        void clear() {
+            std::lock_guard<std::mutex> lock(mMutex);
+            mJobs.clear();
+        }
+
     private:
         std::deque<Job> mJobs;
         mutable std::mutex mMutex;
@@ -117,6 +122,7 @@ struct Thread {
     std::jthread thread;
     std::atomic<ThreadState> state;
     std::atomic<std::chrono::time_point<std::chrono::steady_clock>> jobBegin;
+    uint32_t id;
     Thread() : thread(), state(ThreadState::Idle) {}
     Thread(Thread&& other) : thread(std::move(other.thread)), state(other.state.load()) {}
 };
@@ -140,6 +146,9 @@ class Threading {
         Logger& mrLogger;
         Settings& mrSett;
 
+        bool mUsable = true;
+        std::mutex mMutex;
+
         uint32_t mShortPoolSize;
         std::chrono::nanoseconds mThreadTotalTimeout;
         std::chrono::nanoseconds mShortThreadMigrationTimeout;
@@ -147,6 +156,7 @@ class Threading {
         std::vector<std::unique_ptr<Thread>> mShortPool;
         std::vector<std::unique_ptr<Thread>> mLongThreads;
         std::unique_ptr<Queue> mQueue;
+        uint32_t mThreadCounter = 0;
 
         std::unordered_map<uint32_t, JobEntry> mJobs;
         uint32_t mMapJobCounter = 0;

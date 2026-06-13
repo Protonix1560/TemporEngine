@@ -9,6 +9,8 @@
 #include "plugin.hpp"
 
 #include <atomic>
+#include <memory>
+#include <unordered_map>
 
 
 // from "logger.hpp"
@@ -16,6 +18,11 @@ class Logger;
 
 // from "settings.hpp"
 class Settings;
+
+
+struct PluginInfo {
+    std::string name;
+};
 
 
 class PluginLoader {
@@ -27,16 +34,18 @@ class PluginLoader {
         TprResult loadPlugin(const PluginLoadInfo* pLoadInfo);
         expected<std::vector<TprResult>, TprResult> triggerCallback(PluginCallback callback);
 
-        expected<TprSetting, TprResult> createSetting(std::string_view name) noexcept;
+        std::optional<uint32_t> getActivePluginID();
+        expected<PluginInfo, TprResult> getPluginInfo(uint32_t id);
 
     private:
         Logger& mrLogger;
         Settings& mrSettings;
         std::atomic<int32_t>& mrAliveTokens;
 
-        std::vector<std::unique_ptr<Plugin>> mPlugins;
+        std::unordered_map<uint32_t, std::unique_ptr<Plugin>> mPlugins;
+        uint32_t mPluginCounter = 0;
 
-        uint32_t mCurrentPlugin = 0;
+        std::optional<uint32_t> mCurrentPlugin;
 
 };
 

@@ -46,7 +46,7 @@ struct JsonData {
 class Settings {
 
     public:
-        Settings(Logger& rLogger, ResourceRegistry& rResReg);
+        Settings(Logger& rLogger, ResourceRegistry& rResReg, std::string configPath);
         ~Settings();
 
         expected<TprSetting, TprResult> createSetting(std::string_view name) noexcept;

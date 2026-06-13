@@ -5,6 +5,8 @@
 #include "plugin_core.h"
 #include "settings.hpp"
 
+#include "thread_job_info.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -31,7 +33,9 @@ void shortThread(std::stop_token stop, std::reference_wrapper<Queue> queueWrappe
                 Job job = value.value();
                 {
                     std::lock_guard<std::mutex> lock(job.entry->mutex);
+                    threadLocalJobInfo.job = job.entry->id;
                     job.entry->func(job.entry->ctx);
+                    threadLocalJobInfo.job.reset();
                     if (!job.entry->dependentJobs.empty()) {
                         for (auto& dependent : job.entry->dependentJobs) {
                             std::lock_guard<std::mutex> dependentLock(dependent.entry->mutex);
@@ -82,7 +86,9 @@ void longThread(std::stop_token stop, Job job, std::reference_wrapper<Queue> que
         state.notify_all();
         {
             std::lock_guard<std::mutex> lock(job.entry->mutex);
+            threadLocalJobInfo.job = job.entry->id;
             job.entry->func(job.entry->ctx);
+            threadLocalJobInfo.job.reset();
             if (!job.entry->dependentJobs.empty()) {
                 for (auto& dependent : job.entry->dependentJobs) {
                     std::lock_guard<std::mutex> dependentLock(dependent.entry->mutex);
@@ -292,7 +298,7 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
     if (!pInfo->func) return unexpected(TPR_INVALID_VALUE);
     if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return unexpected(TPR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return unexpected(TPR_CONTRACT_VIOLATION);
+    if (!mUsable) return unexpected(TPR_INVALID_OPERATION);
     TprJob handle;
     try {
         auto& entry = mJobs.try_emplace(mMapJobCounter).first->second;
@@ -349,7 +355,7 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
     if (!pInfo->func) return TPR_INVALID_VALUE;
     if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return TPR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return TPR_CONTRACT_VIOLATION;
+    if (!mUsable) return TPR_INVALID_OPERATION;
     try {
         auto& entry = *mDetachedJobs.emplace_back(std::make_unique<JobEntry>()).get();
         {
@@ -403,7 +409,7 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
 
 expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return unexpected(TPR_CONTRACT_VIOLATION);
+    if (!mUsable) return unexpected(TPR_INVALID_OPERATION);
     try {
         if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
         if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
@@ -411,6 +417,22 @@ expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
         if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
         auto& job = it->second;
         return TprBool8(job.state.load());
+    } catch (...) {
+        return unexpected(TPR_UNKNOWN_ERROR);
+    }
+}
+
+
+expected<uint32_t, TprResult> Threading::getJobID(TprJob job) noexcept {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (!mUsable) return unexpected(TPR_INVALID_OPERATION);
+    try {
+        if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
+        auto it = mJobs.find(get_basic_handle_index(job));
+        if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
+        auto& job = it->second;
+        return job.id;
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
     }

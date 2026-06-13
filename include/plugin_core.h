@@ -41,6 +41,7 @@ typedef enum TprLogStyle {
     TPR_LOG_STYLE_ENDSTAMP1 = 6,
     TPR_LOG_STYLE_STARTSTAMP1 = 7,
     TPR_LOG_STYLE_6IDENT = 8,
+    TPR_LOG_STYLE_PANIC1 = 9,
     TPR_LOG_STYLE_MAX_ENUM = INT32_MAX
 } TprLogStyle;
 
@@ -56,13 +57,16 @@ typedef enum TprLogLevel {
 
 typedef enum TprResult {
     TPR_SUCCESS = 0,
+    TPR_PANIC = -1,
+    TPR_MODULE_NOT_LOADED = -2,
+    TPR_INVALID_VALUE = -3,
+    TPR_INVALID_OPERATION = -4,
+
     TPR_COUNT_OVERFLOW = -1,
     TPR_UNKNOWN_ERROR = -2,
-    TPR_INVALID_VALUE = -3,
     TPR_INSUFFICIENT_INIT = -4,
     TPR_BAD_ALLOC = -5,
     TPR_PARSE_ERROR = -6,
-    TPR_CONTRACT_VIOLATION = -7,
     TPR_NOT_PERMITTED = -8,
     TPR_USER_CODE_ERROR = -9,
     TPR_NOT_SUPPORTED = -10,

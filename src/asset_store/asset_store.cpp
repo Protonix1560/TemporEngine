@@ -162,7 +162,7 @@ TprResult AssetStore::loadMesh(TprMesh handle, const TprMeshLoadInfo* pInfo) noe
         auto it = mMeshes.find(get_basic_handle_index(handle));
         if (it == mMeshes.end()) return TPR_INVALID_VALUE;
         auto& mesh = it->second;
-        if (mesh.loaded) return TPR_CONTRACT_VIOLATION;
+        if (mesh.loaded) return TPR_INVALID_OPERATION;
         mesh.loaded = true;
         return mrHWLI.loadMesh(mesh);
     } catch (...) {

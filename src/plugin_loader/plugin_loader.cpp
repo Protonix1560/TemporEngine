@@ -17,23 +17,30 @@ PluginLoader::~PluginLoader() noexcept {}
 
 TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
 
-    Plugin* pPlugin = nullptr;
+    auto pluginIt = mPlugins.end();
+    Plugin* plugin;
 
     switch (pLoadInfo->loadType) {
         case PluginLoadType::InThread: {
-            pPlugin = mPlugins.emplace_back(std::make_unique<PluginInThread>(mrLogger, mrAliveTokens)).get();
+            pluginIt = mPlugins.try_emplace(
+                mPluginCounter, std::make_unique<PluginInThread>(mrLogger, mrAliveTokens)
+            ).first;
+            plugin = pluginIt->second.get();
+            mPluginCounter++;
             break;
         }
 
-        default: return TPR_UNKNOWN_ERROR;
+        default: return TPR_INVALID_VALUE;
     }
 
-    TprResult initRes = pPlugin->init(pLoadInfo);
+    mCurrentPlugin = pluginIt->first;
+    TprResult initRes = plugin->init(pLoadInfo);
     if (initRes < 0) {
-        pPlugin->shutdown();
-        mPlugins.pop_back();
+        plugin->shutdown();
+        mPlugins.erase(pluginIt);
         return initRes;
     }
+    mCurrentPlugin.reset();
 
     return TPR_SUCCESS;
 }
@@ -44,8 +51,9 @@ expected<std::vector<TprResult>, TprResult> PluginLoader::triggerCallback(Plugin
     std::vector<TprResult> returns;
     returns.reserve(mPlugins.size());
 
-    for (mCurrentPlugin = 0; mCurrentPlugin < mPlugins.size(); mCurrentPlugin++) {
-        auto& plugin = mPlugins[mCurrentPlugin];
+    for (uint32_t i = 0; i < mPlugins.size(); i++) {
+        auto& plugin = mPlugins[i];
+        mCurrentPlugin = i;
 
         switch (callback) {
 
@@ -70,19 +78,23 @@ expected<std::vector<TprResult>, TprResult> PluginLoader::triggerCallback(Plugin
         }
     }
 
+    mCurrentPlugin.reset();
+
     return returns;
 }
 
 
-expected<TprSetting, TprResult> PluginLoader::createSetting(std::string_view name) noexcept {
+std::optional<uint32_t> PluginLoader::getActivePluginID() {
+    return mCurrentPlugin;
+}
 
-    try {
-        auto& plugin = mPlugins[mCurrentPlugin];
-        std::string scopedName = std::format("{}.{}", plugin->name(), name);
-        return mrSettings.createSetting(scopedName);
 
-    } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
-    }
+expected<PluginInfo, TprResult> PluginLoader::getPluginInfo(uint32_t id) {
+    auto it = mPlugins.find(id);
+    if (it == mPlugins.end()) return unexpected(TPR_INVALID_VALUE);
+    Plugin& plugin = *it->second.get();
+    PluginInfo info{};
+    info.name = plugin.name();
+    return info;
 }
 

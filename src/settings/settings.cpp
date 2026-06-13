@@ -13,9 +13,13 @@
 namespace sj = simdjson;
 
 
-Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg) : mrLogger(rLogger), mrResReg(rResReg) {
+Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::string configPath) : mrLogger(rLogger), mrResReg(rResReg) {
 
-    auto confExp = mrResReg.matchFile("config.json");
+    if (configPath.empty()) {
+        configPath = "config.json";
+    }
+
+    auto confExp = mrResReg.matchFile(configPath);
     if (!confExp.has_value()) return;
     auto confPath = confExp.value();
 

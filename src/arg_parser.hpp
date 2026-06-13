@@ -3,7 +3,6 @@
 #ifndef ARG_PARSER_HPP_
 #define ARG_PARSER_HPP_
 
-
 #include <cstdint>
 #include <string_view>
 #include <deque>
@@ -12,23 +11,21 @@
 #include <charconv>
 
 
-
-
 enum pos_arg_flags : uint32_t {
-    POS_ALL_REQUIRED_FLAG_BIT = 0x1,
-    POS_AT_LEAST_ONE_FLAG_BIT = 0x2
+    ARGP_POS_ALL_REQUIRED_FLAG_BIT = 0x1,
+    ARGP_POS_AT_LEAST_ONE_FLAG_BIT = 0x2
 };
 
 enum flag_flags : uint32_t {
-    FLAG_HAS_VALUE_FLAG_BIT = 0x1
+    ARGP_FLAG_HAS_VALUE_FLAG_BIT = 0x1
 };
 
 enum arg_parser_err : int32_t {
-    ARG_PARSER_SUCCESS = 0,
-    ARG_PARSER_FLAG_NO_VALUE = -1,
-    ARG_PARSER_UNKNOWN_FLAG = -2,
-    ARG_PARSER_POS_OVERFLOW = -3,
-    ARG_PARSER_NO_REQUIRED_POSITIONAL = -4
+    ARGP_SUCCESS = 0,
+    ARGP_FLAG_NO_VALUE = -1,
+    ARGP_UNKNOWN_FLAG = -2,
+    ARGP_POS_OVERFLOW = -3,
+    ARGP_NO_REQUIRED_POSITIONAL = -4
 };
 
 class arg_parser {
@@ -132,6 +129,11 @@ class arg_parser {
                             std::strcmp(lowercase, "ok") == 0 ||
                             std::strcmp(lowercase, "good") == 0 ||
                             std::strcmp(lowercase, "always") == 0 ||
+                            std::strcmp(lowercase, "yep") == 0 ||
+                            std::strcmp(lowercase, "obviously") == 0 ||
+                            std::strcmp(lowercase, "clearly") == 0 ||
+                            std::strcmp(lowercase, "ofc") == 0 ||
+                            std::strcmp(lowercase, "never") == 0 ||
                             std::strcmp(lowercase, "1") == 0
                         ) {
                             val = true;
@@ -146,6 +148,8 @@ class arg_parser {
                             std::strcmp(lowercase, "nope") == 0 ||
                             std::strcmp(lowercase, "bad") == 0 ||
                             std::strcmp(lowercase, "never") == 0 ||
+                            std::strcmp(lowercase, "nah") == 0 ||
+                            std::strcmp(lowercase, "wrong") == 0 ||
                             std::strcmp(lowercase, "0") == 0
                         ) {
                             val = false;
@@ -222,7 +226,7 @@ class arg_parser {
                         if (!flag.long_name.empty()) {
                             size_t flag_size = flag.long_name.size();
                             if (std::strncmp(arg + 2, flag.long_name.data(), flag_size) == 0) {
-                                if (flag.flags & FLAG_HAS_VALUE_FLAG_BIT) {
+                                if (flag.flags & ARGP_FLAG_HAS_VALUE_FLAG_BIT) {
                                     if (arg_size >= 4 + flag_size && arg[flag_size + 2] == '=') {
                                             auto parsed = parse_commas(arg + flag_size + 3);
                                             flag.storage.insert(flag.storage.end(), parsed.begin(), parsed.end());
@@ -235,11 +239,11 @@ class arg_parser {
                                             i++;
                                         } else {
                                             std::fprintf(stderr, "arg_parser: no value provided for flag --%s\n", flag.long_name.data());
-                                            return ARG_PARSER_FLAG_NO_VALUE;
+                                            return ARGP_FLAG_NO_VALUE;
                                         }
                                     } else {
                                         std::fprintf(stderr, "arg_parser: no value provided for flag --%s\n", flag.long_name.data());
-                                        return ARG_PARSER_FLAG_NO_VALUE;
+                                        return ARGP_FLAG_NO_VALUE;
                                     }
                                 } else {
                                     flag.count++;
@@ -254,7 +258,7 @@ class arg_parser {
                     } else {
                         std::fprintf(stderr, "arg_parser: unknown flag --%s\n", arg + 2);
                     }
-                    return ARG_PARSER_UNKNOWN_FLAG;
+                    return ARGP_UNKNOWN_FLAG;
                     found_long_flag: ;
 
                 } else if (arg_size >= 2 && arg[0] == '-') {
@@ -262,7 +266,7 @@ class arg_parser {
                     for (auto& flag : curr_comm->flags) {
                         if (flag.short_name) {
                             if (arg[complex_flag_sym] == flag.short_name) {
-                                if (flag.flags & FLAG_HAS_VALUE_FLAG_BIT) {
+                                if (flag.flags & ARGP_FLAG_HAS_VALUE_FLAG_BIT) {
                                     if (arg_size >= 3 + complex_flag_sym && arg[complex_flag_sym + 1] == '=') {
                                             auto parsed = parse_commas(arg + 2 + complex_flag_sym);
                                             flag.storage.insert(flag.storage.end(), parsed.begin(), parsed.end());
@@ -281,11 +285,11 @@ class arg_parser {
                                             i++;
                                         } else {
                                             std::fprintf(stderr, "arg_parser: no value provided for flag -%c\n", flag.short_name);
-                                            return ARG_PARSER_FLAG_NO_VALUE;
+                                            return ARGP_FLAG_NO_VALUE;
                                         }
                                     } else {
                                         std::fprintf(stderr, "arg_parser: no value provided for flag -%c\n", flag.short_name);
-                                        return ARG_PARSER_FLAG_NO_VALUE;
+                                        return ARGP_FLAG_NO_VALUE;
                                     }
                                     complex_flag_sym = 1;
 
@@ -304,7 +308,7 @@ class arg_parser {
                         }
                     }
                     std::fprintf(stderr, "arg_parser: unknown flag -%c\n", arg[complex_flag_sym]);
-                    return ARG_PARSER_UNKNOWN_FLAG;
+                    return ARGP_UNKNOWN_FLAG;
                     found_short_flag: ;
 
                 } else {
@@ -328,7 +332,7 @@ class arg_parser {
                         }
                     } else {
                         std::fprintf(stderr, "arg_parser: too much positional arguments");
-                        return ARG_PARSER_POS_OVERFLOW;
+                        return ARGP_POS_OVERFLOW;
                     }
 
                     found_subcommand: ;
@@ -340,15 +344,15 @@ class arg_parser {
             while (curr_comm != nullptr) {
 
                 for (const auto& pos : curr_comm->positionals) {
-                    if ((pos.flags & POS_AT_LEAST_ONE_FLAG_BIT && pos.storage.size() < 1) || (pos.flags & POS_ALL_REQUIRED_FLAG_BIT && pos.storage.size() != pos.max_words)) {
-                        return ARG_PARSER_NO_REQUIRED_POSITIONAL;
+                    if ((pos.flags & ARGP_POS_AT_LEAST_ONE_FLAG_BIT && pos.storage.size() < 1) || (pos.flags & ARGP_POS_ALL_REQUIRED_FLAG_BIT && pos.storage.size() != pos.max_words)) {
+                        return ARGP_NO_REQUIRED_POSITIONAL;
                     }
                 }
 
                 curr_comm = curr_comm->parent_comm;
             }
 
-            return ARG_PARSER_SUCCESS;
+            return ARGP_SUCCESS;
         }
 
         void print_help(const char* utility_name, command_ref* comm = nullptr) {
@@ -368,21 +372,21 @@ class arg_parser {
 
             for (const auto& pos : command->positionals) {
                 if (pos.max_words == 1) {
-                    if ((pos.flags & POS_ALL_REQUIRED_FLAG_BIT) || (pos.flags & POS_AT_LEAST_ONE_FLAG_BIT)) {
+                    if ((pos.flags & ARGP_POS_ALL_REQUIRED_FLAG_BIT) || (pos.flags & ARGP_POS_AT_LEAST_ONE_FLAG_BIT)) {
                         std::printf(" <%s>", pos.name.data());
                     } else {
                         std::printf(" %s", pos.name.data());
                     }
                 } else if (pos.max_words == SIZE_MAX) {
-                    if (pos.flags & POS_AT_LEAST_ONE_FLAG_BIT) {
+                    if (pos.flags & ARGP_POS_AT_LEAST_ONE_FLAG_BIT) {
                         std::printf(" <%s...", pos.name.data());
                     } else {
                         std::printf(" %s...", pos.name.data());
                     }
                 } else {
-                    if (pos.flags & POS_ALL_REQUIRED_FLAG_BIT) {
+                    if (pos.flags & ARGP_POS_ALL_REQUIRED_FLAG_BIT) {
                         std::printf(" <%s[%ld]>", pos.name.data(), pos.max_words);
-                    } else if (pos.flags & POS_AT_LEAST_ONE_FLAG_BIT) {
+                    } else if (pos.flags & ARGP_POS_AT_LEAST_ONE_FLAG_BIT) {
                         std::printf(" <%s[%ld]", pos.name.data(), pos.max_words);
                     } else {
                         std::printf(" %s[%ld]", pos.name.data(), pos.max_words);
@@ -428,7 +432,7 @@ class arg_parser {
                         all_longs = false;
                     }
                     if (flag.short_name != 0) {
-                        if (flag.flags & FLAG_HAS_VALUE_FLAG_BIT) {
+                        if (flag.flags & ARGP_FLAG_HAS_VALUE_FLAG_BIT) {
                             some_shorts_value = true;
                         }
                     }
@@ -446,7 +450,7 @@ class arg_parser {
                     }
                     if (!flag.long_name.empty()) {
                         prefix_size += 3 + flag.long_name.size();
-                        if (flag.flags & FLAG_HAS_VALUE_FLAG_BIT) {
+                        if (flag.flags & ARGP_FLAG_HAS_VALUE_FLAG_BIT) {
                             prefix_size += 1;
                         }
                     }
@@ -460,7 +464,7 @@ class arg_parser {
                         std::printf("-%c", flag.short_name);
                         prefix_size += 2;
                         if (some_shorts_value) {
-                            if (flag.flags & FLAG_HAS_VALUE_FLAG_BIT) {
+                            if (flag.flags & ARGP_FLAG_HAS_VALUE_FLAG_BIT) {
                                 std::printf("=");
                             } else {
                                 std::printf(" ");
@@ -478,7 +482,7 @@ class arg_parser {
                     if (!flag.long_name.empty()) {
                         std::printf(" --%s", flag.long_name.data());
                         prefix_size += 3 + flag.long_name.size();
-                        if (flag.flags & FLAG_HAS_VALUE_FLAG_BIT) {
+                        if (flag.flags & ARGP_FLAG_HAS_VALUE_FLAG_BIT) {
                             prefix_size += 1;
                             std::printf("=");
                         }

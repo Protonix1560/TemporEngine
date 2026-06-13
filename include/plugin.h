@@ -64,12 +64,12 @@ typedef struct TprEngineAPI {
 
     } *vfs;
 
-    struct WM {
+    struct Win {
 
         TprResult(*openWindow)(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) NOEXCEPT_ATTR;
-        void(*closeWindow)(TprWindow windo) NOEXCEPT_ATTR;
+        void(*closeWindow)(TprWindow window) NOEXCEPT_ATTR;
 
-    } *wm;
+    } *win;
 
     struct Input {
 

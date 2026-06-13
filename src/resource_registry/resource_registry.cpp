@@ -133,8 +133,8 @@ void ResourceRegistry::closeResource(TprResource handle) noexcept {
 
 expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags, size_t alignment) {
 
-    if (alignment == 0) return unexpected(TPR_CONTRACT_VIOLATION);
-    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_CONTRACT_VIOLATION);
+    if (alignment == 0) return unexpected(TPR_INVALID_OPERATION);
+    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_INVALID_OPERATION);
     if (mAllocationGranularity % alignment != 0) return unexpected(TPR_BAD_ALLOC);
 
     size_t index = mResourceCounter;
@@ -206,8 +206,8 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
 
 expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, TprOpenEmptyResourceFlags flags, size_t alignment) {
     
-    if (alignment == 0) return unexpected(TPR_CONTRACT_VIOLATION);
-    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_CONTRACT_VIOLATION);
+    if (alignment == 0) return unexpected(TPR_INVALID_OPERATION);
+    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_INVALID_OPERATION);
 
     size_t index = mResourceCounter;
     mResources.try_emplace(index);
@@ -238,10 +238,10 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, Tpr
 
 expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags, size_t alignment) {
 
-    if (alignment == 0) return unexpected(TPR_CONTRACT_VIOLATION);
-    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_CONTRACT_VIOLATION);
-    if (!begin) return unexpected(TPR_CONTRACT_VIOLATION);
-    if (!end) return unexpected(TPR_CONTRACT_VIOLATION);
+    if (alignment == 0) return unexpected(TPR_INVALID_OPERATION);
+    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_INVALID_OPERATION);
+    if (!begin) return unexpected(TPR_INVALID_OPERATION);
+    if (!end) return unexpected(TPR_INVALID_OPERATION);
 
     size_t index = mResourceCounter;
     mResources.try_emplace(index);

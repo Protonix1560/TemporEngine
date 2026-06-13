@@ -1,6 +1,6 @@
 
-#ifndef THREADING_HPP_
-#define THREADING_HPP_
+#ifndef THREADING_THREADING_HPP_
+#define THREADING_THREADING_HPP_
 
 
 #include "core.hpp"
@@ -141,6 +141,7 @@ class Threading {
         void joinJob(TprJob job) noexcept;
 
         void joinAll() noexcept;
+        expected<uint32_t, TprResult> getJobID(TprJob job) noexcept;
 
     private:
         Logger& mrLogger;
@@ -168,4 +169,4 @@ class Threading {
 REGISTER_TYPE_NAME_S(Threading, "Thrd");
 
 
-#endif  // THREADING_HPP_
+#endif  // THREADING_THREADING_HPP_

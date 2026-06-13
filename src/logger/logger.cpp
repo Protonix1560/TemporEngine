@@ -83,8 +83,10 @@ void Logger::write(LogEntry& logEntry) {
                 stream << "\033[32ml->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount--; break;
             case TPR_LOG_STYLE_STARTSTAMP1:
                 stream << "\033[35mr->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount++; break;
+            case TPR_LOG_STYLE_PANIC1:
+                stream << "\033[95m"; break;
             case TPR_LOG_STYLE_STANDART: break;
-            default: ;
+            case TPR_LOG_STYLE_MAX_ENUM: /* why? */ break;
         }
 
         if (logEntry.mLogStyle != TPR_LOG_STYLE_STANDART) {

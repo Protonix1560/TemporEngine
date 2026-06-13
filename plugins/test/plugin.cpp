@@ -2,14 +2,11 @@
 #include "plugin.h"
 #include "plugin_core.h"
 
-#include <chrono>
-#include <glm/ext/matrix_clip_space.hpp>
 #include <string>  // IWYU pragma: keep
 #include <format>  // IWYU pragma: keep
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <thread>
 
 
 using namespace std::string_literals;
@@ -67,7 +64,7 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     windowCreateInfo.name = "Tempor Testing Initiative";
     windowCreateInfo.prefferedWidth = 1300;
     windowCreateInfo.prefferedHeight = 800;
-    ROF(plugin->api->wm->openWindow(&windowCreateInfo, &plugin->window));
+    ROF(plugin->api->win->openWindow(&windowCreateInfo, &plugin->window));
 
     TprActionCreateInfo quitActionInfo{};
     quitActionInfo.element = TPR_KEY_ESCAPE;
@@ -167,13 +164,6 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
         plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
     ));
 
-    TprJobCreateInfo longjobInfo{};
-    longjobInfo.type = TPR_JOB_TYPE_SHORT_TERM;
-    longjobInfo.func = [](void*) noexcept {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-    };
-    ROF(plugin->api->thread->createDetachedJob(&longjobInfo));
-
     return 0;
 }
 
@@ -192,7 +182,7 @@ int32_t updatePerFrame(void* ctx) noexcept {
     TprActionState quitActionState;
     ROF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
     if (quitActionState.state) {
-        plugin->api->wm->closeWindow(plugin->window);
+        plugin->api->win->closeWindow(plugin->window);
     }
 
     TprActionState cameraActionState;

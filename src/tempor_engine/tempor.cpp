@@ -6,7 +6,6 @@
 #include "core.hpp"
 #include "hardware_layer_interface.hpp"
 #include "logger.hpp"
-#include "plugin.h"
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
 #include "plugin_loader.hpp"
@@ -15,17 +14,13 @@
 #include "settings.hpp"
 #include "threading.hpp"
 
+#include "thread_job_info.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <exception>
 #include <memory>
-
-#include <glm/packing.hpp>
-#include <nlohmann/json.hpp>
-
-using njson = nlohmann::json;
-
-
+#include <optional>
 
 
 void TemporEngine::sigint() noexcept {
@@ -37,61 +32,7 @@ void TemporEngine::sigterm() noexcept {
 }
 
 
-
-Logger* TemporEngine::getLogger() noexcept {
-    if (!mServHolder.alive<Logger>()) return nullptr;
-    return &mServHolder.get<Logger>();
-}
-
-ResourceRegistry* TemporEngine::getResourceRegistry() noexcept {
-    if (!mServHolder.alive<ResourceRegistry>()) return nullptr;
-    return &mServHolder.get<ResourceRegistry>();
-}
-
-WindowManager* TemporEngine::getWindowManager() noexcept {
-    if (!mServHolder.alive<WindowManager>()) return nullptr;
-    return &mServHolder.get<WindowManager>();
-}
-
-HardwareLayer* TemporEngine::getPHWL() noexcept {
-    if (!mServHolder.alive<PHardwareLayer>()) return nullptr;
-    return mServHolder.get<PHardwareLayer>().get();
-}
-
-SceneGraph* TemporEngine::getSceneGraph() noexcept {
-    if (!mServHolder.alive<SceneGraph>()) return nullptr;
-    return &mServHolder.get<SceneGraph>();
-}
-
-AssetStore* TemporEngine::getAssetStore() noexcept {
-    if (!mServHolder.alive<AssetStore>()) return nullptr;
-    return &mServHolder.get<AssetStore>();
-}
-
-PluginLoader* TemporEngine::getPluginLoader() noexcept {
-    if (!mServHolder.alive<PluginLoader>()) return nullptr;
-    return &mServHolder.get<PluginLoader>();
-}
-
-Settings* TemporEngine::getSettings() noexcept {
-    if (!mServHolder.alive<Settings>()) return nullptr;
-    return &mServHolder.get<Settings>();
-}
-
-Threading* TemporEngine::getThreading() noexcept {
-    if (!mServHolder.alive<Threading>()) return nullptr;
-    return &mServHolder.get<Threading>();
-}
-
-
-TprComponent TemporEngine::getComponentRenderable() noexcept {
-    return mComponentRenderable;
-}
-
-
-
-TemporEngine::TemporEngine(size_t verboseLevel, const TprEngineAPI* api)
-    : mpAPI(api) {
+TemporEngine::TemporEngine(size_t verboseLevel, std::string configPath) : mConfigPath(configPath) {
 
     mpLogger = &mServHolder.construct<Logger>(verboseLevel);
 
@@ -113,15 +54,16 @@ int TemporEngine::init() {
 
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Runtime service initialization now\n";
 
-    mpSettings = &mServHolder.construct<Settings>(*mpLogger, *mpResReg);
+    mpSettings = &mServHolder.construct<Settings>(*mpLogger, *mpResReg, mConfigPath);
 
+    threadLocalJobInfo.mainThread = true;
     mpThread = &mServHolder.construct<Threading>(*mpLogger, *mpSettings);
 
     mpSceneGraph = &mServHolder.construct<SceneGraph>(*mpLogger, *mpSettings, *mpResReg);
 
     {
         auto exp = mpSceneGraph->createComponent(sizeof(TprComponentRenderable));
-        if (!exp.has_value()) return -1;  // TODO: standardize exit codes finally
+        if (!exp.has_value()) return 1;
         mComponentRenderable = exp.value();
     }
 
@@ -163,17 +105,11 @@ int TemporEngine::init() {
         mpWinMan = &mServHolder.construct<WindowManager>(GraphicsBackend::None, *mpLogger, mAliveTokens);
     }
 
-    auto readyOpeningWindowTimepoint = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> readyOpeningWindowTime = readyOpeningWindowTimepoint - initStartTimepoint;
-
-    mpLogger->info(TPR_LOG_STYLE_TIMESTAMP1) << "Ready to open a window in " << readyOpeningWindowTime.count() << " ms\n";
-
-    /*
-        Potentially minimum amount of loading before showing a loading screen is finished
-    */
-
     mpAssetStore = &mServHolder.construct<AssetStore>(*mpLogger, *mpResReg, *mpHWLI);
+
     mpPlugLd = &mServHolder.construct<PluginLoader>(*mpLogger, *mpSettings, mAliveTokens);
+
+    registerAPI();
 
     auto plugins = mpResReg->enumDir("plugins", TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT, 1);
     for (const auto& plugin : plugins) {
@@ -181,7 +117,7 @@ int TemporEngine::init() {
             PluginLoadInfo info{};
             info.loadType = PluginLoadType::InThread;
             info.name = plugin.filename().string();
-            info.pAPI = mpAPI;
+            info.pAPI = &mAPI;
             info.path = plugin;
             mpPlugLd->loadPlugin(&info);
         } catch (...) {}
@@ -198,11 +134,53 @@ int TemporEngine::init() {
 }
 
 
+expected<uint32_t, TprResult> TemporEngine::activePluginID() {
+    if (!mpPlugLd) return unexpected(TPR_MODULE_NOT_LOADED);
+    if (threadLocalJobInfo.mainThread) {
+        auto pluginOpt = mpPlugLd->getActivePluginID();
+        if (!pluginOpt.has_value()) {
+            // the caller is probably not a plugin
+            return unexpected(TPR_INVALID_OPERATION);
+        }
+        return pluginOpt.value();
+    } else {
+        if (!threadLocalJobInfo.job.has_value()) {
+            // the caller is probably not a plugin
+            return unexpected(TPR_INVALID_OPERATION);
+        }
+        uint32_t id = threadLocalJobInfo.job.value();
+        auto it = mJobPluginMap.find(id);
+        if (it == mJobPluginMap.end()) {
+            // the map is desynced for some reason
+            // therefore, threadLocalJobInfo is probably corrupted
+            mPanic.store(true);
+            mpLogger->error(TPR_LOG_STYLE_PANIC1) << "TemporEngine.mJobPluginMap is desynced\n";
+            return unexpected(TPR_PANIC);
+        }
+        return it->second;
+    }
+}
+
+
+expected<PluginInfo, TprResult> TemporEngine::activePluginInfo() {
+    if (!mpPlugLd) return unexpected(TPR_MODULE_NOT_LOADED);
+    auto idExp = activePluginID();
+    if (!idExp.has_value()) return unexpected(idExp.error());
+    auto infoExp = mpPlugLd->getPluginInfo(idExp.value());
+    if (!infoExp.has_value()) {
+        mpLogger->error(TPR_LOG_STYLE_PANIC1) << "TemporEngine.mJobPluginMap is desynced\n";
+        mPanic.store(true);
+        return unexpected(TPR_PANIC);
+    }
+    return infoExp.value();
+}
+
+
 int TemporEngine::run() {
 
     mClock.begin();
 
-    while (mAliveTokens > 0 && !mMustShutdown) {
+    while (!mPanic.load() && mAliveTokens > 0 && !mMustShutdown) {
 
         mpWinMan->update();
 
@@ -211,21 +189,8 @@ int TemporEngine::run() {
         mpThread->update();
 
         if (mpHWLI) {
-            TprResult ret;
-            ret = mpHWLI->update();
-            if (ret == TPR_UNKNOWN_ERROR) {
-                mpLogger->error(TPR_LOG_STYLE_ERROR1) << "HWL.update failed [" << ret << "]\n";
-                return -1;
-            } else if (ret != TPR_SUCCESS) {
-                mpLogger->warn(TPR_LOG_STYLE_WARN1) << "HWL.update failed [" << ret << "]\n";
-            }
-            ret = mpHWLI->render();
-            if (ret == TPR_UNKNOWN_ERROR) {
-                mpLogger->error(TPR_LOG_STYLE_ERROR1) << "HWL.render failed [" << ret << "]\n";
-                return -1;
-            } else if (ret != TPR_SUCCESS) {
-                mpLogger->warn(TPR_LOG_STYLE_WARN1) << "HWL.render failed [" << ret << "]\n";
-            }
+            mpHWLI->update();
+            mpHWLI->render();
         }
 
         if (mSigInt || mSigTerm) {
@@ -246,6 +211,9 @@ int TemporEngine::run() {
         mClock.tick();
     }
 
+    if (mPanic.load()) {
+        mpLogger->error(TPR_LOG_STYLE_STANDART) << "\033[95mEngine panicked!\n";
+    }
 
     return 0;
 }
@@ -284,5 +252,4 @@ TemporEngine::~TemporEngine() noexcept {
     mServHolder.destruct<Logger>();
 
 }
-
 

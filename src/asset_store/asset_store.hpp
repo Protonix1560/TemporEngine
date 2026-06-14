@@ -32,6 +32,8 @@ class AssetStore {
         void unloadMesh(TprMesh mesh) noexcept;
         void destroyMesh(TprMesh mesh) noexcept;
 
+        expected<const AssetMesh&, TprResult> getMesh(TprMesh mesh);
+
     private:
 
         Logger& mrLogger;

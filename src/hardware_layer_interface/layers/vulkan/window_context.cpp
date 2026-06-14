@@ -500,7 +500,7 @@ TprResult WindowContext::constructInvalidatable() {
             VkPipelineShaderStageCreateInfo stages[2] = {};
 
             VkShaderModule fragShader;
-            TprResource fragRes = mrResReg.openResource("shaders/vulkan/basic.frag.spv", 0, 4).value();
+            TprResource fragRes = mrResReg.openResource("shaders/vulkan/basic.frag.spv").value();
             if (mrResReg.sizeofResource(fragRes).value() > UINT32_MAX) {
                 mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "WindowContext: shaders/vulkan/basic.frag.spv shader size is greater that 4GiB\n";
                 return TPR_UNKNOWN_ERROR;
@@ -523,7 +523,7 @@ TprResult WindowContext::constructInvalidatable() {
             fragStage.pName = "main";
 
             VkShaderModule vertShader;
-            TprResource vertRes = mrResReg.openResource("shaders/vulkan/basic.vert.spv", 0, 4).value();
+            TprResource vertRes = mrResReg.openResource("shaders/vulkan/basic.vert.spv").value();
             if (mrResReg.sizeofResource(vertRes).value() > UINT32_MAX) {
                 mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "WindowContext: shaders/vulkan/basic.frag.spv shader size is greater that 4GiB\n";
                 return TPR_UNKNOWN_ERROR;

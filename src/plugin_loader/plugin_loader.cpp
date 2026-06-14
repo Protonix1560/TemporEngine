@@ -30,7 +30,7 @@ TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
             break;
         }
 
-        default: return TPR_INVALID_VALUE;
+        default: return TPR_ERROR_INVALID_VALUE;
     }
 
     mCurrentPlugin = pluginIt->first;
@@ -74,7 +74,7 @@ expected<std::vector<TprResult>, TprResult> PluginLoader::triggerCallback(Plugin
             }
 
             default:
-                return unexpected(TPR_INVALID_VALUE);
+                return unexpected(TPR_ERROR_INVALID_VALUE);
         }
     }
 
@@ -91,7 +91,7 @@ std::optional<uint32_t> PluginLoader::getActivePluginID() {
 
 expected<PluginInfo, TprResult> PluginLoader::getPluginInfo(uint32_t id) {
     auto it = mPlugins.find(id);
-    if (it == mPlugins.end()) return unexpected(TPR_INVALID_VALUE);
+    if (it == mPlugins.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
     Plugin& plugin = *it->second.get();
     PluginInfo info{};
     info.name = plugin.name();

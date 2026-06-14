@@ -35,7 +35,8 @@ void sigterm_handler(int) noexcept {
 int main(int argc, char* argv[]) {
 
     size_t verbose_level = 0;
-    std::string_view config_path;
+    std::filesystem::path config_path;
+    bool flush_config = false;
 
     try {
         std::ios::sync_with_stdio(false);
@@ -44,11 +45,25 @@ int main(int argc, char* argv[]) {
 
         arg_parser parser{};
 
-        auto root_h = parser.define_flag('h', {}, 0, nullptr, "Shows help message. -h: simplified, -hh: advanced");
-        auto root_help = parser.define_flag(0, "help", 0, nullptr, "Shows advanced help message");
-        auto root_v = parser.define_flag('v', {}, 0, nullptr, "Sets runtime log verbosity. -v: 3, -vv: 4, -vvv: 5");
-        auto root_verbose = parser.define_flag(0, "verbose", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr, "Sets runtime log verbosity [0-5]. Overrides -v");
-        auto root_config = parser.define_flag('c', "config", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr, "Sets path to config file");
+        auto root_h = parser.define_flag(
+            'h', {}, 0, nullptr, "Shows help message. -h: simplified, -hh: advanced"
+        );
+        auto root_help = parser.define_flag(
+            0, "help", 0, nullptr, "Shows advanced help message"
+        );
+        auto root_v = parser.define_flag(
+            'v', {}, 0, nullptr, "Sets runtime log verbosity. -v: 3, -vv: 4, -vvv: 5"
+        );
+        auto root_verbose = parser.define_flag(
+            0, "verbose", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr,
+            "Sets runtime log verbosity [0-5]. Overrides -v"
+        );
+        auto root_config = parser.define_flag(
+            'c', "config", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr, "Sets path to config file"
+        );
+        auto root_no_flush_config = parser.define_flag(
+            0, "no-flush-config", 0, nullptr, "The engine will not rewrite the config file at any point"
+        );
 
         arg_parser_err argp_err = parser.parse(argc, argv);
         if (argp_err != ARGP_SUCCESS) {
@@ -56,15 +71,17 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        std::string description = std::format("Tempor Engine {} (build datetime: {})", BUILD_VERSION, BUILD_DATETIME);
+
         if (root_help.present()) {
-            parser.print_help_advanced("Tempor - a game engine", "tempor");
+            parser.print_help_advanced(description, "tempor");
             return 0;
         }
         if (root_h.count() == 1) {
             parser.print_help("tempor");
             return 0;
         } else if (root_h.count() >= 2) {
-            parser.print_help_advanced("Tempor - a game engine", "tempor");
+            parser.print_help_advanced(description, "tempor");
             return 0;
         }
 
@@ -76,7 +93,7 @@ int main(int argc, char* argv[]) {
             verbose_level = 5;
         }
         if (root_verbose.present()) {
-            verbose_level = root_verbose.value<size_t>(root_verbose.count() - 1);
+            verbose_level = root_verbose.value_last<size_t>();
             if (verbose_level > 5) {
                 std::fprintf(stderr, "Verbose value %zu is not in [0, 5]\n", verbose_level);
                 return 1;
@@ -84,7 +101,11 @@ int main(int argc, char* argv[]) {
         }
 
         if (root_config.present()) {
-            config_path = root_config.value<std::string_view>(root_config.count() - 1);
+            config_path = root_config.value_last<std::string_view>();
+        }
+
+        if (root_no_flush_config.present()) {
+            flush_config = !root_no_flush_config.value_last<bool>();
         }
 
     } catch (const std::exception& e) {
@@ -96,7 +117,7 @@ int main(int argc, char* argv[]) {
     std::fflush(stdout);
 
     try {
-        TemporEngine engine(verbose_level, std::string(config_path));
+        TemporEngine engine(verbose_level, std::string(config_path), flush_config);
 
         int exit_code;
 
@@ -108,10 +129,10 @@ int main(int argc, char* argv[]) {
 
         engine.shutdown();
     } catch (std::exception& e) {
-        std::printf("\033[91mLeaked exception: %s\n", e.what());
+        std::printf("\033[95mLeaked exception: %s\033[0m\n", e.what());
         return 1;
     } catch (...) {
-        std::printf("\033[91mLeaked exception\n");
+        std::printf("\033[95mLeaked exception\033[0m\n");
         return 1;
     }
     return 0;

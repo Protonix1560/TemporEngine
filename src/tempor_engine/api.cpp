@@ -57,10 +57,10 @@
 #pragma endregion  // log
 
 #pragma region vfs
-    TprResult TemporEngine::vfs_openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_INVALID_VALUE;
+    TprResult TemporEngine::vfs_openPathResource(const char* path, TprOpenPathResourceFlags flags, TprResource* pResource) noexcept {
+        if (!pResource) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->openResource(std::filesystem::path(path), flags, alignment);
+        auto exp = mpResReg->openResource(std::filesystem::path(path), flags);
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -74,7 +74,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::vfs_openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_INVALID_VALUE;
+        if (!pResource) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
         auto exp = mpResReg->openResource(reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags);
         if (!exp.has_value()) {
@@ -89,8 +89,24 @@
         *pResource = exp.value();
         return TPR_SUCCESS;
     }
+    TprResult TemporEngine::vfs_openViewResource(const char* begin, const char* end, TprOpenViewResourceFlags flags, TprResource* pResource) noexcept {
+        if (!pResource) return TPR_ERROR_INVALID_VALUE;
+        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpResReg->openResource(reinterpret_cast<const std::byte*>(begin), reinterpret_cast<const std::byte*>(end), flags);
+        if (!exp.has_value()) {
+            switch (exp.error()) {
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    return TPR_PANIC;
+                default:
+                    return exp.error();
+            }
+        }
+        *pResource = exp.value();
+        return TPR_SUCCESS;
+    }
     TprResult TemporEngine::vfs_openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_INVALID_VALUE;
+        if (!pResource) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
         auto exp = mpResReg->openResource(size, flags, alignment);
         if (!exp.has_value()) {
@@ -105,8 +121,8 @@
         *pResource = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_INVALID_VALUE;
+    TprResult TemporEngine::vfs_openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprResourceCapabilityFlags protectFlags, TprResource* pResource) noexcept {
+        if (!pResource) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
         auto exp = mpResReg->openResource(protectResource, flags, protectFlags);
         if (!exp.has_value()) {
@@ -126,7 +142,7 @@
         return mpResReg->resizeResource(resource, newSize);
     }
     TprResult TemporEngine::vfs_sizeofResource(TprResource resource, uint64_t* pSize) noexcept {
-        if (!pSize) return TPR_INVALID_VALUE;
+        if (!pSize) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
         auto exp = mpResReg->sizeofResource(resource);
         if (!exp.has_value()) {
@@ -142,7 +158,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::vfs_getResourceRawDataPointer(TprResource resource, char** pData) noexcept {
-        if (!pData) return TPR_INVALID_VALUE;
+        if (!pData) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
         auto exp = mpResReg->getResourceRawDataPointer(resource);
         if (!exp.has_value()) {
@@ -158,7 +174,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::vfs_getResourceConstPointer(TprResource resource, const char** pData) noexcept {
-        if (!pData) return TPR_INVALID_VALUE;
+        if (!pData) return TPR_ERROR_INVALID_VALUE;
         if (!mpResReg) return TPR_MODULE_NOT_LOADED;
         auto exp = mpResReg->getResourceConstPointer(resource);
         if (!exp.has_value()) {
@@ -181,7 +197,7 @@
 
 #pragma region input
     TprResult TemporEngine::input_createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept {
-        if (!pAction) return TPR_INVALID_VALUE;
+        if (!pAction) return TPR_ERROR_INVALID_VALUE;
         if (!mpWinMan) return TPR_MODULE_NOT_LOADED;
         auto exp = mpWinMan->createAction(window, pCreateInfo);
         if (!exp.has_value()) {
@@ -201,7 +217,7 @@
         mpWinMan->destroyAction(action);
     }
     TprResult TemporEngine::input_getActionState(TprAction action, TprActionState* pState) noexcept {
-        if (!pState) return TPR_INVALID_VALUE;
+        if (!pState) return TPR_ERROR_INVALID_VALUE;
         if (!mpWinMan) return TPR_MODULE_NOT_LOADED;
         auto result = mpWinMan->getActionState(action, pState);
         switch (result) {
@@ -227,7 +243,7 @@
 
 #pragma region win
     TprResult TemporEngine::win_openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept {
-        if (!pWindow) return TPR_INVALID_VALUE;
+        if (!pWindow) return TPR_ERROR_INVALID_VALUE;
         if (!mpWinMan) return TPR_MODULE_NOT_LOADED;
         TprWindow handle;
         auto exp = mpWinMan->openWindow(pCreateInfo);
@@ -267,7 +283,7 @@
 
 #pragma region scene
     TprResult TemporEngine::scene_createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept {
-        if (!pComponent) return TPR_INVALID_VALUE;
+        if (!pComponent) return TPR_ERROR_INVALID_VALUE;
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSceneGraph->createComponent(componentSize);
         if (!exp.has_value()) {
@@ -287,7 +303,7 @@
         mpSceneGraph->destroyComponent(component);
     }
     TprResult TemporEngine::scene_spawnEntity(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) noexcept {
-        if (!pEntity) return TPR_INVALID_VALUE;
+        if (!pEntity) return TPR_ERROR_INVALID_VALUE;
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSceneGraph->spawnEntity(pComponents, componentCount);
         if (!exp.has_value()) {
@@ -355,7 +371,7 @@
         return mpSceneGraph->getComponentChunkMaxElementCount();
     }
     TprResult TemporEngine::scene_getComponentChunkElementCount(TprComponentChunk chunk, uint32_t* pCount) noexcept {
-        if (!pCount) return TPR_INVALID_VALUE;
+        if (!pCount) return TPR_ERROR_INVALID_VALUE;
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSceneGraph->getComponentChunkElementCount(chunk);
         if (!exp.has_value()) {
@@ -371,7 +387,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::scene_getComponentChunkVersion(TprComponentChunk chunk, uint32_t* pVersion) noexcept {
-        if (!pVersion) return TPR_INVALID_VALUE;
+        if (!pVersion) return TPR_ERROR_INVALID_VALUE;
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSceneGraph->getComponentChunkVersion(chunk);
         if (!exp.has_value()) {
@@ -412,7 +428,7 @@
 
 #pragma region geo
     TprResult TemporEngine::geo_createMesh(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) noexcept {
-        if (!pMesh) return TPR_INVALID_VALUE;
+        if (!pMesh) return TPR_ERROR_INVALID_VALUE;
         if (!mpAssetStore) return TPR_MODULE_NOT_LOADED;
         auto exp = mpAssetStore->createMesh(pInfo);
         if (!exp.has_value()) {
@@ -450,7 +466,7 @@
 
 #pragma region conf
     TprResult TemporEngine::conf_createSetting(const char* name, TprSetting* pSetting) noexcept {
-        if (!pSetting) return TPR_INVALID_VALUE;
+        if (!pSetting) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         if (!mpPlugLd) return TPR_MODULE_NOT_LOADED;
         try {
@@ -473,7 +489,7 @@
         mpSettings->destroySetting(setting);
     }
     TprResult TemporEngine::conf_getSettingType(TprSetting setting, TprSettingType* pType) noexcept {
-        if (!pType) return TPR_INVALID_VALUE;
+        if (!pType) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSettings->getSettingType(setting);
         if (!exp.has_value()) {
@@ -489,7 +505,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::conf_getSettingDouble(TprSetting setting, double* pData) noexcept {
-        if (!pData) return TPR_INVALID_VALUE;
+        if (!pData) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSettings->getSettingDouble(setting);
         if (!exp.has_value()) {
@@ -505,7 +521,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::conf_getSettingInteger(TprSetting setting, int64_t* pData) noexcept {
-        if (!pData) return TPR_INVALID_VALUE;
+        if (!pData) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSettings->getSettingInteger(setting);
         if (!exp.has_value()) {
@@ -521,7 +537,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::conf_getSettingBool(TprSetting setting, TprBool8* pData) noexcept {
-        if (!pData) return TPR_INVALID_VALUE;
+        if (!pData) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSettings->getSettingBool(setting);
         if (!exp.has_value()) {
@@ -537,7 +553,7 @@
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::conf_getSettingStringSize(TprSetting setting, uint32_t* pSize) noexcept {
-        if (!pSize) return TPR_INVALID_VALUE;
+        if (!pSize) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto exp = mpSettings->getSettingStringSize(setting);
         if (!exp.has_value()) {
@@ -634,7 +650,7 @@
 
 #pragma region render
     TprResult TemporEngine::render_createDepthDomain(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) noexcept {
-        if (!pDomain) return TPR_INVALID_VALUE;
+        if (!pDomain) return TPR_ERROR_INVALID_VALUE;
         if (!mpHWLI) return TPR_MODULE_NOT_LOADED;
         auto exp = mpHWLI->createDepthDomain(pInfo);
         if (!exp.has_value()) {
@@ -654,7 +670,7 @@
         mpHWLI->destroyDepthDomain(domain);
     }
     TprResult TemporEngine::render_createRenderTarget(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) noexcept {
-        if (!pTarget) return TPR_INVALID_VALUE;
+        if (!pTarget) return TPR_ERROR_INVALID_VALUE;
         if (!mpHWLI) return TPR_MODULE_NOT_LOADED;
         auto exp = mpHWLI->createRenderTarget(pInfo);
         if (!exp.has_value()) {
@@ -677,7 +693,7 @@
         return mComponentRenderable;
     }
     TprResult TemporEngine::render_createObjectImage(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) noexcept {
-        if (!pImage) return TPR_INVALID_VALUE;
+        if (!pImage) return TPR_ERROR_INVALID_VALUE;
         if (!mpHWLI) return TPR_MODULE_NOT_LOADED;
         auto exp = mpHWLI->createObjectImage(pInfo);
         if (!exp.has_value()) {
@@ -700,7 +716,7 @@
 
 #pragma region thread
     TprResult TemporEngine::thread_createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept {
-        if (!pJob) return TPR_INVALID_VALUE;
+        if (!pJob) return TPR_ERROR_INVALID_VALUE;
         if (!mpThread) return TPR_MODULE_NOT_LOADED;
         auto exp = mpThread->createJob(pInfo);
         if (!exp.has_value()) return exp.error();
@@ -736,7 +752,7 @@
     }
 
     TprResult TemporEngine::thread_jobFinished(TprJob job, TprBool8* pData) noexcept {
-        if (!pData) return TPR_INVALID_VALUE;
+        if (!pData) return TPR_ERROR_INVALID_VALUE;
         if (!mpThread) return TPR_MODULE_NOT_LOADED;
         auto exp = mpThread->jobFinished(job);
         if (!exp.has_value()) {

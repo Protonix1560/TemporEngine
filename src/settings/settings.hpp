@@ -10,6 +10,7 @@
 #include <variant>
 #include <string_view>
 #include <unordered_map>
+#include <filesystem>
 
 #include <simdjson.h>
 
@@ -46,7 +47,7 @@ struct JsonData {
 class Settings {
 
     public:
-        Settings(Logger& rLogger, ResourceRegistry& rResReg, std::string configPath);
+        Settings(Logger& rLogger, ResourceRegistry& rResReg, std::filesystem::path configPath, bool flushConfig);
         ~Settings();
 
         expected<TprSetting, TprResult> createSetting(std::string_view name) noexcept;
@@ -78,11 +79,14 @@ class Settings {
         std::string createSettingStringOr(std::string_view name, std::string fallback) noexcept;
 
         void finalizeRead();
-        TprResult sync();
+        void flush();
 
     private:
         ResourceRegistry& mrResReg;
         Logger& mrLogger;
+
+        std::filesystem::path mConfPath;
+        bool mFlushConfig;
 
         std::optional<JsonData> mJsonData;
 

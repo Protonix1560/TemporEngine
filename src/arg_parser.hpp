@@ -177,6 +177,11 @@ class arg_parser {
                     return T{};
                 }
 
+                template <typename T>
+                T value_last() const {
+                    return value<T>(m_ref.count - 1);
+                }
+
             private:
                 flag_ref(flag& ref) : m_ref(ref) {}
                 flag& m_ref;
@@ -355,7 +360,7 @@ class arg_parser {
             return ARGP_SUCCESS;
         }
 
-        void print_help(const char* utility_name, command_ref* comm = nullptr) {
+        void print_help(std::string_view utility_name, command_ref* comm = nullptr) {
 
             command* command;
             if (comm) {
@@ -364,7 +369,7 @@ class arg_parser {
                 command = &root_command;
             }
 
-            std::printf("Usage: %s", utility_name);
+            std::printf("Usage: %s", utility_name.data());
 
             if (command != &root_command) {
                 std::printf(" ... %s", command->name.data());
@@ -405,9 +410,9 @@ class arg_parser {
             std::printf("\n");
         }
 
-        void print_help_advanced(const char* utility_desc, const char* utility_name, command_ref* comm = nullptr) {
+        void print_help_advanced(std::string_view utility_desc, std::string_view utility_name, command_ref* comm = nullptr) {
 
-            std::printf("%s\n\n", utility_desc);
+            std::printf("%s\n", utility_desc.data());
 
             command* command;
             if (comm) {
@@ -419,11 +424,11 @@ class arg_parser {
             print_help(utility_name, comm);
 
             if (!command->help.empty()) {
-                std::printf("\n%s\n", command->help.data());
+                std::printf("%s\n", command->help.data());
             }
 
             if (!command->flags.empty()) {
-                std::printf("\nOptions:\n");
+                std::printf("Options:\n");
 
                 bool all_longs = true;
                 bool some_shorts_value = false;

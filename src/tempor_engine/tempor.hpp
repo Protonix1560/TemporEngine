@@ -161,7 +161,7 @@ class service_singleton_holder : public service_buffer<Ts>... {
 class TemporEngine {
 
     public:
-        TemporEngine(size_t verbose_level, std::string config_path);
+        TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig);
         int init();
         int run();
         void shutdown();
@@ -171,6 +171,7 @@ class TemporEngine {
         void sigterm() noexcept;
 
         // ========== API ==========
+        #pragma region api
         // log
         void log_log(TprLogLevel logLevel, const char* message) noexcept;
         void log_info(const char* message) noexcept;
@@ -199,10 +200,11 @@ class TemporEngine {
         TprResult scene_copyComponentChunkData(TprComponentChunk chunk, uint32_t offset, uint32_t n, char* pData) noexcept;
         TprResult scene_writeComponentChunkData(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) noexcept;
         // vfs
-        TprResult vfs_openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept;
+        TprResult vfs_openPathResource(const char* path, TprOpenPathResourceFlags flags, TprResource* pResource) noexcept;
         TprResult vfs_openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept;
+        TprResult vfs_openViewResource(const char* begin, const char* end, TprOpenViewResourceFlags flags, TprResource* pResource) noexcept;
         TprResult vfs_openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept;
-        TprResult vfs_openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept;
+        TprResult vfs_openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprResourceCapabilityFlags protectFlags, TprResource* pResource) noexcept;
         TprResult vfs_resizeResource(TprResource resource, uint64_t newSize) noexcept;
         TprResult vfs_sizeofResource(TprResource resource, uint64_t* pSize) noexcept;
         TprResult vfs_getResourceRawDataPointer(TprResource resource, char** pData) noexcept;
@@ -251,6 +253,7 @@ class TemporEngine {
         TprResult thread_createDetachedJob(const TprJobCreateInfo* pInfo) noexcept;
         TprResult thread_jobFinished(TprJob job, TprBool8* pData) noexcept;
         void thread_joinJob(TprJob job) noexcept;
+        #pragma endregion  // api
 
     private:
         sleep_clock mClock;
@@ -275,7 +278,8 @@ class TemporEngine {
             Settings, Threading
         > mServHolder;
 
-        std::string mConfigPath;
+        std::filesystem::path mConfigPath;
+        bool mFlushConfig;
 
         ResourceRegistry* mpResReg = nullptr;
         Logger* mpLogger = nullptr;

@@ -187,7 +187,7 @@ struct Allocator {
         std::vector<VkMemoryType> mMemoryTypes;
         VkPhysicalDevice mPhysicalDevice;
         VkDevice mDevice;
-        uint32_t mAllocCount;
+        uint32_t mAllocCount = 0;
         uint32_t mMaxAllocCount;
         
         struct Memory {

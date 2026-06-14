@@ -8,6 +8,7 @@
 #include <optional>
 #include <format>
 #include <array>
+#include <variant>
 
 #ifdef HAVE_UNISTD_H
     #include "unistd.h"
@@ -60,6 +61,15 @@ constexpr typename std::underlying_type<E>::type to_underlying(E e) {
 
 template <typename>
 inline constexpr bool dependent_false_v = false;
+
+template<typename... A, typename... B>
+requires (sizeof...(A) > 0 && sizeof...(B) > 0)
+std::variant<A...> variant_cast(const std::variant<B...>& v)
+{
+    return std::visit([](const auto& x) -> std::variant<A...> {
+        return x;
+    }, v);
+}
 
 
 
@@ -300,34 +310,34 @@ enum class handle_type : uint8_t {
 };
 
 template <typename T>
-inline constexpr uint32_t get_basic_handle_index(T handle) {
+inline constexpr uint32_t get_basic_handle_index(T handle) noexcept {
     return (handle._d >> 32) & 0xFFFFFFFF;
 }
 template <typename T>
-inline constexpr uint32_t get_basic_handle_generation(T handle) {
+inline constexpr uint32_t get_basic_handle_generation(T handle) noexcept {
     return (handle._d >> 8) & 0xFFFFFF;
 }
 template <typename T>
-inline constexpr handle_type get_basic_handle_type(T handle) {
+inline constexpr handle_type get_basic_handle_type(T handle) noexcept {
     return static_cast<handle_type>(handle._d & 0xFF);
 }
 template <typename T>
-inline constexpr void set_basic_handle_index(T* handle, uint32_t index) {
+inline constexpr void set_basic_handle_index(T* handle, uint32_t index) noexcept {
     handle->_d &= ~(static_cast<uint64_t>(0xFFFFFFFF) << 32);
     handle->_d |= static_cast<uint64_t>(index) << 32;
 }
 template <typename T>
-inline constexpr void set_basic_handle_generation(T* handle, uint32_t generation) {
+inline constexpr void set_basic_handle_generation(T* handle, uint32_t generation) noexcept {
     handle->_d &= ~(static_cast<uint64_t>(0xFFFFFF) << 8);
     handle->_d |= static_cast<uint64_t>(generation & 0xFFFFFF) << 8;
 }
 template <typename T>
-inline constexpr void set_basic_handle_type(T* handle, handle_type type) {
+inline constexpr void set_basic_handle_type(T* handle, handle_type type) noexcept {
     handle->_d &= ~static_cast<uint64_t>(0xFF);
     handle->_d |= static_cast<uint64_t>(type);
 }
 template <typename T>
-inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, handle_type type) {
+inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, handle_type type) noexcept {
     return {
         (static_cast<uint64_t>(index) << 32) | 
         (static_cast<uint64_t>(generation & 0xFFFFFF) << 8) |

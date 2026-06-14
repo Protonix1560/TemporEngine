@@ -602,8 +602,8 @@ TprResult HardwareLayerVulkan::update() {
                     auto dest = newData + localEntityIndex * sizeof(ObjectData);
                     auto& src = copyBuffer[localEntityIndex];
                     // adding this entity to according object image
-                    if (get_basic_handle_index(src.image) > mObjectImageCounter) return TPR_INVALID_VALUE;
-                    if (!mObjectImages.contains(get_basic_handle_index(src.image))) return TPR_INVALID_VALUE;
+                    if (get_basic_handle_index(src.image) > mObjectImageCounter) return TPR_ERROR_INVALID_VALUE;
+                    if (!mObjectImages.contains(get_basic_handle_index(src.image))) return TPR_ERROR_INVALID_VALUE;
                     newObjectDataIndices[get_basic_handle_index(src.image)].push_back(chunkIndex + localEntityIndex);
                     if (newChunk || version != chunk.cachedVersion) {
                         // need to update the data
@@ -718,8 +718,8 @@ TprResult HardwareLayerVulkan::update() {
                     auto dest = data + localEntityIndex * sizeof(ObjectData);
                     auto& src = copyBuffer[localEntityIndex];
                     // adding this entity to according object image
-                    if (get_basic_handle_index(src.image) > mObjectImageCounter) return TPR_INVALID_VALUE;
-                    if (!mObjectImages.contains(get_basic_handle_index(src.image))) return TPR_INVALID_VALUE;
+                    if (get_basic_handle_index(src.image) > mObjectImageCounter) return TPR_ERROR_INVALID_VALUE;
+                    if (!mObjectImages.contains(get_basic_handle_index(src.image))) return TPR_ERROR_INVALID_VALUE;
                     newObjectDataIndices[get_basic_handle_index(src.image)].push_back(chunk.offset + localEntityIndex);
                     if (newChunk || version != chunk.cachedVersion) {
                         // need to update the data
@@ -866,7 +866,14 @@ TprResult HardwareLayerVulkan::render() {
 
     for (auto& [id, target] : mRenderTargets) {
 
-        auto& ctx = mWindowContexts.at(target.window._d);
+        auto ctxIt = mWindowContexts.find(target.window._d);
+        if (ctxIt == mWindowContexts.end()) {
+            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxPHWL()
+                << "Corrupted internal structures: target[" << id << "].window is not in mWindowContexts\n";
+            return TPR_PANIC;
+        }
+
+        auto& ctx = ctxIt->second;
         const Frame& frame = ctx.frames()[mFrameCounter];
         uint32_t swapchainImageIndex;
         VkImage swapchainImage;

@@ -121,7 +121,7 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     ROF(plugin->api->input->createAction(plugin->window, &flyDownwardInfo, &plugin->flyDownwardAction));
 
     TprResource modelResource;
-    ROF(plugin->api->vfs->openPathResource("plugins/test/model.glb", 0, 1, &modelResource));
+    ROF(plugin->api->vfs->openPathResource("plugins/test/model.glb", 0, &modelResource));
     TprMeshCreateInfo parseInfo{};
     parseInfo.resource = modelResource;
     parseInfo.index = 0;

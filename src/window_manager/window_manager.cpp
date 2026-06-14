@@ -166,7 +166,7 @@ WindowManager::~WindowManager() noexcept {
 
 expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateInfo* pCreateInfo) noexcept {
 
-    if (!pCreateInfo) return unexpected(TPR_INVALID_VALUE);
+    if (!pCreateInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     uint32_t index = mWindowCounter++;
     Window window{};
@@ -405,7 +405,7 @@ void WindowManager::update() {
 expected<std::vector<const char*>, TprResult> WindowManager::getExtensionsVk(TprWindow handle) const {
     if ((mWindowFlags & SDL_WINDOW_VULKAN) == 0) return unexpected(TPR_NOT_SUPPORTED);
     auto it = mWindows.find(get_basic_handle_index(handle));
-    if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
+    if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
     const Window& window = it->second;
     uint32_t count;
     if (!SDL_Vulkan_GetInstanceExtensions(window.window, &count, nullptr)) return unexpected(TPR_UNKNOWN_ERROR);
@@ -441,9 +441,9 @@ std::vector<TprWindow> WindowManager::getWindows() {
 expected<int32_t, TprResult> WindowManager::getWindowWidth(TprWindow handle) noexcept {
     int32_t width;
     try {
-        if (get_basic_handle_type(handle) != handle_type::window) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_type(handle) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mWindows.find(get_basic_handle_index(handle));
-        if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         Window& window = it->second;
         int w, h;
         SDL_GetWindowSize(window.window, &w, &h);
@@ -458,9 +458,9 @@ expected<int32_t, TprResult> WindowManager::getWindowWidth(TprWindow handle) noe
 expected<int32_t, TprResult> WindowManager::getWindowHeight(TprWindow handle) noexcept {
     int32_t height;
     try {
-        if (get_basic_handle_type(handle) != handle_type::window) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_type(handle) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mWindows.find(get_basic_handle_index(handle));
-        if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         Window& window = it->second;
         int w, h;
         SDL_GetWindowSize(window.window, &w, &h);
@@ -475,9 +475,9 @@ expected<int32_t, TprResult> WindowManager::getWindowHeight(TprWindow handle) no
 expected<TprBool8, TprResult> WindowManager::hasWindowResized(TprWindow handle) noexcept {
     TprBool8 value;
     try {
-        if (get_basic_handle_type(handle) != handle_type::window) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_type(handle) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mWindows.find(get_basic_handle_index(handle));
-        if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         Window& window = it->second;
         value = window.resized;
     } catch (...) {
@@ -489,11 +489,11 @@ expected<TprBool8, TprResult> WindowManager::hasWindowResized(TprWindow handle) 
 
 expected<TprAction, TprResult> WindowManager::createAction(TprWindow windowHandle, const TprActionCreateInfo* pCreateInfo) noexcept {
 
-    if (!pCreateInfo) return unexpected(TPR_INVALID_VALUE);
+    if (!pCreateInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
-    if (get_basic_handle_type(windowHandle) != handle_type::window) return unexpected(TPR_INVALID_VALUE);
+    if (get_basic_handle_type(windowHandle) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
     auto it = mWindows.find(get_basic_handle_index(windowHandle));
-    if (it == mWindows.end()) return unexpected(TPR_INVALID_VALUE);
+    if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
     Window& window = it->second;
 
     uint32_t index = mActionCounter++;
@@ -524,10 +524,10 @@ void WindowManager::destroyAction(TprAction handle) noexcept {
 
 
 TprResult WindowManager::getActionState(TprAction handle, TprActionState* pState) noexcept {
-    if (!pState) return TPR_INVALID_VALUE;
-    if (get_basic_handle_type(handle) != handle_type::action) return TPR_INVALID_VALUE;
+    if (!pState) return TPR_ERROR_INVALID_VALUE;
+    if (get_basic_handle_type(handle) != handle_type::action) return TPR_ERROR_INVALID_VALUE;
     auto it = mActionMap.find(get_basic_handle_index(handle));
-    if (it == mActionMap.end()) return TPR_INVALID_VALUE;
+    if (it == mActionMap.end()) return TPR_ERROR_INVALID_VALUE;
     Window& window = mWindows.at(it->second);
     Action& action = window.actions.at(get_basic_handle_index(handle));
     pState->vector = window.elements[action.element];
@@ -538,10 +538,10 @@ TprResult WindowManager::getActionState(TprAction handle, TprActionState* pState
 
 
 TprResult WindowManager::getInputElementVector(TprWindow handle, TprInputElement inputElement, TprInputElementVector* pVector) noexcept {
-    if (!pVector) return TPR_INVALID_VALUE;
-    if (get_basic_handle_type(handle) != handle_type::window) return TPR_INVALID_VALUE;
+    if (!pVector) return TPR_ERROR_INVALID_VALUE;
+    if (get_basic_handle_type(handle) != handle_type::window) return TPR_ERROR_INVALID_VALUE;
     auto windowIt = mWindows.find(get_basic_handle_index(handle));
-    if (windowIt == mWindows.end()) return TPR_INVALID_VALUE;
+    if (windowIt == mWindows.end()) return TPR_ERROR_INVALID_VALUE;
     Window& window = windowIt->second;
     *pVector = window.elements[inputElement];
     return TPR_SUCCESS;

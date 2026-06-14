@@ -32,7 +32,7 @@ void TemporEngine::sigterm() noexcept {
 }
 
 
-TemporEngine::TemporEngine(size_t verboseLevel, std::string configPath) : mConfigPath(configPath) {
+TemporEngine::TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig) : mConfigPath(configPath), mFlushConfig(flushConfig) {
 
     mpLogger = &mServHolder.construct<Logger>(verboseLevel);
 
@@ -54,7 +54,7 @@ int TemporEngine::init() {
 
     mpLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Runtime service initialization now\n";
 
-    mpSettings = &mServHolder.construct<Settings>(*mpLogger, *mpResReg, mConfigPath);
+    mpSettings = &mServHolder.construct<Settings>(*mpLogger, *mpResReg, mConfigPath, mFlushConfig);
 
     threadLocalJobInfo.mainThread = true;
     mpThread = &mServHolder.construct<Threading>(*mpLogger, *mpSettings);
@@ -111,7 +111,9 @@ int TemporEngine::init() {
 
     registerAPI();
 
-    auto plugins = mpResReg->enumDir("plugins", TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT, 1);
+    auto pluginsExp = mpResReg->enumDir("plugins", TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT, 1);
+    if (!pluginsExp.has_value()) return -1;
+    auto plugins = pluginsExp.value();
     for (const auto& plugin : plugins) {
         try {
             PluginLoadInfo info{};
@@ -140,13 +142,13 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
         auto pluginOpt = mpPlugLd->getActivePluginID();
         if (!pluginOpt.has_value()) {
             // the caller is probably not a plugin
-            return unexpected(TPR_INVALID_OPERATION);
+            return unexpected(TPR_ERROR_INVALID_OPERATION);
         }
         return pluginOpt.value();
     } else {
         if (!threadLocalJobInfo.job.has_value()) {
             // the caller is probably not a plugin
-            return unexpected(TPR_INVALID_OPERATION);
+            return unexpected(TPR_ERROR_INVALID_OPERATION);
         }
         uint32_t id = threadLocalJobInfo.job.value();
         auto it = mJobPluginMap.find(id);
@@ -189,8 +191,27 @@ int TemporEngine::run() {
         mpThread->update();
 
         if (mpHWLI) {
-            mpHWLI->update();
-            mpHWLI->render();
+            TprResult r;
+            r = mpHWLI->update();
+            switch (r) {
+                case TPR_SUCCESS:
+                    break;
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    break;
+                default:
+                    break;
+            }
+            r = mpHWLI->render();
+            switch (r) {
+                case TPR_SUCCESS:
+                    break;
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (mSigInt || mSigTerm) {

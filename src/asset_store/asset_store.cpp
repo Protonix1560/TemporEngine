@@ -23,7 +23,7 @@ AssetStore::~AssetStore() noexcept {}
 
 
 expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
+    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     try {
 
@@ -32,14 +32,14 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
             return unexpected(ptrExp.error());
         }
         if (!ptrExp.value()) {
-            return unexpected(TPR_INVALID_VALUE);
+            return unexpected(TPR_ERROR_INVALID_VALUE);
         }
         auto sizeExp = mrResReg.sizeofResource(pInfo->resource);
         if (!sizeExp.has_value()) {
             return unexpected(sizeExp.error());
         }
         if (sizeExp.value() == 0) {
-            return unexpected(TPR_INVALID_VALUE);
+            return unexpected(TPR_ERROR_INVALID_VALUE);
         }
 
         auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(ptrExp.value(), sizeExp.value());
@@ -58,7 +58,7 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
         }
         auto& gltfLibrary = gltfLibraryExp.get();
 
-        if (pInfo->index >= gltfLibrary.meshes.size()) return unexpected(TPR_INVALID_VALUE);
+        if (pInfo->index >= gltfLibrary.meshes.size()) return unexpected(TPR_ERROR_INVALID_VALUE);
         const auto& meshData = gltfLibrary.meshes[pInfo->index];
 
         uint32_t totalPrimitiveCount = meshData.primitives.size();
@@ -158,11 +158,14 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
 
 
 TprResult AssetStore::loadMesh(TprMesh handle, const TprMeshLoadInfo* pInfo) noexcept {
+    if (!pInfo) return TPR_ERROR_INVALID_VALUE;
     try {
+        if (get_basic_handle_type(handle) != handle_type::mesh) return TPR_ERROR_INVALID_VALUE;
+        if (get_basic_handle_index(handle) > mMeshCounter) return TPR_ERROR_INVALID_VALUE;
         auto it = mMeshes.find(get_basic_handle_index(handle));
-        if (it == mMeshes.end()) return TPR_INVALID_VALUE;
+        if (it == mMeshes.end()) return TPR_ERROR_INVALID_VALUE;
         auto& mesh = it->second;
-        if (mesh.loaded) return TPR_INVALID_OPERATION;
+        if (mesh.loaded) return TPR_ERROR_INVALID_OPERATION;
         mesh.loaded = true;
         return mrHWLI.loadMesh(mesh);
     } catch (...) {
@@ -174,6 +177,8 @@ TprResult AssetStore::loadMesh(TprMesh handle, const TprMeshLoadInfo* pInfo) noe
 
 void AssetStore::unloadMesh(TprMesh handle) noexcept {
     try {
+        if (get_basic_handle_type(handle) != handle_type::mesh) return;
+        if (get_basic_handle_index(handle) > mMeshCounter) return;
         auto it = mMeshes.find(get_basic_handle_index(handle));
         if (it == mMeshes.end()) return;
         auto& mesh = it->second;
@@ -188,6 +193,8 @@ void AssetStore::unloadMesh(TprMesh handle) noexcept {
 
 void AssetStore::destroyMesh(TprMesh handle) noexcept {
     try {
+        if (get_basic_handle_type(handle) != handle_type::mesh) return;
+        if (get_basic_handle_index(handle) > mMeshCounter) return;
         auto it = mMeshes.find(get_basic_handle_index(handle));
         if (it == mMeshes.end()) return;
         if (it->second.loaded) unloadMesh(handle);

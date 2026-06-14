@@ -5,6 +5,7 @@
 #include "resource_registry.hpp"
 #include "logger.hpp"
 
+#include <exception>
 #include <string_view>
 #include <variant>
 
@@ -13,19 +14,20 @@
 namespace sj = simdjson;
 
 
-Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::string configPath) : mrLogger(rLogger), mrResReg(rResReg) {
+Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::filesystem::path confPath, bool flushConfig)
+    : mrLogger(rLogger), mrResReg(rResReg), mFlushConfig(flushConfig) {
 
-    if (configPath.empty()) {
-        configPath = "config.json";
+    if (confPath.empty()) {
+        confPath = "config.json";
     }
 
-    auto confExp = mrResReg.matchFile(configPath);
+    auto confExp = mrResReg.matchFile(confPath);
     if (!confExp.has_value()) return;
-    auto confPath = confExp.value();
+    mConfPath = confExp.value();
 
-    mrLogger.debug() << logPrxSett() << "Found config file at \"" << confPath.string() << "\"\n";
+    mrLogger.debug() << logPrxSett() << "Found config file at \"" << mConfPath.string() << "\"\n";
 
-    auto openExp = mrResReg.openResource(confPath);
+    auto openExp = mrResReg.openResource(mConfPath);
     if (!openExp.has_value()) {
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to open config file [" << openExp.error() << "]\n";
         return;
@@ -54,7 +56,7 @@ Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::string confi
 }
 
 Settings::~Settings() {
-    sync();
+    flush();
 }
 
 
@@ -114,21 +116,29 @@ expected<TprSetting, TprResult> Settings::createSetting(std::string_view name) n
             mHandleCount++;
             mSettingCount++;
 
-            auto l = mrLogger.debug();
-            l << logPrxSett() << "Read setting " << name;
-            std::visit(overload{
-                [&l](const double& value) { l << " = " << value; },
-                [&l](const int64_t& value) { l << " = " << value; },
-                [&l](const std::nullptr_t& value) { l << " = null"; },
-                [&l](const std::monostate& value) { l << " <unset>"; },
-                [&l](const bool& value) { l << (value ? " = true" : " = false"); },
-                [&l](const std::string& value) { l << " = " << value; }
-            }, setting.data);
-            l << "\n";
+            if (mJsonData.has_value()) {
+                auto l = mrLogger.debug();
+                l << logPrxSett() << "Read setting " << name;
+                std::visit(overload{
+                    [&l](const double& value) { l << " = " << value; },
+                    [&l](const int64_t& value) { l << " = " << value; },
+                    [&l](const std::nullptr_t& value) { l << " = null"; },
+                    [&l](const std::monostate& value) { l << " <unset>"; },
+                    [&l](const bool& value) { l << (value ? " = true" : " = false"); },
+                    [&l](const std::string& value) { l << " = " << value; }
+                }, setting.data);
+                l << "\n";
+            } else {
+                mrLogger.debug() << logPrxSett() << "Created setting " << name << "\n";
+            }
         }
 
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
 
     return handle;
@@ -153,9 +163,9 @@ void Settings::destroySetting(TprSetting setting) noexcept {
 
 expected<TprSettingType, TprResult> Settings::getSettingType(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mSettingHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& setting = mSettings.at(it->second.key);
         return std::visit(overload{
             [](const double& value) { return TPR_SETTING_TYPE_FLOATING; },
@@ -165,153 +175,203 @@ expected<TprSettingType, TprResult> Settings::getSettingType(TprSetting setting)
             [](const bool& value) { return TPR_SETTING_TYPE_BOOL; },
             [](const std::string& value) { return TPR_SETTING_TYPE_STRING; }
         }, setting.data);
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
 }
 
 expected<double, TprResult> Settings::getSettingDouble(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mSettingHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<double>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<double>(setting.data);
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
 }
 
 expected<int64_t, TprResult> Settings::getSettingInteger(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mSettingHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<int64_t>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<int64_t>(setting.data);
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
 }
 
 expected<TprBool8, TprResult> Settings::getSettingBool(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mSettingHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<bool>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<bool>(setting.data);
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        return unexpected(TPR_PANIC);
     }
 }
 
 expected<uint32_t, TprResult> Settings::getSettingStringSize(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_INVALID_VALUE);
+        if (get_basic_handle_index(setting) > mHandleCount) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mSettingHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<std::string>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<std::string>(setting.data).size() + 1;  // to include null-terminator
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
 }
 
 TprResult Settings::copySettingString(TprSetting setting, char* pData) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<std::string>(setting.data)) return TPR_WRONG_TYPE;
         auto& s = std::get<std::string>(setting.data);
         std::strncpy(pData, s.data(), s.size());
         return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 TprResult Settings::setSettingDouble(TprSetting setting, double data) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         setting.data = data;
-        return sync();
+        flush();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 TprResult Settings::setSettingInteger(TprSetting setting, int64_t data) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         setting.data = data;
-        return sync();
+        flush();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 TprResult Settings::setSettingBool(TprSetting setting, TprBool8 data) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         setting.data = data;
-        return sync();
+        flush();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 TprResult Settings::setSettingString(TprSetting setting, const char* pData) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         setting.data = std::string(pData);
-        return sync();
+        flush();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 TprResult Settings::setSettingNull(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         setting.data = std::nullptr_t{};
-        return sync();
+        flush();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 TprResult Settings::unsetSetting(TprSetting setting) noexcept {
     try {
-        if (get_basic_handle_index(setting) > mHandleCount) return TPR_INVALID_VALUE;
+        if (get_basic_handle_index(setting) > mHandleCount) return TPR_ERROR_INVALID_VALUE;
         auto it = mSettingHandles.find(get_basic_handle_index(setting));
-        if (it == mSettingHandles.end()) return TPR_INVALID_VALUE;
+        if (it == mSettingHandles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& setting = mSettings.at(it->second.key);
         setting.data = std::monostate{};
-        return sync();
+        flush();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
@@ -324,8 +384,12 @@ double Settings::getSettingDoubleOr(TprSetting setting, double fallback) noexcep
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<double>(setting.data)) return fallback;
         return std::get<double>(setting.data);
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return fallback;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
@@ -337,8 +401,12 @@ int64_t Settings::getSettingIntegerOr(TprSetting setting, int64_t fallback) noex
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<int64_t>(setting.data)) return fallback;
         return std::get<int64_t>(setting.data);
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return fallback;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
@@ -350,14 +418,21 @@ TprBool8 Settings::getSettingBoolOr(TprSetting setting, TprBool8 fallback) noexc
         auto& setting = mSettings.at(it->second.key);
         if (!std::holds_alternative<bool>(setting.data)) return fallback;
         return std::get<bool>(setting.data);
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        return fallback;
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        return TPR_PANIC;
     }
 }
 
 
-TprResult Settings::sync() {
-    auto confExp = mrResReg.matchFile("config.json");
+void Settings::flush() {
+
+    if (!mFlushConfig) return;
+
+    auto confExp = mrResReg.matchFile(mConfPath);
     auto confPath = confExp.has_value() ? confExp.value() : "config.json";
 
     mrLogger.debug() << logPrxSett() << "Writing config file to \"" << confPath.string() << "\"\n";
@@ -365,7 +440,6 @@ TprResult Settings::sync() {
     auto openExp = mrResReg.openResource(confPath, TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT | TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT);
     if (!openExp.has_value()) {
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to open config file [" << openExp.error() << "]\n";
-        return TPR_UNKNOWN_ERROR;
     }
     TprResource confRes = openExp.value();
 
@@ -407,10 +481,8 @@ TprResult Settings::sync() {
     } else {
         mrResReg.closeResource(confRes);
         mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to write to config file [" << dataExp.error() << "]\n";
-        return TPR_UNKNOWN_ERROR;
     }
     mrResReg.closeResource(confRes);
-    return TPR_SUCCESS;
 }
 
 

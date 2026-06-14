@@ -294,13 +294,15 @@ Threading::~Threading() {
 
 
 expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
-    if (!pInfo->func) return unexpected(TPR_INVALID_VALUE);
-    if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return unexpected(TPR_INVALID_VALUE);
-    std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return unexpected(TPR_INVALID_OPERATION);
-    TprJob handle;
+    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (!pInfo->func) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return unexpected(TPR_ERROR_INVALID_VALUE);
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
+
+        TprJob handle;
+
         auto& entry = mJobs.try_emplace(mMapJobCounter).first->second;
         {
             std::lock_guard<std::mutex> lock(entry.mutex);
@@ -319,10 +321,10 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
 
             for (uint32_t i = 0; i < pInfo->dependencyJobCount; i++) {
                 TprJob dependency = pInfo->pDependencyJobs[i];
-                if (get_basic_handle_type(dependency) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
-                if (get_basic_handle_index(dependency) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
+                if (get_basic_handle_type(dependency) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
+                if (get_basic_handle_index(dependency) > mMapJobCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
                 auto it = mJobs.find(get_basic_handle_index(dependency));
-                if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
+                if (it == mJobs.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
                 std::lock_guard<std::mutex> dependencyLock(it->second.mutex);
                 entry.dependencies.insert(it->second.id);
                 it->second.dependentJobs.push_back(job);
@@ -343,20 +345,21 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
         }
         handle = construct_basic_handle<TprJob>(mMapJobCounter, 0, handle_type::job);
         mMapJobCounter++;
+        return handle;
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        return unexpected(TPR_PANIC);
     }
-    return handle;
 }
 
 
 TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
-    if (!pInfo) return TPR_INVALID_VALUE;
-    if (!pInfo->func) return TPR_INVALID_VALUE;
-    if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return TPR_INVALID_VALUE;
-    std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return TPR_INVALID_OPERATION;
+    if (!pInfo) return TPR_ERROR_INVALID_VALUE;
+    if (!pInfo->func) return TPR_ERROR_INVALID_VALUE;
+    if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return TPR_ERROR_INVALID_VALUE;
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (!mUsable) return TPR_ERROR_INVALID_OPERATION;
+
         auto& entry = *mDetachedJobs.emplace_back(std::make_unique<JobEntry>()).get();
         {
             std::lock_guard<std::mutex> lock(entry.mutex);
@@ -375,10 +378,10 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
 
             for (uint32_t i = 0; i < pInfo->dependencyJobCount; i++) {
                 TprJob dependency = pInfo->pDependencyJobs[i];
-                if (get_basic_handle_type(dependency) != handle_type::job) return TPR_INVALID_VALUE;
-                if (get_basic_handle_index(dependency) > mMapJobCounter) return TPR_INVALID_VALUE;
+                if (get_basic_handle_type(dependency) != handle_type::job) return TPR_ERROR_INVALID_VALUE;
+                if (get_basic_handle_index(dependency) > mMapJobCounter) return TPR_ERROR_INVALID_VALUE;
                 auto it = mJobs.find(get_basic_handle_index(dependency));
-                if (it == mJobs.end()) return TPR_INVALID_VALUE;
+                if (it == mJobs.end()) return TPR_ERROR_INVALID_VALUE;
                 std::lock_guard<std::mutex> dependencyLock(it->second.mutex);
                 entry.dependencies.insert(it->second.id);
                 it->second.dependentJobs.push_back(job);
@@ -401,48 +404,51 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
             }
         }
     } catch (...) {
-        return TPR_UNKNOWN_ERROR;
+        return TPR_PANIC;
     }
     return TPR_SUCCESS;
 }
 
 
 expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
-    std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return unexpected(TPR_INVALID_OPERATION);
     try {
-        if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
-        if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
+
+        if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
+        if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mJobs.find(get_basic_handle_index(job));
-        if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mJobs.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& job = it->second;
         return TprBool8(job.state.load());
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        return unexpected(TPR_PANIC);
     }
 }
 
 
 expected<uint32_t, TprResult> Threading::getJobID(TprJob job) noexcept {
-    std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return unexpected(TPR_INVALID_OPERATION);
     try {
-        if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_INVALID_VALUE);
-        if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_INVALID_VALUE);
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
+
+        if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
+        if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mJobs.find(get_basic_handle_index(job));
-        if (it == mJobs.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mJobs.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& job = it->second;
         return job.id;
     } catch (...) {
-        return unexpected(TPR_UNKNOWN_ERROR);
+        return unexpected(TPR_PANIC);
     }
 }
 
 
 void Threading::joinJob(TprJob job) noexcept {
-    std::lock_guard<std::mutex> lock(mMutex);
-    if (!mUsable) return;
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (!mUsable) return;
+
         if (get_basic_handle_type(job) != handle_type::job) return;
         if (get_basic_handle_index(job) > mMapJobCounter) return;
         auto it = mJobs.find(get_basic_handle_index(job));

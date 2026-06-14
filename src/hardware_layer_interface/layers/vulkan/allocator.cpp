@@ -80,7 +80,7 @@ expected<void*, TprResult> Allocator::map(Allocation alloc) {
         if (r != VK_SUCCESS) return unexpected(TPR_UNKNOWN_ERROR);
         return memory.map;
     }
-    return unexpected(TPR_INVALID_VALUE);
+    return unexpected(TPR_ERROR_INVALID_VALUE);
 }
 
 

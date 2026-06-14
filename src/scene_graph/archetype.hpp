@@ -118,29 +118,29 @@ class Archetype {
         bool operator!=(const Archetype& other) const { return mComponents != other.mComponents; }
 
         expected<std::byte*, TprResult> get(TprEntityWrapper entity, TprComponentWrapper component) {
-            if (!contains(component)) return unexpected(TPR_INVALID_VALUE);
-            if (entity.entity.id >= mLayersSparse.size()) return unexpected(TPR_INVALID_VALUE);
+            if (!contains(component)) return unexpected(TPR_ERROR_INVALID_VALUE);
+            if (entity.entity.id >= mLayersSparse.size()) return unexpected(TPR_ERROR_INVALID_VALUE);
             uint32_t offset = mLayersSparse[entity.entity.id];
-            if (offset == UINT32_MAX) return unexpected(TPR_INVALID_VALUE);
+            if (offset == UINT32_MAX) return unexpected(TPR_ERROR_INVALID_VALUE);
             auto& chunk = mLayersDenseChunks[mComponentMap.at(component)][offset / mChunkSize];
             return chunk.mData[offset % mChunkSize];
         }
 
         expected<Chunk*, TprResult> chunk(uint32_t index, TprComponentWrapper component) {
-            if (!contains(component)) return unexpected(TPR_INVALID_VALUE);
+            if (!contains(component)) return unexpected(TPR_ERROR_INVALID_VALUE);
             return &mLayersDenseChunks[mComponentMap.at(component)][index];
         }
 
         expected<Chunk*, TprResult> entityChunk(TprEntityWrapper entity, TprComponentWrapper component) {
-            if (!contains(component)) return unexpected(TPR_INVALID_VALUE);
-            if (entity.entity.id >= mLayersSparse.size()) return unexpected(TPR_INVALID_VALUE);
+            if (!contains(component)) return unexpected(TPR_ERROR_INVALID_VALUE);
+            if (entity.entity.id >= mLayersSparse.size()) return unexpected(TPR_ERROR_INVALID_VALUE);
             uint32_t offset = mLayersSparse[entity.entity.id];
-            if (offset == UINT32_MAX) return unexpected(TPR_INVALID_VALUE);
+            if (offset == UINT32_MAX) return unexpected(TPR_ERROR_INVALID_VALUE);
             return &mLayersDenseChunks[mComponentMap.at(component)][offset / mChunkSize];
         }
 
         expected<uint32_t, TprResult> width(TprComponentWrapper component) {
-            if (!contains(component)) return unexpected(TPR_INVALID_VALUE);
+            if (!contains(component)) return unexpected(TPR_ERROR_INVALID_VALUE);
             return std::ranges::find_if(mComponents, [component](const TprComponentInfo& value) {
                 return value == component;
             })->size;

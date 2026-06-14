@@ -8,533 +8,574 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <limits>
-#include <memory>
-#include <stdexcept>
+#include <mutex>
 #include <variant>
 #include <cassert>
 
 
-#if defined(WINDOWS)
-    #include <windows.h>
-#endif
 
-#if defined(LINUX)
-    #include <elf.h>
-#endif
-
-
-ResourceRegistry::ResourceRegistry(Logger& rLogger)
-    : mrLogger(rLogger) {
-
-    #if defined(WINDOWS)
-        SYSTEM_INFO si;
-        GetSystemInfo(&si);
-        mAllocationGranularity = si.dwAllocationGranularity;
-    #endif
-
-    #if defined(POSIX)
-        mAllocationGranularity = getpagesize();
-    #endif
-    
-    mrLogger.trace() << logPrxRReg() << "Memory mapped file allocation is aligned by " << mAllocationGranularity << " bytes\n";
-    assert(mAllocationGranularity != 0);
-
-}
-
+ResourceRegistry::ResourceRegistry(Logger& rLogger) : mrLogger(rLogger) {}
 
 ResourceRegistry::~ResourceRegistry() noexcept {}
 
 
 
-TprResult ResourceRegistry::validateHandle(TprResource handle) {
-    if (get_basic_handle_type(handle) != handle_type::resource) {
-        return TPR_INVALID_VALUE;
-    }
-    if (mResources.find(get_basic_handle_index(handle)) == mResources.end()) {
-        return TPR_INVALID_VALUE;
-    }
-    return TPR_SUCCESS;
-}
-
-
-TprResource ResourceRegistry::getRootResource(TprResource resource) {
-    while (std::holds_alternative<ResourceCapability>(mResources[get_basic_handle_index(resource)])) {
-        resource = std::get<ResourceCapability>(mResources[get_basic_handle_index(resource)]).resource;
-    }
-    return resource;
-}
-
-
-TprProtectResourceFlags ResourceRegistry::accumulateProtectFlags(TprResource resource) {
-
-    if (!std::holds_alternative<ResourceCapability>(mResources[get_basic_handle_index(resource)])) return std::numeric_limits<TprProtectResourceFlags>::max();
-
-    TprProtectResourceFlags protectFlags = std::get<ResourceCapability>(mResources[get_basic_handle_index(resource)]).protectFlags;
-    while (std::holds_alternative<ResourceCapability>(mResources[get_basic_handle_index(resource)])) {
-        ResourceCapability& cap = std::get<ResourceCapability>(mResources[get_basic_handle_index(resource)]);
-        protectFlags = protectFlags & cap.protectFlags;
-        resource = cap.resource;
-    }
-    return protectFlags;
-}
-
-
-void ResourceRegistry::closeResource(TprResource handle) noexcept {
-
+expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags) noexcept {
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
 
-        TprResult validateResult = validateHandle(handle);
-        if (validateResult < 0) return;
+        TprResource h;
 
-        TprProtectResourceFlags flags = accumulateProtectFlags(handle);
+        file_cache_key fkey{filepath};
 
-        std::vector<TprResource> stack;
+        auto it = mFileResourceCache.find(fkey);
+        if (it == mFileResourceCache.end()) {
+            if (
+                !(flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) &&
+                !(flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT) &&
+                !std::filesystem::exists(filepath) ||
+                std::filesystem::exists(filepath) && std::filesystem::is_directory(filepath)
+            ) {
+                return unexpected(TPR_ERROR_DOESNT_EXIST);
+            }
 
-        if (flags & TPR_PROTECT_RESOURCE_DESTROY_FLAG_BIT) {
-            ResourceBase& resource = std::visit(
-                [](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); },
-                mResources.at(get_basic_handle_index(handle))
-            );
-            stack.push_back(getRootResource(handle));
+            if ((std::filesystem::status(filepath).permissions() & std::filesystem::perms::owner_read) == std::filesystem::perms::none) {
+                return unexpected(TPR_ERROR_NOT_PERMITTED);
+            }
+
+            ResourceVariant resource;
+
+            if ((std::filesystem::status(filepath).permissions() & std::filesystem::perms::owner_write) != std::filesystem::perms::none) {
+                resource = ResourceRWFile{};
+            } else {
+                if (
+                    (flags & TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT) ||
+                    (flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT) && !std::filesystem::exists(filepath) ||
+                    (flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT)
+                ) {
+                    return unexpected(TPR_ERROR_NOT_PERMITTED);
+                }
+                resource = ResourceROFile{};
+            }
+
+            if (std::filesystem::exists(filepath)) {
+                if (flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) {
+                    // checked above, file mustn't be read-only at this point
+                    std::filesystem::remove(filepath);
+                    std::ofstream f(filepath);
+                    f.close();
+                }
+            } else {
+                auto parent = std::filesystem::absolute(filepath).parent_path();
+                if ((std::filesystem::status(parent).permissions() & std::filesystem::perms::owner_write) != std::filesystem::perms::none) {
+                    return unexpected(TPR_ERROR_NOT_PERMITTED);
+                }
+                if ((flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) || (flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT)) {
+                    std::ofstream f(filepath);
+                    f.close();
+                }
+            }
+
+            std::visit(overload{
+                [filepath](ResourceROFile& resource) -> void {
+                    if (std::filesystem::file_size(filepath) > 0) resource.mmapSource = mmap_byte_source(filepath.string());
+                    resource.path = filepath;
+                },
+                [filepath](ResourceRWFile& resource) -> void {
+                    if (std::filesystem::file_size(filepath) > 0) resource.mmapSink = mmap_byte_sink(filepath.string());
+                    resource.path = filepath;
+                },
+                [](auto& resource) -> void {
+                    // must not happen
+                }
+            }, resource);
+
+            ResourceHandle handle{};
+            handle.resource = mResourceCounter;
+            handle.flags = TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT;
+            if (flags & TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT) handle.flags |= TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT;
+
+            mResources.try_emplace(mResourceCounter, std::move(resource));
+            mHandles.try_emplace(mHandleCounter, handle);
+            mrLogger.debug() << logPrxRReg() << "Adding " << filepath << " to the registry\n";
+            mFileResourceCache.try_emplace(fkey, mResourceCounter);
+
+            h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
+            mResourceCounter++;
+            mHandleCounter++;
 
         } else {
-            std::visit(overload{
-                [this, handle](ResourceCapability& res) {
-                    auto& caps = std::visit(
-                        [](auto& r) -> ResourceBase& { return static_cast<ResourceBase&>(r); },
-                        mResources.at(get_basic_handle_index(res.resource))
-                    ).capabilityResources;
-                    caps.erase(std::find_if(caps.begin(), caps.end(), [handle](const TprResource r) {
-                        return r._d == handle._d;
-                    }));
-                },
-                [](auto& res) {}
-            }, mResources.at(get_basic_handle_index(handle)));
-            stack.push_back(handle);
+            auto resIt = mResources.find(it->second);
+            if (resIt == mResources.end()) {
+                mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                    << "openFileResource: Corrupted internal structures: id " << it->second << " for file \"" << filepath << "\""
+                    << " from mFileResourceCache does not appear in mResources\n";
+                return unexpected(TPR_PANIC);
+            }
+            auto& resource = resIt->second;
+            if (flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) {
+                // Someone might already use a pointer to that resource, so just making it empty isn't ideal
+                // But it's the only way
+                TprResult visitResult = std::visit(overload{
+                    [](ResourceROFile& resource) -> TprResult {
+                        return TPR_ERROR_NOT_PERMITTED;
+                    },
+                    [](ResourceRWFile& resource) -> TprResult {
+                        if (resource.mmapSink.has_value()) resource.mmapSink->unmap();
+                        std::filesystem::resize_file(resource.path, 0);
+                        return TPR_SUCCESS;
+                    },
+                    [](auto& resource) -> TprResult {
+                        return TPR_ERROR_NOT_PERMITTED;
+                    },
+                }, resource);
+                if (visitResult != TPR_SUCCESS) return unexpected(visitResult);
+            }
+            if (std::holds_alternative<ResourceROFile>(resource) && (flags & TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT)) {
+                return unexpected(TPR_ERROR_NOT_PERMITTED);
+            }
+            std::visit([](auto& r) {
+                r.refCount++;
+            }, resource);
+
+            ResourceHandle handle{};
+            handle.resource = it->second;
+            handle.flags = TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT;
+            if (flags & TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT) handle.flags |= TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT;
+
+            mHandles.try_emplace(mHandleCounter, handle);
+
+            h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
+            mHandleCounter++;
+        }
+        return h;
+
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openFileResource: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openFileResource: Unknown exception\n";
+        return unexpected(TPR_PANIC);
+    }
+}
+
+expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, TprOpenEmptyResourceFlags flags, size_t alignment) noexcept {
+    if (alignment == 0) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_ERROR_INVALID_VALUE);
+    try {
+        std::lock_guard<std::mutex> lock(mMutex);
+
+        TprResource h;
+
+        ResourceData resource{aligned_allocator<std::byte>(alignment)};
+        resource.data.resize(size);
+        if (flags & TPR_OPEN_EMPTY_RESOURCE_ZEROED_FLAG_BIT) {
+            std::memset(resource.data.data(), 0, resource.data.size() * sizeof(std::byte));
         }
 
+        ResourceHandle handle{};
+        handle.resource = mResourceCounter;
+        handle.flags = TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT |
+                       TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT | TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT;
+
+        mResources.try_emplace(mResourceCounter, resource);
+        mHandles.try_emplace(mHandleCounter, handle);
+
+        h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
+        mResourceCounter++;
+        mHandleCounter++;
+        return h;
+
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openEmptyResource: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openEmptyResource: Unknown exception\n";
+        return unexpected(TPR_PANIC);
+    }
+}
+
+expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags) noexcept {
+    if (!begin) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (!end) return unexpected(TPR_ERROR_INVALID_VALUE);
+    try {
+        std::lock_guard<std::mutex> lock(mMutex);
+
+        TprResource h;
+
+        ResourceReference resource{};
+        resource.begin = begin;
+        resource.end = end;
+
+        ResourceHandle handle{};
+        handle.resource = mResourceCounter;
+        handle.flags = TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT |
+                       TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT | TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT;
+
+        mResources.try_emplace(mResourceCounter, resource);
+        mHandles.try_emplace(mHandleCounter, handle);
+
+        h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
+        mResourceCounter++;
+        mHandleCounter++;
+        return h;
+
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openReferenceResource: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openReferenceResource: Unknown exception\n";
+        return unexpected(TPR_PANIC);
+    }
+}
+
+expected<TprResource, TprResult> ResourceRegistry::openResource(const std::byte* begin, const std::byte* end, TprOpenViewResourceFlags flags) noexcept {
+    if (!begin) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (!end) return unexpected(TPR_ERROR_INVALID_VALUE);
+    try {
+        std::lock_guard<std::mutex> lock(mMutex);
+
+        TprResource h;
+
+        ResourceView resource{};
+        resource.begin = begin;
+        resource.end = end;
+
+        ResourceHandle handle{};
+        handle.resource = mResourceCounter;
+        handle.flags = TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT | TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT |
+                       TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT | TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT;
+
+        mResources.try_emplace(mResourceCounter, resource);
+        mHandles.try_emplace(mHandleCounter, handle);
+
+        h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
+        mResourceCounter++;
+        mHandleCounter++;
+        return h;
+
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openViewResource: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openViewResource: Unknown exception\n";
+        return unexpected(TPR_PANIC);
+    }
+}
+
+expected<TprResource, TprResult> ResourceRegistry::openResource(
+    TprResource protectedResource, TprResourceCapabilityFlags capability, TprOpenCapabilityResourceFlags flags
+) noexcept {
+    if (get_basic_handle_type(protectedResource) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (get_basic_handle_index(protectedResource) > mResourceCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
+    try {
+        std::lock_guard<std::mutex> lock(mMutex);
+
+        TprResource h;
+
+        auto protIt = mHandles.find(get_basic_handle_index(protectedResource));
+        if (protIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+
+        ResourceHandle handle{};
+        handle.resource = get_basic_handle_index(protectedResource);
+        handle.flags = capability;
+
+        ResourceHandle& protHandle = protIt->second;
+        protHandle.childHandles.push_back(mHandleCounter);
+
+        auto protRes = mResources.find(protHandle.resource);
+        if (protRes == mResources.end()) {
+            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                << "openCapabilityResource: Corrupted internal structures: handle["
+                << protIt->first << "].resource[" << protHandle.resource << "] does not appear in mResources\n";
+            return unexpected(TPR_PANIC);
+        }
+
+        std::visit([](auto& r) { r.refCount++; }, protRes->second);
+
+        h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
+        mHandleCounter++;
+        return h;
+
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openCapabilityResource: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openCapabilityResource: Unknown exception\n";
+        return unexpected(TPR_PANIC);
+    }
+}
+
+void ResourceRegistry::closeResource(TprResource h) noexcept {
+    if (get_basic_handle_type(h) != handle_type::resource) return;
+    if (get_basic_handle_index(h) > mHandleCounter) return;
+    try {
+        std::lock_guard<std::mutex> lock(mMutex);
+
+        auto it = mHandles.find(get_basic_handle_index(h));
+        if (it == mHandles.end()) return;
+
+        auto resourceIt = mResources.find(it->second.resource);
+        if (resourceIt == mResources.end()) return;  // must not happen
+
+        ResourceBase& resource = std::visit(
+            [](auto& r) -> ResourceBase& { return static_cast<ResourceBase&>(r); },
+            resourceIt->second
+        );
+
+        std::vector<uint32_t> stack = {get_basic_handle_index(h)};
+
         while (!stack.empty()) {
-            TprResource h = stack.back();
+            uint32_t id = stack.back();
             stack.pop_back();
-            ResourceBase& res = std::visit(
-                [](auto& r) -> ResourceBase& { return static_cast<ResourceBase&>(r); },
-                mResources.at(get_basic_handle_index(h))
-            );
-            stack.insert(stack.end(), res.capabilityResources.begin(), res.capabilityResources.end());
-            mResources.erase(get_basic_handle_index(h));
+            auto it = mHandles.find(id);
+            if (it != mHandles.end()) {
+                // must happen
+                stack.insert(stack.end(), it->second.childHandles.begin(), it->second.childHandles.end());
+                resource.refCount--;
+                mHandles.erase(it);
+            }
+        }
+
+        if (resource.refCount == 0) {
+            std::visit(overload{
+                [this](ResourceROFile& r) {
+                    mrLogger.debug() << logPrxRReg() << "Removing \"" << r.path.string() << "\" from the registry\n";
+                    mFileResourceCache.erase(file_cache_key(r.path));
+                },
+                [this](ResourceRWFile& r) {
+                    mrLogger.debug() << logPrxRReg() << "Removing \"" << r.path.string() << "\" from the registry\n";
+                    mFileResourceCache.erase(file_cache_key(r.path));
+                },
+                [](auto& r) {}
+            }, resourceIt->second);
+            mResources.erase(resourceIt);
         }
 
     } catch (...) {}
 }
 
-
-
-
-expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags, size_t alignment) {
-
-    if (alignment == 0) return unexpected(TPR_INVALID_OPERATION);
-    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_INVALID_OPERATION);
-    if (mAllocationGranularity % alignment != 0) return unexpected(TPR_BAD_ALLOC);
-
-    size_t index = mResourceCounter;
-    mResources.try_emplace(index);
-    mResourceCounter++;
-
-    TprResource handle;
-
+expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource h) noexcept {
+    if (get_basic_handle_type(h) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (get_basic_handle_index(h) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
 
-        if (std::filesystem::is_directory(filepath)) {
-            return unexpected(TPR_NOT_A_FILE);
-        }
-        if (
-            !(flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) &&
-            !(flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT) &&
-            !std::filesystem::exists(filepath)
-        ) {
-            return unexpected(TPR_NO_SUCH_FILE);
+        auto handleIt = mHandles.find(get_basic_handle_index(h));
+        if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+
+        auto resIt = mResources.find(handleIt->second.resource);
+        if (resIt == mResources.end()) {
+            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                << "sizeofResource: Corrupted internal structures: handle["
+                << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
+            return unexpected(TPR_PANIC);
         }
 
-        // populating resource
-        if (flags & TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT) {
-            mResources.at(index) = ResourceRWFile{};
-        } else {
-            mResources.at(index) = ResourceROFile{};
-        }
-        if (std::filesystem::exists(filepath)) {
-            if ((flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) && !std::filesystem::is_empty(filepath)) {
-                std::filesystem::resize_file(filepath, 0);
-            }
-        } else {
-            if ((flags & TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT) || (flags & TPR_OPEN_PATH_RESOURCE_CREATE_IF_NONE_FLAG_BIT)) {
-                std::ofstream f(filepath);
-                f.close();
-            }
-        }
-        ResourceBase& resource = std::visit(
-            [](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); },
-            mResources.at(index)
-        );
+        uint64_t size;
+
         std::visit(overload{
-            [filepath](ResourceROFile& resource) -> void {
-                if (std::filesystem::file_size(filepath) > 0) resource.mmapSource = mmap_byte_source(filepath.string());
-                resource.path = filepath;
+            [&size](ResourceData& resource) -> void {
+                size = resource.data.size();
             },
-            [filepath](ResourceRWFile& resource) -> void {
-                if (std::filesystem::file_size(filepath) > 0) resource.mmapSink = mmap_byte_sink(filepath.string());
-                resource.path = filepath;
+            [&size](ResourceReference& resource) -> void {
+                size = resource.end - resource.begin;
             },
-            [](auto& resource) -> void {}
-        }, mResources.at(index));
+            [&size](ResourceView& resource) -> void {
+                size = resource.end - resource.begin;
+            },
+            [&size](ResourceROFile& resource) -> void {
+                if (resource.mmapSource.has_value()) size = resource.mmapSource->size();
+                else size = 0;
+            },
+            [&size](ResourceRWFile& resource) -> void {
+                if (resource.mmapSink.has_value()) size = resource.mmapSink->size();
+                else size = 0;
+            },
+        }, resIt->second);
+        return size;
 
-        handle = construct_basic_handle<TprResource>(index, 0, handle_type::resource);
-
-    } catch (const std::runtime_error& e) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << e.what() << "\n";
-        mResources.erase(index);
-        return unexpected(TPR_UNKNOWN_ERROR);
-
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "sizeofResource: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        mResources.erase(index);
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "sizeofResource: Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
-
-    return handle;
 }
 
-
-expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, TprOpenEmptyResourceFlags flags, size_t alignment) {
-    
-    if (alignment == 0) return unexpected(TPR_INVALID_OPERATION);
-    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_INVALID_OPERATION);
-
-    size_t index = mResourceCounter;
-    mResources.try_emplace(index);
-    mResourceCounter++;
-
-    TprResource handle;
-
+TprResult ResourceRegistry::resizeResource(TprResource h, size_t newSize) noexcept {
+    if (get_basic_handle_type(h) != handle_type::resource) return TPR_ERROR_INVALID_VALUE;
+    if (get_basic_handle_index(h) > mHandleCounter) return TPR_ERROR_INVALID_VALUE;
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
 
-        mResources.at(index) = ResourceData(aligned_allocator<std::byte>(alignment));
-        ResourceData& resource = std::get<ResourceData>(mResources.at(index));
-        resource.data.reserve(size);
-        resource.data.resize(size);
-        if (flags & TPR_OPEN_EMPTY_RESOURCE_ZEROED_FLAG_BIT) {
-            std::memset(resource.data.data(), 0, resource.data.size() * sizeof(decltype(resource.data)::value_type));
+        auto handleIt = mHandles.find(get_basic_handle_index(h));
+        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+
+        if (!(handleIt->second.flags & TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT)) {
+            return TPR_ERROR_NOT_PERMITTED;
         }
 
-        handle = construct_basic_handle<TprResource>(index, 0, handle_type::resource);
+        auto resIt = mResources.find(handleIt->second.resource);
+        if (resIt == mResources.end()) {
+            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                << "sizeofResource: Corrupted internal structures: handle["
+                << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
+            return TPR_PANIC;
+        }
 
+        TprResult visitResult = std::visit(overload{
+            [newSize](ResourceData& resource) -> TprResult {
+                resource.data.resize(newSize);
+                return TPR_SUCCESS;
+            },
+            [newSize](ResourceRWFile& resource) -> TprResult {
+                if (resource.mmapSink.has_value()) resource.mmapSink->unmap();
+                std::filesystem::resize_file(resource.path, newSize);
+                if (newSize > 0) resource.mmapSink = mmap_byte_sink(resource.path.string());
+                return TPR_SUCCESS;
+            },
+            [newSize](ResourceReference& resource) -> TprResult {
+                resource.end = resource.begin + newSize;
+                return TPR_SUCCESS;
+            },
+            [newSize](ResourceView& resource) -> TprResult {
+                resource.end = resource.begin + newSize;
+                return TPR_SUCCESS;
+            },
+            [](auto& resource) -> TprResult {
+                return TPR_ERROR_NOT_PERMITTED;
+            },
+        }, resIt->second);
+        return visitResult;
+        
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "resizeResource: Exception: " << e.what() << "\n";
+        return TPR_PANIC;
     } catch (...) {
-        mResources.erase(index);
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "resizeResource: Unknown exception\n";
+        return TPR_PANIC;
     }
-
-    return handle;
 }
 
-
-expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags, size_t alignment) {
-
-    if (alignment == 0) return unexpected(TPR_INVALID_OPERATION);
-    if (alignment && ((alignment & (alignment - 1)) != 0)) return unexpected(TPR_INVALID_OPERATION);
-    if (!begin) return unexpected(TPR_INVALID_OPERATION);
-    if (!end) return unexpected(TPR_INVALID_OPERATION);
-
-    size_t index = mResourceCounter;
-    mResources.try_emplace(index);
-    mResourceCounter++;
-
-    TprResource handle;
-
+expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(TprResource h) noexcept {
+    if (get_basic_handle_type(h) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (get_basic_handle_index(h) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
     try {
-        // populating resource
-        if (flags & TPR_OPEN_REFERENCE_RESOURCE_DONT_COPY_FLAG_BIT) {
-            if (reinterpret_cast<uintptr_t>(begin) % alignment != 0) return unexpected(TPR_BAD_ALLOC);
-            mResources.at(index) = ResourceReference{};
-        } else {
-            mResources.at(index) = ResourceData(aligned_allocator<std::byte>(alignment));
+        std::lock_guard<std::mutex> lock(mMutex);
+
+        auto handleIt = mHandles.find(get_basic_handle_index(h));
+        if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+
+        if (!(handleIt->second.flags & TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT)) {
+            return unexpected(TPR_ERROR_NOT_PERMITTED);
         }
-        ResourceBase& resource = std::visit(
-            [](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); },
-            mResources.at(index)
-        );
+
+        auto resIt = mResources.find(handleIt->second.resource);
+        if (resIt == mResources.end()) {
+            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                << "sizeofResource: Corrupted internal structures: handle["
+                << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
+            return unexpected(TPR_PANIC);
+        }
+
+        const std::byte* data;
+
         std::visit(overload{
-            [begin, end](ResourceReference& resource) -> void {
-                resource.begin = begin;
-                resource.end = end;
+            [&data](ResourceData& resource) {
+                data = resource.data.data();
             },
-            [begin, end](ResourceData& resource) -> void {
-                size_t size = end - begin;
-                resource.data.reserve(size);
-                resource.data.resize(size);
-                std::memcpy(resource.data.data(), begin, size);
+            [&data](ResourceReference& resource) {
+                data = resource.begin;
             },
-            [](auto& resource) -> void {}
+            [&data](ResourceView& resource) {
+                data = resource.begin;
+            },
+            [&data](ResourceROFile& resource) {
+                if (resource.mmapSource.has_value()) data = resource.mmapSource->data();
+                else data = nullptr;
+            },
+            [&data](ResourceRWFile& resource) {
+                if (resource.mmapSink.has_value()) data = resource.mmapSink->data();
+                else data = nullptr;
+            },
+        }, resIt->second);
+        return data;
 
-        }, mResources.at(index));
-
-        handle = construct_basic_handle<TprResource>(index, 0, handle_type::resource);
-
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceConstPointer: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        mResources.erase(index);
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceConstPointer: Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
-
-    return handle;
 }
 
-
-expected<TprResource, TprResult> ResourceRegistry::openResource(TprResource protectedResourceHandle, TprProtectResourceFlags protectFlags, TprOpenCapabilityResourceFlags flags) {
-
-    TprResult validateResult = validateHandle(protectedResourceHandle);
-    if (validateResult < 0) return unexpected(validateResult);
-
-    size_t index = mResourceCounter;
-    mResources.try_emplace(index);
-    mResourceCounter++;
-
-    TprResource handle;
-
+expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprResource h) noexcept {
+    if (get_basic_handle_type(h) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (get_basic_handle_index(h) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
     try {
+        std::lock_guard<std::mutex> lock(mMutex);
 
-        mResources.at(index) = ResourceCapability{};
-        ResourceCapability& resource = std::get<ResourceCapability>(mResources.at(index));
-        resource.resource = protectedResourceHandle;
-        resource.protectFlags = protectFlags;
+        auto handleIt = mHandles.find(get_basic_handle_index(h));
+        if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
 
-        handle = construct_basic_handle<TprResource>(index, 0, handle_type::resource);
+        if (!(handleIt->second.flags & TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT) || !(handleIt->second.flags & TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT)) {
+            return unexpected(TPR_ERROR_NOT_PERMITTED);
+        }
 
+        auto resIt = mResources.find(handleIt->second.resource);
+        if (resIt == mResources.end()) {
+            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                << "sizeofResource: Corrupted internal structures: handle["
+                << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
+            return unexpected(TPR_PANIC);
+        }
+
+        std::byte* data;
+
+        TprResult visitResult = std::visit(overload{
+            [&data](ResourceData& resource) -> TprResult {
+                data = resource.data.data();
+                return TPR_SUCCESS;
+            },
+            [&data](ResourceReference& resource) -> TprResult {
+                data = resource.begin;
+                return TPR_SUCCESS;
+            },
+            [](ResourceView& resource) -> TprResult {
+                return TPR_ERROR_NOT_PERMITTED;
+            },
+            [](ResourceROFile& resource) -> TprResult {
+                return TPR_ERROR_NOT_PERMITTED;
+            },
+            [&data](ResourceRWFile& resource) -> TprResult {
+                if (resource.mmapSink.has_value()) data = resource.mmapSink->data();
+                else data = nullptr;
+                return TPR_SUCCESS;
+            }
+        }, resIt->second);
+        if (visitResult != TPR_SUCCESS) return unexpected(visitResult);
+        return data;
+
+    } catch (const std::exception& e) {
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceRawDataPointer: Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
     } catch (...) {
-        mResources.erase(index);
-        return unexpected(TPR_UNKNOWN_ERROR);
+        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceRawDataPointer: Unknown exception\n";
+        return unexpected(TPR_PANIC);
     }
-
-    ResourceBase& protectedResource = std::visit(
-        [](auto& resource) -> ResourceBase& { return static_cast<ResourceBase&>(resource); },
-        mResources.at(get_basic_handle_index(protectedResourceHandle))
-    );
-    protectedResource.capabilityResources.push_back(handle);
-    
-    return handle;
 }
 
 
 
+expected<std::vector<std::filesystem::path>, TprResult> ResourceRegistry::enumDir(std::filesystem::path dirpath, TprEnumDirFlags flags, size_t maxDepth) {
 
-expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource handle) {
+    // TODO: add it to the API
 
-    TprResult validateResult = validateHandle(handle);
-    if (validateResult < 0) return unexpected(validateResult);
-
-    TprResource resource = getRootResource(handle);
-
-    uint64_t size;
-
-    TprResult visitResult = std::visit(overload{
-
-        [&size](ResourceData& resource) -> TprResult {
-            size = resource.data.size();
-            return TPR_SUCCESS;
-        },
-
-        [&size](ResourceReference& resource) -> TprResult {
-            size = resource.end - resource.begin;
-            return TPR_SUCCESS;
-        },
-
-        [&size](ResourceROFile& resource) -> TprResult {
-            if (resource.mmapSource.has_value()) size = resource.mmapSource->size();
-            else size = 0;
-            return TPR_SUCCESS;
-        },
-
-        [&size](ResourceRWFile& resource) -> TprResult {
-            if (resource.mmapSink.has_value()) size = resource.mmapSink->size();
-            else size = 0;
-            return TPR_SUCCESS;
-        },
-
-        [handle](ResourceCapability& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        }
-
-    }, mResources[get_basic_handle_index(resource)]);
-
-    if (visitResult < 0) return unexpected(visitResult);
-
-    return size;
-}
-
-
-TprResult ResourceRegistry::resizeResource(TprResource handle, size_t newSize) {
-
-    TprResult validateResult = validateHandle(handle);
-    if (validateResult < 0) return validateResult;
-
-    TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
-    if (!(protectFlags & TPR_PROTECT_RESOURCE_RESIZE_FLAG_BIT)) {
-        return TPR_NOT_PERMITTED;
-    }
-
-    TprResult visitResult = std::visit(overload{
-
-        [newSize](ResourceData& resource) -> TprResult {
-            resource.data.resize(newSize);
-            return TPR_SUCCESS;
-        },
-
-        [handle, newSize](ResourceReference& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        },
-
-        [newSize](ResourceROFile& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        },
-
-        [newSize](ResourceRWFile& resource) -> TprResult {
-            if (resource.mmapSink.has_value()) resource.mmapSink->unmap();
-            std::filesystem::resize_file(resource.path, newSize);
-            if (newSize > 0) resource.mmapSink = mmap_byte_sink(resource.path.string());
-            return TPR_SUCCESS;
-        },
-
-        [handle](ResourceCapability& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        }
-
-    }, mResources.at(get_basic_handle_index(handle)));
-
-    if (visitResult < 0) return visitResult;
-
-    return TPR_SUCCESS;
-}
-
-
-expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(TprResource handle) {
-
-    TprResult validateResult = validateHandle(handle);
-    if (validateResult < 0) return unexpected(validateResult);
-
-    TprResource resource = getRootResource(handle);
-
-    TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
-    if (!(protectFlags & TPR_PROTECT_RESOURCE_READ_FLAG_BIT)) {
-        return unexpected(TPR_NOT_PERMITTED);
-    }
-
-    // if (std::holds_alternative<ResourceCapability>(mResources.at(getBasicHandleIndex(handle)))) {
-    //     TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
-    //     if (!(protectFlags & TPR_PROTECT_RESOURCE_READ_FLAG_BIT)) {
-    //         return Unexpected(TPR_NOT_PERMITTED);
-    //     }
-    // }
-
-    const std::byte* data;
-
-    TprResult visitResult = std::visit(overload{
-
-        [&data](ResourceData& resource) -> TprResult {
-            data = resource.data.data();
-            return TPR_SUCCESS;
-        },
-
-        [&data](ResourceReference& resource) -> TprResult {
-            data = resource.begin;
-            return TPR_SUCCESS;
-        },
-
-        [&data](ResourceROFile& resource) -> TprResult {
-            if (resource.mmapSource.has_value()) data = resource.mmapSource->data();
-            else data = nullptr;
-            return TPR_SUCCESS;
-        },
-
-        [&data](ResourceRWFile& resource) -> TprResult {
-            if (resource.mmapSink.has_value()) data = resource.mmapSink->data();
-            else data = nullptr;
-            return TPR_SUCCESS;
-        },
-
-        [handle](ResourceCapability& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        }
-
-    }, mResources[get_basic_handle_index(resource)]);
-
-    if (visitResult < 0) return unexpected(visitResult);
-
-    return data;
-}
-
-
-expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprResource handle) {
-    
-    TprResult validateResult = validateHandle(handle);
-    if (validateResult < 0) return unexpected(validateResult);
-
-    TprResource resource = getRootResource(handle);
-
-    TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
-    if (!(protectFlags & TPR_PROTECT_RESOURCE_READ_FLAG_BIT) || !(protectFlags & TPR_PROTECT_RESOURCE_WRITE_FLAG_BIT)) {
-        return unexpected(TPR_NOT_PERMITTED);
-    }
-
-    // if (std::holds_alternative<ResourceCapability>(mResources.at(getBasicHandleIndex(handle)))) {
-    //     TprProtectResourceFlags protectFlags = accumulateProtectFlags(handle);
-    //     if (!(protectFlags & TPR_PROTECT_RESOURCE_READ_FLAG_BIT) || !(protectFlags & TPR_PROTECT_RESOURCE_WRITE_FLAG_BIT)) {
-    //         return Unexpected(TPR_NOT_PERMITTED);
-    //     }
-    // }
-
-    std::byte* data;
-
-    TprResult visitResult = std::visit(overload{
-
-        [&data](ResourceData& resource) -> TprResult {
-            data = resource.data.data();
-            return TPR_SUCCESS;
-        },
-
-        [&data](ResourceReference& resource) -> TprResult {
-            data = resource.begin;
-            return TPR_SUCCESS;
-        },
-
-        [handle](ResourceROFile& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        },
-
-        [&data](ResourceRWFile& resource) -> TprResult {
-            if (resource.mmapSink.has_value()) data = resource.mmapSink->data();
-            else data = nullptr;
-            return TPR_SUCCESS;
-        },
-
-        [handle](ResourceCapability& resource) -> TprResult {
-            return TPR_NOT_PERMITTED;
-        }
-
-    }, mResources[get_basic_handle_index(resource)]);
-
-    if (visitResult < 0) return unexpected(visitResult);
-
-    return data;
-}
-
-
-
-
-std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::path dirpath, TprEnumDirFlags flags, size_t maxDepth) {
-
-    if (!std::filesystem::exists(dirpath)) {
-        throw std::runtime_error(logPrxRReg() + dirpath.string() + " doesn't exist");
-    }
-
-    if (!std::filesystem::is_directory(dirpath)) {
-        throw std::runtime_error(logPrxRReg() + dirpath.string() + " is not a directory");
+    if (!std::filesystem::exists(dirpath) || !std::filesystem::is_directory(dirpath)) {
+        return unexpected(TPR_ERROR_DOESNT_EXIST);
     }
 
     std::vector<std::filesystem::path> entries;
@@ -581,12 +622,12 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
                         continue;
                     }
 
-                    if (reader.get_type() == ET_EXEC && !(flags & TPR_ENUM_DIR_EXECUTABLES_FLAG_BIT)) continue;
-                    if (reader.get_type() != ET_DYN) continue;
+                    if (reader.get_type() == ELFIO::ET_EXEC && !(flags & TPR_ENUM_DIR_EXECUTABLES_FLAG_BIT)) continue;
+                    if (reader.get_type() != ELFIO::ET_DYN) continue;
 
                     bool hasInterp = false;
                     for (const auto& seg : reader.segments) {
-                        if (seg->get_type() == PT_INTERP) {
+                        if (seg->get_type() == ELFIO::PT_INTERP) {
                             hasInterp = true;
                             break;
                         }
@@ -613,22 +654,19 @@ std::vector<std::filesystem::path> ResourceRegistry::enumDir(std::filesystem::pa
 
 }
 
-
 expected<std::filesystem::path, TprResult> ResourceRegistry::matchFile(std::filesystem::path path) {
     // TODO: search directories and scanning
     if (std::filesystem::exists(path) && !std::filesystem::is_directory(path)) {
         return path;
     }
-    return unexpected(TPR_NO_SUCH_FILE);
+    return unexpected(TPR_ERROR_DOESNT_EXIST);
 }
-
 
 expected<std::filesystem::path, TprResult> ResourceRegistry::matchDir(std::filesystem::path path) {
     // TODO: search directories and scanning
     if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
         return path;
     }
-    return unexpected(TPR_NO_SUCH_FILE);
+    return unexpected(TPR_ERROR_DOESNT_EXIST);
 }
-
 

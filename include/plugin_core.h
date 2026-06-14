@@ -58,16 +58,19 @@ typedef enum TprLogLevel {
 typedef enum TprResult {
     TPR_SUCCESS = 0,
     TPR_PANIC = -1,
-    TPR_MODULE_NOT_LOADED = -2,
-    TPR_INVALID_VALUE = -3,
-    TPR_INVALID_OPERATION = -4,
+
+    TPR_MODULE_NOT_LOADED = 1,
+
+    TPR_ERROR_INVALID_VALUE = -2,
+    TPR_ERROR_INVALID_OPERATION = -3,
+    TPR_ERROR_DOESNT_EXIST = -4,
+    TPR_ERROR_NOT_PERMITTED = -5,
 
     TPR_COUNT_OVERFLOW = -1,
     TPR_UNKNOWN_ERROR = -2,
     TPR_INSUFFICIENT_INIT = -4,
     TPR_BAD_ALLOC = -5,
     TPR_PARSE_ERROR = -6,
-    TPR_NOT_PERMITTED = -8,
     TPR_USER_CODE_ERROR = -9,
     TPR_NOT_SUPPORTED = -10,
     TPR_NOT_A_FILE = -11,
@@ -236,10 +239,14 @@ typedef enum TprCreateActionFlagBits {
 typedef TprFlag_T TprCreateActionFlags;
 
 typedef enum TprOpenReferenceResourceFlagBits {
-    TPR_OPEN_REFERENCE_RESOURCE_DONT_COPY_FLAG_BIT = 0x1,
     TPR_OPER_REFERENCE_RESOURCE_FLAG_BITS_MAX_ENUM = INT32_MAX
 } TprOpenReferenceResourceFlagBits;
 typedef TprFlag_T TprOpenReferenceResourceFlags;
+
+typedef enum TprOpenViewResourceFlagBits {
+    TPR_OPER_VIEW_RESOURCE_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprOpenViewResourceFlagBits;
+typedef TprFlag_T TprOpenViewResourceFlags;
 
 typedef enum TprOpenEmptyResourceFlagBits {
     TPR_OPEN_EMPTY_RESOURCE_ZEROED_FLAG_BIT = 0x1,
@@ -260,14 +267,13 @@ typedef enum TprOpenCapabilityResourceFlagBits {
 } TprOpenCapabilityResourceFlagBits;
 typedef TprFlag_T TprOpenCapabilityResourceFlags;
 
-typedef enum TprProtectResourceFlagBits {
-    TPR_PROTECT_RESOURCE_READ_FLAG_BIT = 0x1,
-    TPR_PROTECT_RESOURCE_WRITE_FLAG_BIT = 0x2,
-    TPR_PROTECT_RESOURCE_RESIZE_FLAG_BIT = 0x4,
-    TPR_PROTECT_RESOURCE_DESTROY_FLAG_BIT = 0x8,
-    TPR_PROTECT_RESOURCE_FLAG_BITS_MAX_ENUM = INT32_MAX
-} TprProtectResourceFlagBits;
-typedef TprFlag_T TprProtectResourceFlags;
+typedef enum TprResourceCapabilityFlagBits {
+    TPR_RESOURCE_CAPABILITY_READ_FLAG_BIT = 0x1,
+    TPR_RESOURCE_CAPABILITY_WRITE_FLAG_BIT = 0x2,
+    TPR_RESOURCE_CAPABILITY_RESIZE_FLAG_BIT = 0x4,
+    TPR_RESOURCE_CAPABILITY_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprResourceCapabilityFlagBits;
+typedef TprFlag_T TprResourceCapabilityFlags;
 
 typedef enum TprEnumDirFlagBits {
     TPR_ENUM_DIR_DIRS_FLAG_BIT = 0x1,

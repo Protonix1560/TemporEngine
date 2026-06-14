@@ -1,2 +1,4 @@
 {
+    "standartVulkanHWL.enableKhronosValidationLayer": true,
+    "standartVulkanHWL.enableDebugUtils": true
 }

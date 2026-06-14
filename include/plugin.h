@@ -50,10 +50,11 @@ typedef struct TprEngineAPI {
 
     struct VFS {
 
-        TprResult(*openPathResource)(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) NOEXCEPT_ATTR;
+        TprResult(*openPathResource)(const char* path, TprOpenPathResourceFlags flags, TprResource* pResource) NOEXCEPT_ATTR;
         TprResult(*openReferenceResource)(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) NOEXCEPT_ATTR;
+        TprResult(*openViewResource)(const char* begin, const char* end, TprOpenViewResourceFlags flags, TprResource* pResource) NOEXCEPT_ATTR;
         TprResult(*openEmptyResource)(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) NOEXCEPT_ATTR;
-        TprResult(*openCapabilityResource)(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) NOEXCEPT_ATTR;
+        TprResult(*openCapabilityResource)(TprResource protectedResource, TprOpenEmptyResourceFlags flags, TprResourceCapabilityFlags capability, TprResource* pResource) NOEXCEPT_ATTR;
 
         TprResult(*resizeResource)(TprResource resource, uint64_t newSize) NOEXCEPT_ATTR;
         TprResult(*sizeofResource)(TprResource resource, uint64_t* pSize) NOEXCEPT_ATTR;

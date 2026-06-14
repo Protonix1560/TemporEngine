@@ -66,16 +66,19 @@ namespace api {
     }
 
     namespace vfs {
-        TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-            assert(gEngine); return gEngine->vfs_openPathResource(path, flags, alignment, pResource);
+        TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, TprResource* pResource) noexcept {
+            assert(gEngine); return gEngine->vfs_openPathResource(path, flags, pResource);
         }
         TprResult openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept {
             assert(gEngine); return gEngine->vfs_openReferenceResource(begin, end, flags, pResource);
         }
+        TprResult openViewResource(const char* begin, const char* end, TprOpenViewResourceFlags flags, TprResource* pResource) noexcept {
+            assert(gEngine); return gEngine->vfs_openViewResource(begin, end, flags, pResource);
+        }
         TprResult openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
             assert(gEngine); return gEngine->vfs_openEmptyResource(size, flags, alignment, pResource);
         }
-        TprResult openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprProtectResourceFlags protectFlags, TprResource* pResource) noexcept {
+        TprResult openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprResourceCapabilityFlags protectFlags, TprResource* pResource) noexcept {
             assert(gEngine); return gEngine->vfs_openCapabilityResource(protectResource, flags, protectFlags, pResource);
         }
         TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept {
@@ -234,6 +237,7 @@ void TemporEngine::registerAPI() {
     // vfs
     mVFSAPI.openPathResource = api::vfs::openPathResource;
     mVFSAPI.openReferenceResource = api::vfs::openReferenceResource;
+    mVFSAPI.openViewResource = api::vfs::openViewResource;
     mVFSAPI.openEmptyResource = api::vfs::openEmptyResource;
     mVFSAPI.openCapabilityResource = api::vfs::openCapabilityResource;
     mVFSAPI.resizeResource = api::vfs::resizeResource;

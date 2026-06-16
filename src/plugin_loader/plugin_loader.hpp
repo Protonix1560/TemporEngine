@@ -7,14 +7,12 @@
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
 #include "plugin.hpp"
+#include "logger.hpp"
 
 #include <atomic>
 #include <memory>
 #include <unordered_map>
 
-
-// from "logger.hpp"
-class Logger;
 
 // from "settings.hpp"
 class Settings;
@@ -28,7 +26,7 @@ struct PluginInfo {
 class PluginLoader {
 
     public:
-        PluginLoader(Logger& rLogger, Settings& rSettings, std::atomic<int32_t>& rAliveTokens);
+        PluginLoader(Logger logger, Settings& rSettings, std::atomic<int32_t>& rAliveTokens);
         ~PluginLoader() noexcept;
 
         TprResult loadPlugin(const PluginLoadInfo* pLoadInfo);
@@ -38,7 +36,7 @@ class PluginLoader {
         expected<PluginInfo, TprResult> getPluginInfo(uint32_t id);
 
     private:
-        Logger& mrLogger;
+        Logger mLogger;
         Settings& mrSettings;
         std::atomic<int32_t>& mrAliveTokens;
 

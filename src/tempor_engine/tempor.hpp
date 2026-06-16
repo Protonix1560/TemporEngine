@@ -102,9 +102,9 @@ class service_singleton_holder : public service_buffer<Ts>... {
         T& construct(Args&&... args) noexcept(false) {
             static_assert(contains_v<T>, "service_singleton_holder: unspecified service");
             T& ref = service_buffer<T>::construct(std::forward<Args>(args)...);
-            if constexpr (contains_v<Logger>) {
-                if (service_buffer<Logger>::alive()) {
-                    service_buffer<Logger>::get().trace(TPR_LOG_STYLE_TIMESTAMP1) << "Constructed service "
+            if constexpr (contains_v<LogSink>) {
+                if (service_buffer<LogSink>::alive()) {
+                    service_buffer<LogSink>::get().createLogger("").debug(TPR_LOG_STYLE_TIMESTAMP1) << "Constructed service "
                         << type_name<T>::value << " (" << type_name<T>::value_short << ")" << "\n";
                 } else {
                     std::printf("%s\n", ("Constructed service " + type_name<T>::value + " (" + type_name<T>::value_short + ")").c_str());
@@ -120,10 +120,10 @@ class service_singleton_holder : public service_buffer<Ts>... {
         template <typename T>
         void destruct() noexcept(true) {
             static_assert(contains_v<T>, "service_singleton_holder: unspecified service");
-            if constexpr (contains_v<Logger>) {
-                if (service_buffer<Logger>::alive()) {
+            if constexpr (contains_v<LogSink>) {
+                if (service_buffer<LogSink>::alive()) {
                     try {
-                        service_buffer<Logger>::get().trace(TPR_LOG_STYLE_TIMESTAMP1) << "Destructing service " << type_name<T>::value << "\n";
+                        service_buffer<LogSink>::get().createLogger("").debug(TPR_LOG_STYLE_TIMESTAMP1) << "Destructing service " << type_name<T>::value << "\n";
                     } catch (...) {}
                 } else {
                     std::printf("%s\n", ("Destructing service " + type_name<T>::value).c_str());
@@ -274,7 +274,7 @@ class TemporEngine {
         expected<PluginInfo, TprResult> activePluginInfo();
 
         service_singleton_holder<
-            Logger, WindowManager, PHardwareLayer, AssetStore, SceneGraph, PluginLoader, ResourceRegistry,
+            LogSink, WindowManager, PHardwareLayer, AssetStore, SceneGraph, PluginLoader, ResourceRegistry,
             Settings, Threading
         > mServHolder;
 
@@ -282,7 +282,7 @@ class TemporEngine {
         bool mFlushConfig;
 
         ResourceRegistry* mpResReg = nullptr;
-        Logger* mpLogger = nullptr;
+        LogSink* mpLogSink = nullptr;
         WindowManager* mpWinMan = nullptr;
         HardwareLayer* mpHWLI = nullptr;
         AssetStore* mpAssetStore = nullptr;
@@ -300,6 +300,8 @@ class TemporEngine {
         std::atomic<bool> mPanic = false;
 
         std::unordered_map<uint32_t, uint32_t> mJobPluginMap;
+
+        std::optional<Logger> mLogger;
 
 };
 

@@ -5,6 +5,7 @@
 
 #include "core.hpp"
 #include "plugin_core.h"
+#include "logger.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -21,9 +22,6 @@
 #include <deque>
 #include <mutex>
 
-
-// from "logger.hpp"
-class Logger;
 
 // from "settings.hpp"
 class Settings;
@@ -131,7 +129,7 @@ struct Thread {
 class Threading {
 
     public:
-        Threading(Logger& rLogger, Settings& rSetting);
+        Threading(Logger logger, Settings& rSetting);
         void update();
         ~Threading();
 
@@ -144,7 +142,7 @@ class Threading {
         expected<uint32_t, TprResult> getJobID(TprJob job) noexcept;
 
     private:
-        Logger& mrLogger;
+        Logger mLogger;
         Settings& mrSett;
 
         bool mUsable = true;

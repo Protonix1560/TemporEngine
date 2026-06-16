@@ -12,67 +12,76 @@
 #include <sstream>
 
 
+constexpr size_t maxVerbosity = 6;
+
+
+class LogSink;
 class Logger;
 
 
-struct LogEntry {
-    public:
-        template <typename T> LogEntry& operator<<(T msg) {
-            std::lock_guard<std::mutex> lockM(mMutex);
-            mBuffer << msg;
-            return *this;
-        }
+class LogEntry {
+    private:
+        LogSink& mrSink;
+        std::ostringstream mBuffer;
+        bool mDummy = false;
+        TprLogLevel mLevel;
+        TprLogStyle mStyle;
 
-        LogEntry(LogEntry&& other);
-        LogEntry(const LogEntry& other) = delete;
-        void flush();
+        LogEntry(LogSink& rSink, std::string_view prefix, TprLogLevel level, TprLogStyle style);
+
+        friend class Logger;
+
+    public:
         ~LogEntry();
 
-    private:
-        TprLogLevel mLogLevel;
-        TprLogStyle mLogStyle;
-        std::ostringstream mBuffer;
-        std::mutex mMutex;
-        Logger& mrLogger;
-        bool mAlways = false;
-        LogEntry(Logger& rLogger, TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        friend class Logger;
+        void flush();
+
+        template <typename T>
+        LogEntry& operator<<(const T& msg) {
+            if (!mDummy) mBuffer << msg;
+            return *this;
+        }
 };
+
 
 
 class Logger {
     private:
-        std::mutex mMutex;
-        std::atomic<int> mStartstampCount{0};
-        std::atomic<size_t> verboseLevel;
-        void write(LogEntry& logEntry);
-        friend struct LogEntry;
+        LogSink& mrSink;
+        std::string mPrefix;
+
+        Logger(LogSink& rSink, std::string_view prefix);
+
+        friend class LogSink;
 
     public:
+        Logger& sink() const noexcept;
+        Logger derive(const std::string& prefix) const;
 
-        Logger(size_t verbosity)
-            : verboseLevel(verbosity) {}
-
-        void setVerbosityLevel(size_t level);
-
-        template <typename T>
-        LogEntry operator<<(T msg) {
-            LogEntry logEntry = LogEntry(*this);
-            logEntry << msg;
-            return logEntry;
-        }
-
-        LogEntry operator()(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry log(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry error(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry warn( TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry info(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry debug(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry trace(TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
-        LogEntry always(TprLogLevel logLevel = TPR_LOG_LEVEL_INFO, TprLogStyle logStyle = TPR_LOG_STYLE_6IDENT);
+        LogEntry operator()(TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) const;
+        LogEntry panic(TprLogStyle style = TPR_LOG_STYLE_PANIC1) const;
+        LogEntry error(TprLogStyle style = TPR_LOG_STYLE_ERROR1) const;
+        LogEntry warn(TprLogStyle style = TPR_LOG_STYLE_WARN1) const;
+        LogEntry info(TprLogStyle style = TPR_LOG_STYLE_6IDENT) const;
+        LogEntry debug(TprLogStyle style = TPR_LOG_STYLE_6IDENT) const;
+        LogEntry trace(TprLogStyle style = TPR_LOG_STYLE_6IDENT) const;
 };
 
-REGISTER_TYPE_NAME(Logger);
+
+class LogSink {
+    private:
+        std::mutex mMutex;
+        std::atomic<size_t> mVerbosity;
+    
+    public:
+        LogSink(size_t verbosity);
+        Logger createLogger(std::string_view prefix);
+        void setVerbosity(size_t verbosity);
+        size_t verbosity() const;
+        void write(std::string_view msg, TprLogDestination dest, TprLogLevel level, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept;
+};
+
+REGISTER_TYPE_NAME_S(LogSink, "LgSk");
 
 
 #endif  // UTILS_LOGGER_LOGGER_HPP_

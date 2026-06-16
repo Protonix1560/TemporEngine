@@ -16,7 +16,7 @@
 
 
 
-AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI) : mrLogger(rLogger), mrResReg(rRegReg), mrHWLI(rHWLI) {}
+AssetStore::AssetStore(Logger logger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI) : mLogger(logger), mrResReg(rRegReg), mrHWLI(rHWLI) {}
 
 
 AssetStore::~AssetStore() noexcept {}
@@ -44,7 +44,7 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
 
         auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(ptrExp.value(), sizeExp.value());
         if (gltfDataExp.error() != fastgltf::Error::None) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << "FastGLTF error: " << fastgltf::getErrorMessage(gltfDataExp.error()) << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "FastGLTF error: " << fastgltf::getErrorMessage(gltfDataExp.error()) << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);
         }
         auto& gltfData = gltfDataExp.get();
@@ -53,7 +53,7 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
         // TODO: add support for in-memory binary chunks
         auto gltfLibraryExp = gltfParser.loadGltfBinary(gltfData, "");
         if (gltfLibraryExp.error() != fastgltf::Error::None) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << "FastGLTF error: " << fastgltf::getErrorMessage(gltfLibraryExp.error()) << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "FastGLTF error: " << fastgltf::getErrorMessage(gltfLibraryExp.error()) << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);
         }
         auto& gltfLibrary = gltfLibraryExp.get();
@@ -148,7 +148,7 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
         return handle;
     
     } catch (const std::runtime_error& e) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << e.what() << "\n";
         return unexpected(TPR_UNKNOWN_ERROR);
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);

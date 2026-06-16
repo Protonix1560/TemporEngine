@@ -11,6 +11,7 @@
 #include "set_key.hpp"
 #include "plugin_core_extender.hpp"
 #include "sparse_set.hpp"
+#include "logger.hpp"
 
 #include <stdint.h>
 #include <unordered_map>
@@ -18,9 +19,6 @@
 #include <xxhash.h>
 
 
-
-// from "logger.hpp"
-class Logger;
 
 // from "settings.hpp"
 class Settings;
@@ -32,7 +30,7 @@ class ResourceRegistry;
 class SceneGraph {
 
     public:
-        SceneGraph(Logger& rLogger, Settings& rSettings, ResourceRegistry& rResReg);
+        SceneGraph(Logger logger, Settings& rSettings, ResourceRegistry& rResReg);
         ~SceneGraph() noexcept;
 
         expected<TprComponent, TprResult> createComponent(uint32_t componentSize) noexcept;
@@ -76,7 +74,7 @@ class SceneGraph {
             TprComponentWrapper component;
         };
 
-        Logger& mrLogger;
+        Logger mLogger;
         Settings& mrSettings;
         ResourceRegistry& mrResReg;
 

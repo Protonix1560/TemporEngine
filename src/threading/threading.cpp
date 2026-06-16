@@ -35,6 +35,7 @@ void shortThread(std::stop_token stop, std::reference_wrapper<Queue> queueWrappe
                     std::lock_guard<std::mutex> lock(job.entry->mutex);
                     threadLocalJobInfo.job = job.entry->id;
                     job.entry->func(job.entry->ctx);
+                    // Great Job!!!
                     threadLocalJobInfo.job.reset();
                     if (!job.entry->dependentJobs.empty()) {
                         for (auto& dependent : job.entry->dependentJobs) {
@@ -88,6 +89,7 @@ void longThread(std::stop_token stop, Job job, std::reference_wrapper<Queue> que
             std::lock_guard<std::mutex> lock(job.entry->mutex);
             threadLocalJobInfo.job = job.entry->id;
             job.entry->func(job.entry->ctx);
+            // Great Job!!!
             threadLocalJobInfo.job.reset();
             if (!job.entry->dependentJobs.empty()) {
                 for (auto& dependent : job.entry->dependentJobs) {
@@ -159,8 +161,8 @@ expected<std::chrono::nanoseconds, const char*> parse_duration(std::string_view 
 }
 
 
-Threading::Threading(Logger& rLogger, Settings& rSett) : mrLogger(rLogger), mrSett(rSett) {
-    auto shortPoolSize = mrSett.createSettingIntegerOr("shortThreadPoolSize", 0);
+Threading::Threading(Logger logger, Settings& rSett) : mLogger(logger), mrSett(rSett) {
+    auto shortPoolSize = mrSett.createSettingIntegerOr("shortPoolSize", 0);
     if (shortPoolSize < 0) shortPoolSize = 0;
     if (shortPoolSize > UINT32_MAX) shortPoolSize = 0;
 
@@ -171,20 +173,20 @@ Threading::Threading(Logger& rLogger, Settings& rSett) : mrLogger(rLogger), mrSe
     if (shortPoolSize == 0) {
         shortPoolSize = std::thread::hardware_concurrency();
         if (shortPoolSize == 0) {
-            mrLogger.warn(TPR_LOG_STYLE_WARN1) << logPrxThrd() << "Failed to get thread count\n";
+            mLogger.warn(TPR_LOG_STYLE_WARN1) << "Failed to get thread count\n";
             shortPoolSize = threadCountFallback;
         }
     }
 
-    auto threadCountFactor = mrSett.createSettingDoubleOr("threadCountFactor", 1.0);
-    if (threadCountFactor <= 0.0) threadCountFactor = 1.0;
-    shortPoolSize = std::ceil(shortPoolSize * threadCountFactor);
+    auto shortPoolFactor = mrSett.createSettingDoubleOr("shortPoolFactor", 1.0);
+    if (shortPoolFactor <= 0.0) shortPoolFactor = 1.0;
+    shortPoolSize = std::ceil(shortPoolSize * shortPoolFactor);
 
-    auto threadCountBias = mrSett.createSettingIntegerOr("threadCountBias", -1);
-    shortPoolSize = std::max(int64_t{1}, shortPoolSize + threadCountBias);
+    auto shortPoolBias = mrSett.createSettingIntegerOr("shortPoolBias", -1);
+    shortPoolSize = std::max(int64_t{1}, shortPoolSize + shortPoolBias);
 
     mShortPoolSize = shortPoolSize;
-    mrLogger << logPrxThrd() << "Using short pool size = " << mShortPoolSize << "\n";
+    mLogger.info() << "Using short pool size = " << mShortPoolSize << "\n";
 
     mThreadTotalTimeout = parse_duration(
         mrSett.createSettingStringOr("threadTotalTimeout", "200ms")
@@ -200,7 +202,7 @@ Threading::Threading(Logger& rLogger, Settings& rSett) : mrLogger(rLogger), mrSe
         auto* thread = mShortPool.emplace_back(std::make_unique<Thread>()).get();
         thread->id = mThreadCounter;
         thread->thread = std::jthread(shortThread, std::ref(*mQueue.get()), std::ref(thread->state));
-        mrLogger.trace() << logPrxThrd() << "Created short thread " << mThreadCounter << "\n";
+        mLogger.trace() << "Created short thread " << mThreadCounter << "\n";
         mThreadCounter++;
     }
 }
@@ -223,14 +225,14 @@ void Threading::update() {
         auto now = std::chrono::steady_clock::now();
         if (now - thread->jobBegin.load() > mShortThreadMigrationTimeout) {
             if (thread->state.load() == ThreadState::Working) {
-                mrLogger.debug() << logPrxThrd() << "Short thread " << thread->id << " is working overtime; moving it to long threads\n";
+                mLogger.debug() << "Short thread " << thread->id << " is working overtime; moving it to long threads\n";
                 thread->thread.request_stop();
                 mLongThreads.emplace_back(std::move(thread));
                 // creating a new short thread in place of the moved thread
                 thread = std::make_unique<Thread>();
                 thread->id = mThreadCounter;
                 thread->thread = std::jthread(shortThread, std::ref(*mQueue.get()), std::ref(thread->state));
-                mrLogger.trace() << logPrxThrd() << "Created short thread " << mThreadCounter << "\n";
+                mLogger.trace() << "Created short thread " << mThreadCounter << "\n";
                 mThreadCounter++;
             }
         }
@@ -239,7 +241,7 @@ void Threading::update() {
     for (auto it = mLongThreads.begin(); it != mLongThreads.end();) {
         auto& thread = *it->get();
         if (thread.state.load() == ThreadState::Finished) {
-            mrLogger.trace() << logPrxThrd() << "Long thread " << thread.id << " finished\n";
+            mLogger.trace() << "Long thread " << thread.id << " finished\n";
             it = mLongThreads.erase(it);
         } else {
             it++;
@@ -253,7 +255,7 @@ void Threading::joinAll() noexcept {
     std::lock_guard<std::mutex> lock(mMutex);
     if (!mUsable) return;
     mUsable = false;
-    mrLogger.debug() << logPrxThrd() << "Requesting all threads to stop\n";
+    mLogger.debug() << "Requesting all threads to stop\n";
     for (auto& thread : mShortPool) {
         thread->thread.request_stop();
     }
@@ -261,23 +263,23 @@ void Threading::joinAll() noexcept {
         thread->thread.request_stop();
     }
     mQueue->notifyAll();
-    mrLogger.debug() << logPrxThrd() << "Waiting total thread timeout\n";
+    mLogger.debug() << "Waiting total thread timeout\n";
     std::this_thread::sleep_for(mThreadTotalTimeout);
-    mrLogger << logPrxThrd() << "Joining threads\n";
-    mrLogger.debug() << logPrxThrd() << "Joining short threads\n";
+    mLogger.info() << "Joining threads\n";
+    mLogger.debug() << "Joining short threads\n";
     for (auto& thread : mShortPool) {
         if (thread->state.load() != ThreadState::Finished) {
-            mrLogger.warn(TPR_LOG_STYLE_WARN1) << logPrxThrd() << "Short thread " << thread->id << " didn't stop on time!\n";
+            mLogger.warn(TPR_LOG_STYLE_WARN1) << "Short thread " << thread->id << " didn't stop on time!\n";
         }
-        mrLogger.trace() << logPrxThrd() << "Calling join on short thread " << thread->id << "\n";
+        mLogger.trace() << "Calling join on short thread " << thread->id << "\n";
         if (thread->thread.joinable()) thread->thread.join();
     }
-    if (!mLongThreads.empty()) mrLogger.debug() << logPrxThrd() << "Joining long threads\n";
+    if (!mLongThreads.empty()) mLogger.debug() << "Joining long threads\n";
     for (auto& thread : mLongThreads) {
         if (thread->state.load() != ThreadState::Finished) {
-            mrLogger.warn(TPR_LOG_STYLE_WARN1) << logPrxThrd() << "Long thread " << thread->id << " didn't stop on time!\n";
+            mLogger.warn(TPR_LOG_STYLE_WARN1) << "Long thread " << thread->id << " didn't stop on time!\n";
         }
-        mrLogger.trace() << logPrxThrd() << "Calling join on long thread " << thread->id << "\n";
+        mLogger.trace() << "Calling join on long thread " << thread->id << "\n";
         if (thread->thread.joinable()) thread->thread.join();
     }
     mShortPool.clear();
@@ -309,8 +311,8 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
             Job job{&entry};
             
             float priority = std::clamp(pInfo->priority, 0.0f, 1.0f);
-            if (priority != pInfo->priority) mrLogger.warn(TPR_LOG_STYLE_WARN1)
-                << logPrxThrd() << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
+            if (priority != pInfo->priority) mLogger.warn(TPR_LOG_STYLE_WARN1)
+                << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
             
             entry.id = mJobCounter++;
             entry.type = pInfo->type;
@@ -339,7 +341,7 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
                 auto* thread = mLongThreads.emplace_back(std::make_unique<Thread>()).get();
                 thread->id = mThreadCounter;
                 thread->thread = std::jthread(longThread, job, std::ref(*mQueue.get()), std::ref(thread->state));
-                mrLogger.trace() << logPrxThrd() << "Created long thread " << mThreadCounter << "\n";
+                mLogger.trace() << "Created long thread " << mThreadCounter << "\n";
                 mThreadCounter++;
             }
         }
@@ -366,8 +368,8 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
             Job job{&entry};
 
             float priority = std::clamp(pInfo->priority, 0.0f, 1.0f);
-            if (priority != pInfo->priority) mrLogger.warn(TPR_LOG_STYLE_WARN1)
-                << logPrxThrd() << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
+            if (priority != pInfo->priority) mLogger.warn(TPR_LOG_STYLE_WARN1)
+                << "Clamping out-of-bounds priority " << pInfo->priority << " to " << priority << "\n";
 
             entry.id = mJobCounter++;
             entry.type = pInfo->type;
@@ -399,7 +401,7 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
                 auto* thread = mLongThreads.emplace_back(std::make_unique<Thread>()).get();
                 thread->id = mThreadCounter;
                 thread->thread = std::jthread(longThread, job, std::ref(*mQueue.get()), std::ref(thread->state));
-                mrLogger.trace() << logPrxThrd() << "Created long thread " << mThreadCounter << "\n";
+                mLogger.trace() << "Created long thread " << mThreadCounter << "\n";
                 mThreadCounter++;
             }
         }

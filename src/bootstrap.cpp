@@ -52,11 +52,11 @@ int main(int argc, char* argv[]) {
             0, "help", 0, nullptr, "Shows advanced help message"
         );
         auto root_v = parser.define_flag(
-            'v', {}, 0, nullptr, "Sets runtime log verbosity. -v: 3, -vv: 4, -vvv: 5"
+            'v', {}, 0, nullptr, "Sets runtime log verbosity. -v: 4, -vv: 5, -vvv: 6"
         );
         auto root_verbose = parser.define_flag(
             0, "verbose", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr,
-            "Sets runtime log verbosity [0-5]. Overrides -v"
+            "Sets runtime log verbosity [0, 6]. Overrides -v"
         );
         auto root_config = parser.define_flag(
             'c', "config", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr, "Sets path to config file"
@@ -86,16 +86,16 @@ int main(int argc, char* argv[]) {
         }
 
         if (root_v.count() == 1) {
-            verbose_level = 3;
-        } else if (root_v.count() == 2) {
             verbose_level = 4;
-        } else if (root_v.count() >= 3) {
+        } else if (root_v.count() == 2) {
             verbose_level = 5;
+        } else if (root_v.count() >= 3) {
+            verbose_level = 6;
         }
         if (root_verbose.present()) {
             verbose_level = root_verbose.value_last<size_t>();
-            if (verbose_level > 5) {
-                std::fprintf(stderr, "Verbose value %zu is not in [0, 5]\n", verbose_level);
+            if (verbose_level > 6) {
+                std::fprintf(stderr, "Verbose value %zu is not in [0, 6]\n", verbose_level);
                 return 1;
             }
         }

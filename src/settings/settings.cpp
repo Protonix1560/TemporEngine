@@ -14,8 +14,8 @@
 namespace sj = simdjson;
 
 
-Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::filesystem::path confPath, bool flushConfig)
-    : mrLogger(rLogger), mrResReg(rResReg), mFlushConfig(flushConfig) {
+Settings::Settings(Logger logger, ResourceRegistry& rResReg, std::filesystem::path confPath, bool flushConfig)
+    : mLogger(logger), mrResReg(rResReg), mFlushConfig(flushConfig) {
 
     if (confPath.empty()) {
         confPath = "config.json";
@@ -25,11 +25,11 @@ Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::filesystem::
     if (!confExp.has_value()) return;
     mConfPath = confExp.value();
 
-    mrLogger.debug() << logPrxSett() << "Found config file at \"" << mConfPath.string() << "\"\n";
+    mLogger.debug() << "Found config file at \"" << mConfPath.string() << "\"\n";
 
     auto openExp = mrResReg.openResource(mConfPath);
     if (!openExp.has_value()) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to open config file [" << openExp.error() << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open config file [" << openExp.error() << "]\n";
         return;
     }
     TprResource confRes = openExp.value();
@@ -47,7 +47,7 @@ Settings::Settings(Logger& rLogger, ResourceRegistry& rResReg, std::filesystem::
     if (mJsonData.has_value()) {
         auto docExp = mJsonData->parser.parse(mJsonData->data);
         if (!docExp.has_value()) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to parse config file: " << docExp.error() << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to parse config file: " << docExp.error() << "\n";
             mJsonData.reset();
         } else {
             mJsonData->root = docExp.value();
@@ -117,8 +117,8 @@ expected<TprSetting, TprResult> Settings::createSetting(std::string_view name) n
             mSettingCount++;
 
             if (mJsonData.has_value()) {
-                auto l = mrLogger.debug();
-                l << logPrxSett() << "Read setting " << name;
+                auto l = mLogger.debug();
+                l << "Read setting " << name;
                 std::visit(overload{
                     [&l](const double& value) { l << " = " << value; },
                     [&l](const int64_t& value) { l << " = " << value; },
@@ -129,15 +129,15 @@ expected<TprSetting, TprResult> Settings::createSetting(std::string_view name) n
                 }, setting.data);
                 l << "\n";
             } else {
-                mrLogger.debug() << logPrxSett() << "Created setting " << name << "\n";
+                mLogger.debug() << "Created setting " << name << "\n";
             }
         }
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 
@@ -176,10 +176,10 @@ expected<TprSettingType, TprResult> Settings::getSettingType(TprSetting setting)
             [](const std::string& value) { return TPR_SETTING_TYPE_STRING; }
         }, setting.data);
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -193,10 +193,10 @@ expected<double, TprResult> Settings::getSettingDouble(TprSetting setting) noexc
         if (!std::holds_alternative<double>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<double>(setting.data);
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -210,10 +210,10 @@ expected<int64_t, TprResult> Settings::getSettingInteger(TprSetting setting) noe
         if (!std::holds_alternative<int64_t>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<int64_t>(setting.data);
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -240,10 +240,10 @@ expected<uint32_t, TprResult> Settings::getSettingStringSize(TprSetting setting)
         if (!std::holds_alternative<std::string>(setting.data)) return unexpected(TPR_WRONG_TYPE);
         return std::get<std::string>(setting.data).size() + 1;  // to include null-terminator
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -259,10 +259,10 @@ TprResult Settings::copySettingString(TprSetting setting, char* pData) noexcept 
         std::strncpy(pData, s.data(), s.size());
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -277,10 +277,10 @@ TprResult Settings::setSettingDouble(TprSetting setting, double data) noexcept {
         flush();
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -295,10 +295,10 @@ TprResult Settings::setSettingInteger(TprSetting setting, int64_t data) noexcept
         flush();
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -313,10 +313,10 @@ TprResult Settings::setSettingBool(TprSetting setting, TprBool8 data) noexcept {
         flush();
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -331,10 +331,10 @@ TprResult Settings::setSettingString(TprSetting setting, const char* pData) noex
         flush();
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -349,10 +349,10 @@ TprResult Settings::setSettingNull(TprSetting setting) noexcept {
         flush();
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -367,10 +367,10 @@ TprResult Settings::unsetSetting(TprSetting setting) noexcept {
         flush();
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -385,10 +385,10 @@ double Settings::getSettingDoubleOr(TprSetting setting, double fallback) noexcep
         if (!std::holds_alternative<double>(setting.data)) return fallback;
         return std::get<double>(setting.data);
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -402,10 +402,10 @@ int64_t Settings::getSettingIntegerOr(TprSetting setting, int64_t fallback) noex
         if (!std::holds_alternative<int64_t>(setting.data)) return fallback;
         return std::get<int64_t>(setting.data);
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -419,10 +419,10 @@ TprBool8 Settings::getSettingBoolOr(TprSetting setting, TprBool8 fallback) noexc
         if (!std::holds_alternative<bool>(setting.data)) return fallback;
         return std::get<bool>(setting.data);
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxSett() << "Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1) << "Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -435,11 +435,11 @@ void Settings::flush() {
     auto confExp = mrResReg.matchFile(mConfPath);
     auto confPath = confExp.has_value() ? confExp.value() : "config.json";
 
-    mrLogger.debug() << logPrxSett() << "Writing config file to \"" << confPath.string() << "\"\n";
+    mLogger.debug() << "Writing config file to \"" << confPath.string() << "\"\n";
 
     auto openExp = mrResReg.openResource(confPath, TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT | TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT);
     if (!openExp.has_value()) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to open config file [" << openExp.error() << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open config file [" << openExp.error() << "]\n";
     }
     TprResource confRes = openExp.value();
 
@@ -480,14 +480,14 @@ void Settings::flush() {
         std::memcpy(data, dataString.data(), dataString.size());
     } else {
         mrResReg.closeResource(confRes);
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxSett() << "Failed to write to config file [" << dataExp.error() << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to write to config file [" << dataExp.error() << "]\n";
     }
     mrResReg.closeResource(confRes);
 }
 
 
 void Settings::finalizeRead() {
-    mrLogger.debug() << logPrxSett() << "Finalizing read from config file\n";
+    mLogger.debug() << "Finalizing read from config file\n";
     mJsonData.reset();
 }
 

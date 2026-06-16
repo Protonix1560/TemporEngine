@@ -6,6 +6,7 @@
 #include "plugin_core.h"
 #include "core.hpp"
 #include "hash.hpp"
+#include "logger.hpp"
 
 #include <mio/mmap.hpp>
 #include <elfio/elfio.hpp>
@@ -243,9 +244,6 @@ using mmap_byte_sink = mio::basic_mmap_sink<std::byte>;
 using mmap_byte_source = mio::basic_mmap_source<std::byte>;
 
 
-// from "logger.hpp"
-class Logger;
-
 
 struct ResourceBase {
     uint32_t refCount = 1;
@@ -289,7 +287,7 @@ class ResourceRegistry {
 
     public:
 
-        ResourceRegistry(Logger& rLogger);
+        ResourceRegistry(Logger logger);
         ~ResourceRegistry() noexcept;
 
         expected<TprResource, TprResult> openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags = 0) noexcept;
@@ -312,7 +310,7 @@ class ResourceRegistry {
 
     private:
 
-        Logger& mrLogger;
+        Logger mLogger;
 
         std::mutex mMutex;
 

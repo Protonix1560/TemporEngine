@@ -72,7 +72,7 @@ struct HardwareLayerManifest {
 
     GraphicsBackend graphicsBackend;
     std::function<expected<PHardwareLayer, TprResult>(
-        Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSet, SceneGraph& rScGr, TprComponent componentRenderable,
+        Logger logger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSet, SceneGraph& rScGr, TprComponent componentRenderable,
         uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
     )> factory;
     std::string name;

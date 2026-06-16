@@ -30,7 +30,7 @@ class HardwareLayer;
 class WindowManager {
 
     public:
-        WindowManager(GraphicsBackend graphicsBackend, Logger& logger, std::atomic<int32_t>& rAliveTokens);
+        WindowManager(GraphicsBackend graphicsBackend, Logger logger, std::atomic<int32_t>& rAliveTokens);
         ~WindowManager() noexcept;
         WindowManager(const WindowManager& other) = delete;
         void update();
@@ -75,7 +75,7 @@ class WindowManager {
             std::unordered_map<uint32_t, Action> actions;
         };
 
-        Logger& mrLogger;
+        Logger mLogger;
         std::atomic<int32_t>& mrAliveTokens;
 
         Uint32 mWindowFlags = 0;

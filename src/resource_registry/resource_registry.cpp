@@ -14,7 +14,7 @@
 
 
 
-ResourceRegistry::ResourceRegistry(Logger& rLogger) : mrLogger(rLogger) {}
+ResourceRegistry::ResourceRegistry(Logger logger) : mLogger(logger) {}
 
 ResourceRegistry::~ResourceRegistry() noexcept {}
 
@@ -97,7 +97,7 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
 
             mResources.try_emplace(mResourceCounter, std::move(resource));
             mHandles.try_emplace(mHandleCounter, handle);
-            mrLogger.debug() << logPrxRReg() << "Adding " << filepath << " to the registry\n";
+            mLogger.debug()  << "Adding " << filepath << " to the registry\n";
             mFileResourceCache.try_emplace(fkey, mResourceCounter);
 
             h = construct_basic_handle<TprResource>(mHandleCounter, 0, handle_type::resource);
@@ -107,7 +107,7 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
         } else {
             auto resIt = mResources.find(it->second);
             if (resIt == mResources.end()) {
-                mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+                mLogger.error(TPR_LOG_STYLE_PANIC1) 
                     << "openFileResource: Corrupted internal structures: id " << it->second << " for file \"" << filepath << "\""
                     << " from mFileResourceCache does not appear in mResources\n";
                 return unexpected(TPR_PANIC);
@@ -151,10 +151,10 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem:
         return h;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openFileResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openFileResource: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openFileResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openFileResource: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -187,10 +187,10 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, Tpr
         return h;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openEmptyResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openEmptyResource: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openEmptyResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openEmptyResource: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -221,10 +221,10 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin
         return h;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openReferenceResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openReferenceResource: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openReferenceResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openReferenceResource: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -255,10 +255,10 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(const std::byte*
         return h;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openViewResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openViewResource: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openViewResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openViewResource: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -285,7 +285,7 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(
 
         auto protRes = mResources.find(protHandle.resource);
         if (protRes == mResources.end()) {
-            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+            mLogger.error(TPR_LOG_STYLE_PANIC1) 
                 << "openCapabilityResource: Corrupted internal structures: handle["
                 << protIt->first << "].resource[" << protHandle.resource << "] does not appear in mResources\n";
             return unexpected(TPR_PANIC);
@@ -298,10 +298,10 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(
         return h;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openCapabilityResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openCapabilityResource: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "openCapabilityResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "openCapabilityResource: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -340,11 +340,11 @@ void ResourceRegistry::closeResource(TprResource h) noexcept {
         if (resource.refCount == 0) {
             std::visit(overload{
                 [this](ResourceROFile& r) {
-                    mrLogger.debug() << logPrxRReg() << "Removing \"" << r.path.string() << "\" from the registry\n";
+                    mLogger.debug()  << "Removing \"" << r.path.string() << "\" from the registry\n";
                     mFileResourceCache.erase(file_cache_key(r.path));
                 },
                 [this](ResourceRWFile& r) {
-                    mrLogger.debug() << logPrxRReg() << "Removing \"" << r.path.string() << "\" from the registry\n";
+                    mLogger.debug()  << "Removing \"" << r.path.string() << "\" from the registry\n";
                     mFileResourceCache.erase(file_cache_key(r.path));
                 },
                 [](auto& r) {}
@@ -366,7 +366,7 @@ expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource h) no
 
         auto resIt = mResources.find(handleIt->second.resource);
         if (resIt == mResources.end()) {
-            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+            mLogger.error(TPR_LOG_STYLE_PANIC1) 
                 << "sizeofResource: Corrupted internal structures: handle["
                 << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
             return unexpected(TPR_PANIC);
@@ -396,10 +396,10 @@ expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource h) no
         return size;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "sizeofResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "sizeofResource: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "sizeofResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "sizeofResource: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -419,7 +419,7 @@ TprResult ResourceRegistry::resizeResource(TprResource h, size_t newSize) noexce
 
         auto resIt = mResources.find(handleIt->second.resource);
         if (resIt == mResources.end()) {
-            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+            mLogger.error(TPR_LOG_STYLE_PANIC1) 
                 << "sizeofResource: Corrupted internal structures: handle["
                 << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
             return TPR_PANIC;
@@ -451,10 +451,10 @@ TprResult ResourceRegistry::resizeResource(TprResource h, size_t newSize) noexce
         return visitResult;
         
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "resizeResource: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "resizeResource: Exception: " << e.what() << "\n";
         return TPR_PANIC;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "resizeResource: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "resizeResource: Unknown exception\n";
         return TPR_PANIC;
     }
 }
@@ -474,7 +474,7 @@ expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(
 
         auto resIt = mResources.find(handleIt->second.resource);
         if (resIt == mResources.end()) {
-            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+            mLogger.error(TPR_LOG_STYLE_PANIC1) 
                 << "sizeofResource: Corrupted internal structures: handle["
                 << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
             return unexpected(TPR_PANIC);
@@ -504,10 +504,10 @@ expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(
         return data;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceConstPointer: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "getResourceConstPointer: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceConstPointer: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "getResourceConstPointer: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -527,7 +527,7 @@ expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprR
 
         auto resIt = mResources.find(handleIt->second.resource);
         if (resIt == mResources.end()) {
-            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg()
+            mLogger.error(TPR_LOG_STYLE_PANIC1) 
                 << "sizeofResource: Corrupted internal structures: handle["
                 << handleIt->first << "].resource[" << handleIt->second.resource << "] does not appear in mResources\n";
             return unexpected(TPR_PANIC);
@@ -560,10 +560,10 @@ expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprR
         return data;
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceRawDataPointer: Exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "getResourceRawDataPointer: Exception: " << e.what() << "\n";
         return unexpected(TPR_PANIC);
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxRReg() << "getResourceRawDataPointer: Unknown exception\n";
+        mLogger.error(TPR_LOG_STYLE_PANIC1)  << "getResourceRawDataPointer: Unknown exception\n";
         return unexpected(TPR_PANIC);
     }
 }
@@ -618,7 +618,7 @@ expected<std::vector<std::filesystem::path>, TprResult> ResourceRegistry::enumDi
                     std::istream stream(&streambuf);
                     ELFIO::elfio reader;
                     if (!reader.load(stream)) {
-                        mrLogger.warn(TPR_LOG_STYLE_WARN1) << logPrxRReg() + "ELFIO: Failed to process file " << entry.path() << ". Skipping\n";
+                        mLogger.warn(TPR_LOG_STYLE_WARN1) << "ELFIO: Failed to process file " << entry.path() << ". Skipping\n";
                         continue;
                     }
 

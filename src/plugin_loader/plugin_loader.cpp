@@ -10,7 +10,7 @@
 #include <memory>
 
 
-PluginLoader::PluginLoader(Logger& rLogger, Settings& rSettings, std::atomic<int32_t>& rAliveTokens) : mrLogger(rLogger), mrSettings(rSettings), mrAliveTokens(rAliveTokens) {}
+PluginLoader::PluginLoader(Logger logger, Settings& rSettings, std::atomic<int32_t>& rAliveTokens) : mLogger(logger), mrSettings(rSettings), mrAliveTokens(rAliveTokens) {}
 
 PluginLoader::~PluginLoader() noexcept {}
 
@@ -23,7 +23,7 @@ TprResult PluginLoader::loadPlugin(const PluginLoadInfo* pLoadInfo) {
     switch (pLoadInfo->loadType) {
         case PluginLoadType::InThread: {
             pluginIt = mPlugins.try_emplace(
-                mPluginCounter, std::make_unique<PluginInThread>(mrLogger, mrAliveTokens)
+                mPluginCounter, std::make_unique<PluginInThread>(mLogger, mrAliveTokens)
             ).first;
             plugin = pluginIt->second.get();
             mPluginCounter++;

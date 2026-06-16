@@ -1,174 +1,136 @@
 
-
-#ifndef LOGGER_LOGGER_HPP_
-#define LOGGER_LOGGER_HPP_
-
-
 #include "logger.hpp"
-#include "core.hpp"
 #include "plugin_core.h"
+#include "time.hpp"
 
-#include <iostream>
-#include <iomanip>
+#include <cstdio>
+#include <string_view>
 
 
 
-inline std::string currTime() {
-    using namespace std::chrono;
-    
-    auto now = system_clock::now();
-    auto in_time_t = system_clock::to_time_t(now);
-    
-    std::tm buf;
-    #if defined(_WIN32)
-        localtime_s(&buf, &in_time_t);
-    #else
-        localtime_r(&in_time_t, &buf);
-    #endif
-
-    auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 10000;
-
-    std::ostringstream oss;
-    oss << std::put_time(&buf, "%H:%M:%S");
-    oss << '.' << std::setfill('0') << std::setw(4) << ms.count();
-
-    return oss.str();
+LogSink::LogSink(size_t verbosity) {
+    if (verbosity > maxVerbosity) verbosity = maxVerbosity;
+    mVerbosity = verbosity;
 }
 
+void LogSink::write(std::string_view msg, TprLogDestination dest, TprLogLevel level, TprLogStyle style) noexcept {
+    if (msg.empty()) return;
+    if (level > mVerbosity.load()) return;
 
+    std::lock_guard<std::mutex> lock(mMutex);
+    
+    switch (dest) {
+        case TPR_LOG_DEST_DIAGNOSTIC: {
+            std::string nsep;
+            std::string begin;
 
-void Logger::write(LogEntry& logEntry) {
-
-    if (logEntry.mBuffer.str().empty()) return;
-
-    if (logEntry.mAlways || to_underlying(logEntry.mLogLevel) <= verboseLevel.load()) {
-        std::lock_guard<std::mutex> lock(mMutex);
-        
-        auto& stream = (logEntry.mLogLevel == TPR_LOG_LEVEL_ERROR) ? std::cerr : std::cout;
-        std::string nsep;
-
-        std::string div;
-        if (mStartstampCount == 0) {
-            div = " ";
-        } else if (mStartstampCount == 1) {
-            div = "\033[2;90m`\033[0m";
-        } else if (mStartstampCount == 2) {
-            div = "\033[2;90m'\033[0m";
-        } else if (mStartstampCount == 3) {
-            div = "\033[2;90m:\033[0m";
-        } else if (mStartstampCount == 4) {
-            div = "\033[90m:\033[0m";
-        } else if (mStartstampCount == 5) {
-            div = "\033[2m;\033[0m";
-        } else if (mStartstampCount == 6) {
-            div = "!";
-        } else if (mStartstampCount >= 7) {
-            div = "|";
-        }
-
-        switch (logEntry.mLogStyle) {
-            case TPR_LOG_STYLE_2IDENT:
-                stream << div + " "; nsep = div + " "; break;
-            case TPR_LOG_STYLE_6IDENT:
-                stream << div + "     "; nsep = div + "     "; break;
-            case TPR_LOG_STYLE_TIMESTAMP1:
-                stream << div + " > [" << currTime() << "]: "; nsep = div + "   "; break;
-            case TPR_LOG_STYLE_ERROR1:
-                stream << div + "     \033[91m"; nsep = div + "     \033[91m"; break;
-            case TPR_LOG_STYLE_WARN1:
-                stream << div + "     \033[93m"; nsep = div + "     \033[93m"; break;
-            case TPR_LOG_STYLE_SUCCESS1:
-                stream << div + "     \033[102m"; nsep = div + "     \033[102m"; break;
-            case TPR_LOG_STYLE_ENDSTAMP1:
-                stream << "\033[32ml->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount--; break;
-            case TPR_LOG_STYLE_STARTSTAMP1:
-                stream << "\033[35mr->\033[0m [" << currTime() << "]: "; nsep = "    "; mStartstampCount++; break;
-            case TPR_LOG_STYLE_PANIC1:
-                stream << "\033[95m"; break;
-            case TPR_LOG_STYLE_STANDART: break;
-            case TPR_LOG_STYLE_MAX_ENUM: /* why? */ break;
-        }
-
-        if (logEntry.mLogStyle != TPR_LOG_STYLE_STANDART) {
-            std::string buffer = logEntry.mBuffer.str();
-            size_t nlinepos = 0;
-            while (nlinepos != std::string::npos) {
-                nlinepos = buffer.find('\n');
-                stream << buffer.substr(0, (nlinepos != std::string::npos) ? nlinepos + 1 : nlinepos);
-                if (nlinepos < buffer.size() - 1) stream << nsep;
-                buffer = buffer.substr(nlinepos + 1);
+            switch (style) {
+                case TPR_LOG_STYLE_2IDENT:
+                    begin = "  "; nsep = "  "; break;
+                case TPR_LOG_STYLE_6IDENT:
+                    begin = "      "; nsep = "      "; break;
+                case TPR_LOG_STYLE_TIMESTAMP1:
+                    begin = "  > [" + current_time() + "]: "; nsep = "    "; break;
+                case TPR_LOG_STYLE_ERROR1:
+                    begin = "      \033[91m"; nsep = "      "; break;
+                case TPR_LOG_STYLE_WARN1:
+                    begin =  "      \033[93m"; nsep = "      "; break;
+                case TPR_LOG_STYLE_SUCCESS1:
+                    begin = "      \033[102m"; nsep = "      "; break;
+                case TPR_LOG_STYLE_STARTSTAMP1:
+                    begin = "\033[35mr->\033[0m [" + current_time() + "]: "; nsep = "    "; break;
+                case TPR_LOG_STYLE_ENDSTAMP1:
+                    begin = "\033[32ml->\033[0m [" + current_time() + "]: "; nsep = "    "; break;
+                case TPR_LOG_STYLE_PANIC1:
+                    begin = "\033[95m"; break;
+                case TPR_LOG_STYLE_STANDART: break;
+                default: return;  // invalid enum value
             }
-        } else {
-            stream << logEntry.mBuffer.str();
+
+            if (style != TPR_LOG_STYLE_STANDART) {
+                std::string_view view = msg;
+                std::fprintf(stderr, "%s", begin.data());
+                size_t nlinepos = 0;
+                while (nlinepos != std::string_view::npos) {
+                    nlinepos = view.find('\n');
+                    if (nlinepos == std::string_view::npos) {
+                        std::fprintf(stderr, "%s", view.data());
+                        std::fprintf(stderr, "\n");
+                    } else {
+                        std::fprintf(stderr, "%s", view.substr(0, nlinepos + 1).data());
+                        view = view.substr(nlinepos + 1);
+                        if (!view.empty()) {
+                            std::fprintf(stderr, "%s", nsep.data());
+                        }
+                        if (view.empty()) break;
+                    }
+                }
+            } else {
+                std::fprintf(stderr, "%s", msg.data());
+            }
+            std::fprintf(stderr, "\033[0m");
+            std::fflush(stderr);
+            break;
         }
-        stream << "\033[0m";
-        stream.flush();
+
+        case TPR_LOG_DEST_MACHINE_DATA: {
+            std::fprintf(stdout, "%s", msg.data());
+            std::fflush(stdout);
+            break;
+        }
+
+        default:
+            return;  // invalid enum value
     }
 }
 
-void Logger::setVerbosityLevel(size_t level) {
-    verboseLevel.store(level);
+Logger LogSink::createLogger(std::string_view name) {
+    return Logger(*this, name);
 }
 
-LogEntry Logger::operator()(TprLogLevel logLevel, TprLogStyle logStyle) {
-    return LogEntry(*this, logLevel, logStyle);
+size_t LogSink::verbosity() const {
+    return mVerbosity.load();
 }
 
-LogEntry Logger::log(TprLogLevel logLevel, TprLogStyle logStyle) {
-    return LogEntry(*this, logLevel, logStyle);
-}
-
-LogEntry Logger::error(TprLogStyle logStyle) {
-    return LogEntry(*this, TPR_LOG_LEVEL_ERROR, logStyle);
-}
-
-LogEntry Logger::warn( TprLogStyle logStyle) {
-    return LogEntry(*this, TPR_LOG_LEVEL_WARN, logStyle);
-}
-
-LogEntry Logger::info(TprLogStyle logStyle) {
-    return LogEntry(*this, TPR_LOG_LEVEL_INFO, logStyle);
-}
-
-LogEntry Logger::debug(TprLogStyle logStyle) {
-    return LogEntry(*this, TPR_LOG_LEVEL_DEBUG, logStyle);
-}
-
-LogEntry Logger::trace(TprLogStyle logStyle) {
-    return LogEntry(*this, TPR_LOG_LEVEL_TRACE, logStyle);
-}
-
-LogEntry Logger::always(TprLogLevel logLevel, TprLogStyle logStyle) {
-    LogEntry logEntry = LogEntry(*this, logLevel, logStyle);
-    logEntry.mAlways = true;
-    return logEntry;
+void LogSink::setVerbosity(size_t verbosity) {
+    if (verbosity > maxVerbosity) verbosity = maxVerbosity;
+    mVerbosity.store(verbosity);
 }
 
 
 
-LogEntry::LogEntry(LogEntry&& other)
-    : mrLogger(other.mrLogger), mLogLevel(other.mLogLevel), mLogStyle(other.mLogStyle) {
-    std::lock_guard<std::mutex> lock(other.mMutex);
-    mBuffer << other.mBuffer.str();
-    other.mBuffer.str("");
-    other.mBuffer.clear();
+Logger::Logger(LogSink& rSink, std::string_view prefix) : mrSink(rSink), mPrefix(prefix) {}
+
+LogEntry Logger::operator()(TprLogLevel level, TprLogStyle style) const {
+    return LogEntry(mrSink, mPrefix, level, style);
 }
 
-LogEntry::LogEntry(Logger& rLogger, TprLogLevel logLevel, TprLogStyle logStyle)
-    : mrLogger(rLogger), mLogLevel(logLevel), mLogStyle(logStyle) {
+Logger Logger::derive(const std::string& prefix) const {
+    return Logger(mrSink, mPrefix + prefix);
 }
 
-void LogEntry::flush()  {
-    std::lock_guard<std::mutex> lock(mMutex);
-    mrLogger.write(*this);
-    mBuffer.str("");
-    mBuffer.clear();
+LogEntry Logger::panic(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_PANIC, style); }
+LogEntry Logger::error(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_ERROR, style); }
+LogEntry Logger::warn(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_WARN, style); }
+LogEntry Logger::info(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_INFO, style); }
+LogEntry Logger::debug(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_DEBUG, style); }
+LogEntry Logger::trace(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_TRACE, style); }
+
+
+
+LogEntry::LogEntry(LogSink& rSink, std::string_view prefix, TprLogLevel level, TprLogStyle style) : mrSink(rSink), mLevel(level), mStyle(style) {
+    if (mrSink.verbosity() < level) mDummy = true;
+    if (!mDummy) mBuffer << prefix;
 }
 
 LogEntry::~LogEntry() {
     flush();
 }
 
-
-
-#endif  // LOGGER_LOGGER_HPP_
+void LogEntry::flush() {
+    if (!mDummy) {
+        mrSink.write(mBuffer.str(), TPR_LOG_DEST_DIAGNOSTIC, mLevel, mStyle);
+        mBuffer.str("");
+        mBuffer.clear();
+    }
+}

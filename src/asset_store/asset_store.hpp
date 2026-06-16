@@ -7,6 +7,7 @@
 #include "plugin_core.h"
 #include "core.hpp"
 #include "common.hpp"
+#include "logger.hpp"
 
 #include <unordered_map>
 
@@ -24,7 +25,7 @@ class HardwareLayer;
 class AssetStore {
 
     public:
-        AssetStore(Logger& rLogger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI);
+        AssetStore(Logger logger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI);
         ~AssetStore() noexcept;
 
         expected<TprMesh, TprResult> createMesh(const TprMeshCreateInfo* info) noexcept;
@@ -36,7 +37,7 @@ class AssetStore {
 
     private:
 
-        Logger& mrLogger;
+        Logger mLogger;
         ResourceRegistry& mrResReg;
         HardwareLayer& mrHWLI;
 

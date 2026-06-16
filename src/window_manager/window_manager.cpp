@@ -16,24 +16,24 @@
 
 
 
-WindowManager::WindowManager(GraphicsBackend backend, Logger& logger, std::atomic<int32_t>& rAliveTokens) : mrLogger(logger), mrAliveTokens(rAliveTokens) {
+WindowManager::WindowManager(GraphicsBackend backend, Logger logger, std::atomic<int32_t>& rAliveTokens) : mLogger(logger), mrAliveTokens(rAliveTokens) {
 
     if (SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "Failed to initialze SDL subsystem VIDEO" << "\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to initialze SDL subsystem VIDEO" << "\n";
     }
     
     switch (backend) {
         case GraphicsBackend::None:
-            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << logPrxWinM() << "Initializing window manager without a graphics backend\n";
+            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager without a graphics backend\n";
             break;
 
         case GraphicsBackend::Unknown:
-            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << logPrxWinM() << "Initializing window manager with an unknown graphics backend\n";
+            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with an unknown graphics backend\n";
             break;
 
         case GraphicsBackend::Vulkan:
             mWindowFlags |= SDL_WINDOW_VULKAN;
-            mrLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << logPrxWinM() << "Initializing window manager with Vulkan\n";
+            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing window manager with Vulkan\n";
             break;
     }
 
@@ -189,14 +189,14 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
 
         if (!window.window) {
             const char* msg = SDL_GetError();
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "SDL_CreateWindow failed:\n" << msg << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "SDL_CreateWindow failed:\n" << msg << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);
         }
 
         window.id = SDL_GetWindowID(window.window);
         if (window.id == 0) {
             const char* msg = SDL_GetError();
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "SDL_GetWindowID failed:\n" << msg << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "SDL_GetWindowID failed:\n" << msg << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);
         }
 
@@ -204,7 +204,7 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
 
 
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << "Failed to create window\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to create window\n";
         return unexpected(TPR_UNKNOWN_ERROR);
     }
 
@@ -212,7 +212,7 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
 
     mrAliveTokens++;
 
-    mrLogger.debug() << logPrxWinM() << "Opened window " << index << "\n";
+    mLogger.debug() << "Opened window " << index << "\n";
 
     return window.handle;
 }
@@ -234,7 +234,7 @@ void WindowManager::destroyWindow(Window& window) noexcept {
     for (auto& [index, action] : window.actions) {
         mActionMap.erase(index);
     }
-    mrLogger.debug() << logPrxWinM() << "Closed window " << window.index << "\n";
+    mLogger.debug() << "Closed window " << window.index << "\n";
     mrAliveTokens--;
 }
 
@@ -322,7 +322,7 @@ void WindowManager::update() {
         switch (event.type) {
 
             case SDL_QUIT:
-                mrLogger.debug() << logPrxWinM() << "Got SDL_QUIT\n";
+                mLogger.debug() << "Got SDL_QUIT\n";
                 for (auto& [index, window] : mWindows) {
                     destroyWindow(window);
                 }
@@ -422,7 +422,7 @@ expected<VkSurfaceKHR, TprResult> WindowManager::createSurfaceVk(TprWindow handl
     const Window& window = it->second;
     VkSurfaceKHR surface;
     if (!SDL_Vulkan_CreateSurface(window.window, instance, &surface)) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxWinM() << SDL_GetError() << "\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << SDL_GetError() << "\n";
         return unexpected(TPR_UNKNOWN_ERROR);;
     }
     return surface;

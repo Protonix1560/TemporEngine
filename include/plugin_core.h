@@ -32,11 +32,11 @@ typedef uint32_t TprFlag_T;
 // enums
 
 typedef enum TprLogStyle {
-    TPR_LOG_STYLE_2IDENT = 0,
+    TPR_LOG_STYLE_STANDART = 0,
     TPR_LOG_STYLE_TIMESTAMP1 = 1,
     TPR_LOG_STYLE_ERROR1 = 2,
     TPR_LOG_STYLE_WARN1 = 3,
-    TPR_LOG_STYLE_STANDART = 4,
+    TPR_LOG_STYLE_2IDENT = 4,
     TPR_LOG_STYLE_SUCCESS1 = 5,
     TPR_LOG_STYLE_ENDSTAMP1 = 6,
     TPR_LOG_STYLE_STARTSTAMP1 = 7,
@@ -46,14 +46,20 @@ typedef enum TprLogStyle {
 } TprLogStyle;
 
 typedef enum TprLogLevel {
-    TPR_LOG_LEVEL_QUIET = 0,
-    TPR_LOG_LEVEL_INFO = 1,
+    TPR_LOG_LEVEL_PANIC = 1,
     TPR_LOG_LEVEL_ERROR = 2,
     TPR_LOG_LEVEL_WARN = 3,
-    TPR_LOG_LEVEL_DEBUG = 4,
-    TPR_LOG_LEVEL_TRACE = 5,
+    TPR_LOG_LEVEL_INFO = 4,
+    TPR_LOG_LEVEL_DEBUG = 5,
+    TPR_LOG_LEVEL_TRACE = 6,
     TPR_LOG_LEVEL_MAX_ENUM = INT32_MAX
 } TprLogLevel;
+
+typedef enum TprLogDestination {
+    TPR_LOG_DEST_DIAGNOSTIC = 0,
+    TPR_LOG_DEST_MACHINE_DATA = 1,
+    TPR_LOG_DEST_MAX_ENUM = INT32_MAX
+} TprLogDestination;
 
 typedef enum TprResult {
     TPR_SUCCESS = 0,

@@ -1,5 +1,4 @@
 
-#include "plugin.hpp"
 #include "plugin_core.h"
 #include "plugin_loader.hpp"
 #include "tempor.hpp"
@@ -7,52 +6,52 @@
 
 #pragma region log
     void TemporEngine::log_log(TprLogLevel logLevel, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->log(logLevel) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, logLevel);
     }
     void TemporEngine::log_error(const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->error(TPR_LOG_STYLE_ERROR1) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
     }
     void TemporEngine::log_warn(const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->warn(TPR_LOG_STYLE_WARN1) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
     }
     void TemporEngine::log_info(const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->info() << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_INFO);
     }
     void TemporEngine::log_debug(const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->debug() << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_DEBUG);
     }
     void TemporEngine::log_trace(const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->trace() << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_TRACE);
     }
     void TemporEngine::log_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->log(logLevel, logStyle) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, logLevel, logStyle);
     }
     void TemporEngine::log_errorStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->error(logStyle) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_ERROR, logStyle);
     }
     void TemporEngine::log_warnStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->warn(logStyle) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_WARN, logStyle);
     }
     void TemporEngine::log_infoStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->info(logStyle) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_INFO, logStyle);
     }
     void TemporEngine::log_debugStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->debug(logStyle) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_DEBUG, logStyle);
     }
     void TemporEngine::log_traceStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogger) return;
-        mpLogger->trace(logStyle) << message;
+        if (!mpLogSink) return;
+        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_TRACE, logStyle);
     }
 #pragma endregion  // log
 
@@ -479,7 +478,7 @@
             *pSetting = settingExp.value();
         } catch (...) {
             mPanic.store(true);
-            mpLogger->error(TPR_LOG_STYLE_PANIC1) << "Unexpected exception at api.conf.createSetting\n";
+            mLogger->error(TPR_LOG_STYLE_PANIC1) << "Unexpected exception at api.conf.createSetting\n";
             return TPR_PANIC;
         }
         return TPR_SUCCESS;
@@ -728,7 +727,7 @@
             if (!jobIdExp.has_value()) {
                 // for some reason Job that was just created is invalid
                 mPanic.store(true);
-                mpLogger->error(TPR_LOG_STYLE_PANIC1) << "Corrupted memory: Threading.getJobID\n";
+                mLogger->error(TPR_LOG_STYLE_PANIC1) << "Corrupted memory: Threading.getJobID\n";
                 return TPR_PANIC;
             }
             mJobPluginMap.try_emplace(jobIdExp.value(), pluginIdExp.value());

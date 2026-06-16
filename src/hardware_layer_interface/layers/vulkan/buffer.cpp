@@ -6,10 +6,10 @@
 
 
 Buffer::Buffer(
-    Logger& rLogger, VulkanSymbols& rSym, Allocator& rAlloc, VkPhysicalDevice physicalDevice, VkDevice device, VkDeviceSize size,
+    Logger logger, VulkanSymbols& rSym, Allocator& rAlloc, VkPhysicalDevice physicalDevice, VkDevice device, VkDeviceSize size,
     VkBufferUsageFlags usage, VkMemoryPropertyFlags property, VkSharingMode sharingMode, std::span<uint32_t> queueFamilyIndices
 ) : BufferResources{
-    .mrLogger = rLogger, .mrSym = rSym, .mrAlloc = rAlloc, .mPhysicalDevice = physicalDevice, .mDevice = device, .mSize = size,
+    .mLogger = logger, .mrSym = rSym, .mrAlloc = rAlloc, .mPhysicalDevice = physicalDevice, .mDevice = device, .mSize = size,
     .mUsage = usage, .mProperty = property, .mSharing = sharingMode, .mQueueFamilyIndices = {queueFamilyIndices.begin(), queueFamilyIndices.end()}
 } {
 
@@ -27,7 +27,7 @@ Buffer::Buffer(
     
     result = mrSym.vkCreateBuffer(mDevice, &createInfo, nullptr, &mBuffer);
     if (result != VK_SUCCESS) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "Buffer: vkCreateBuffer failed [" << result << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Buffer: vkCreateBuffer failed [" << result << "]\n";
         throw TPR_UNKNOWN_ERROR;
     }
 
@@ -40,7 +40,7 @@ Buffer::Buffer(
 
     result = mrSym.vkBindBufferMemory(mDevice, mBuffer, mAllocation.memory, mAllocation.offset);
     if (result != VK_SUCCESS) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Buffer: vkBindBufferMemory failed [" << result << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Buffer: vkBindBufferMemory failed [" << result << "]\n";
         throw TPR_UNKNOWN_ERROR;
     }
 }
@@ -95,7 +95,7 @@ TprResult Buffer::reallocate(VkDeviceSize newSize) {
     
     result = mrSym.vkCreateBuffer(mDevice, &createInfo, nullptr, &mBuffer);
     if (result != VK_SUCCESS) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << "Buffer: vkCreateBuffer failed [" << result << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Buffer: vkCreateBuffer failed [" << result << "]\n";
         throw TPR_UNKNOWN_ERROR;
     }
 
@@ -108,7 +108,7 @@ TprResult Buffer::reallocate(VkDeviceSize newSize) {
 
     result = mrSym.vkBindBufferMemory(mDevice, mBuffer, mAllocation.memory, mAllocation.offset);
     if (result != VK_SUCCESS) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Buffer: vkBindBufferMemory failed [" << result << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Buffer: vkBindBufferMemory failed [" << result << "]\n";
         return TPR_UNKNOWN_ERROR;
     }
     

@@ -5,6 +5,7 @@
 
 #include "plugin_core.h"
 #include "core.hpp"
+#include "logger.hpp"
 
 #include <optional>
 #include <variant>
@@ -19,9 +20,6 @@ namespace sj = simdjson;
 
 // from "resource_registry.hpp"
 class ResourceRegistry;
-
-// from "logger.hpp"
-class Logger;
 
 
 struct Setting {
@@ -47,7 +45,7 @@ struct JsonData {
 class Settings {
 
     public:
-        Settings(Logger& rLogger, ResourceRegistry& rResReg, std::filesystem::path configPath, bool flushConfig);
+        Settings(Logger logger, ResourceRegistry& rResReg, std::filesystem::path configPath, bool flushConfig);
         ~Settings();
 
         expected<TprSetting, TprResult> createSetting(std::string_view name) noexcept;
@@ -83,7 +81,7 @@ class Settings {
 
     private:
         ResourceRegistry& mrResReg;
-        Logger& mrLogger;
+        Logger mLogger;
 
         std::filesystem::path mConfPath;
         bool mFlushConfig;

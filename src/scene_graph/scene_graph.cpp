@@ -12,8 +12,8 @@
 
 
 
-SceneGraph::SceneGraph(Logger& rLogger, Settings& rSettings, ResourceRegistry& rResReg)
-    : mrLogger(rLogger), mrSettings(rSettings), mrResReg(rResReg) {
+SceneGraph::SceneGraph(Logger logger, Settings& rSettings, ResourceRegistry& rResReg)
+    : mLogger(logger), mrSettings(rSettings), mrResReg(rResReg) {
     auto size = mrSettings.createSettingIntegerOr("ECS.componentChunkSize", 1024);
     if (size < 0) size = 1024;
     if (size > UINT32_MAX) size = 1024;
@@ -29,7 +29,7 @@ expected<TprComponent, TprResult> SceneGraph::createComponent(uint32_t component
         mComponents.try_emplace(mComponentCounter, componentSize);
         handle = construct_basic_handle<TprComponent>(mComponentCounter, 0, handle_type::component);
         mComponentCounter++;
-        mrLogger << logPrxScGr() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
+        mLogger() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
     }
@@ -107,7 +107,7 @@ void SceneGraph::destroyComponent(TprComponent component) noexcept {
 
         mComponents.erase(componentIt);
 
-        mrLogger << logPrxScGr() << "Explicitly destroyed component " << get_basic_handle_index(component) << "\n";
+        mLogger() << "Explicitly destroyed component " << get_basic_handle_index(component) << "\n";
     } catch (...) {}
 }
 

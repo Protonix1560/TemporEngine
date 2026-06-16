@@ -29,12 +29,12 @@
 
 // registring renderer
 expected<PHardwareLayer, TprResult> registerLayerVulkan(
-    Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
+    Logger logger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
     uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
 ) {
     try {
         return std::unique_ptr<HardwareLayer>(std::make_unique<HardwareLayerVulkan>(
-            rLogger, rResReg, rWinMan, rSettings, rScGr, componentRenderable, engineVersionVariant, engineVersionMajor, engineVersionMinor, engineVersionPatch
+            logger, rResReg, rWinMan, rSettings, rScGr, componentRenderable, engineVersionVariant, engineVersionMajor, engineVersionMinor, engineVersionPatch
         ));
     } catch (TprResult r) {
         return unexpected(r);
@@ -68,9 +68,9 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 HardwareLayerVulkan::HardwareLayerVulkan(
-    Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
+    Logger logger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
     uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
-) : mrLogger(rLogger), mrResReg(rResReg), mrWinMan(rWinMan), mrSettings(rSettings), mrScGr(rScGr), mComponentRenderable(componentRenderable)
+) : mLogger(logger), mrResReg(rResReg), mrWinMan(rWinMan), mrSettings(rSettings), mrScGr(rScGr), mComponentRenderable(componentRenderable)
 {
     
     VkResult vkResult;
@@ -88,7 +88,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
     if (mSym.vkEnumerateInstanceVersion) {
         vkResult = mSym.vkEnumerateInstanceVersion(&mApiVer);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceVersion failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
     } else {
@@ -117,13 +117,13 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         uint32_t layerCount;
         vkResult = mSym.vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceVersion failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
         std::vector<VkLayerProperties> layerProps(layerCount);
         vkResult = mSym.vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data());
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceVersion failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceVersion failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
         for (const auto& layer : layers) {
@@ -135,7 +135,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
                 }
             }
             if (!supported) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "No support for crucial vulkan instance layer: " << layer << "\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "No support for crucial vulkan instance layer: " << layer << "\n";
                 throw TPR_NOT_SUPPORTED;
             }
         }
@@ -146,15 +146,15 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         tmpWindowCreateInfo.prefferedWidth = 0;
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
-        mrLogger.trace() << logPrxPHWL() << "Opening a hidden temporary window\n";
+        mLogger.trace() << "Opening a hidden temporary window\n";
         auto tmpWindowExp = mrWinMan.openWindow(&tmpWindowCreateInfo);
         if (!tmpWindowExp.has_value()) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Failed to open a temporary window\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open a temporary window\n";
             throw tmpWindowExp.error();
         }
         tmpWindow = tmpWindowExp.value();
 
-        mrLogger.trace() << logPrxPHWL() << "Getting Vulkan Instance extension list\n";
+        mLogger.trace() << "Getting Vulkan Instance extension list\n";
         // extensions
         auto extExp = mrWinMan.getExtensionsVk(tmpWindow);
         if (!extExp.has_value()) throw extExp.error();
@@ -169,13 +169,13 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         uint32_t extCount;
         vkResult = mSym.vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceExtensionProperties failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceExtensionProperties failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
         std::vector<VkExtensionProperties> extProps(extCount);
         vkResult = mSym.vkEnumerateInstanceExtensionProperties(nullptr, &extCount, extProps.data());
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateInstanceExtensionProperties failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateInstanceExtensionProperties failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
         for (auto ext : extensions) {
@@ -187,7 +187,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
                 }
             }
             if (!supported) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "No support for crucial vulkan instance extension: " << ext << "\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "No support for crucial vulkan instance extension: " << ext << "\n";
                 throw TPR_NOT_SUPPORTED;
             }
         }
@@ -202,11 +202,11 @@ HardwareLayerVulkan::HardwareLayerVulkan(
 
         vkResult = mSym.vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkCreateInstance failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateInstance failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
 
-        mrLogger.debug() << logPrxPHWL() << "Created instance\n";
+        mLogger.debug() << "Created instance\n";
     }
 
     SYM_LOAD_PFN(mSym, vkEnumeratePhysicalDevices, mInstance);
@@ -243,11 +243,11 @@ HardwareLayerVulkan::HardwareLayerVulkan(
                 HardwareLayerVulkan* This = reinterpret_cast<HardwareLayerVulkan*>(userData);
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-                    This->mrLogger.warn(TPR_LOG_STYLE_WARN1) << logPrxPHWL() << callback->pMessage << "\n";
+                    This->mLogger.warn(TPR_LOG_STYLE_WARN1) << callback->pMessage << "\n";
                 } else if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                    This->mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << callback->pMessage << "\n";
+                    This->mLogger.error(TPR_LOG_STYLE_ERROR1) << callback->pMessage << "\n";
                 } else {
-                    This->mrLogger.info() << logPrxPHWL() << callback->pMessage << "\n";
+                    This->mLogger.info() << callback->pMessage << "\n";
                 }
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
@@ -259,7 +259,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
 
             mSym.vkCreateDebugUtilsMessengerEXT(mInstance, &createInfo, nullptr, &mDebugMessenger);
 
-            mrLogger.debug() << logPrxPHWL() << "Created debug utils messenger\n";
+            mLogger.debug() << "Created debug utils messenger\n";
         }
     }
 
@@ -268,13 +268,13 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         uint32_t count;
         vkResult = mSym.vkEnumeratePhysicalDevices(mInstance, &count, nullptr);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumeratePhysicalDevices failed [" << vkResult << "]";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumeratePhysicalDevices failed [" << vkResult << "]";
             throw TPR_UNKNOWN_ERROR;
         }
         std::vector<VkPhysicalDevice> physicalDevices(count);
         vkResult = mSym.vkEnumeratePhysicalDevices(mInstance, &count, physicalDevices.data());
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumeratePhysicalDevices failed [" << vkResult << "]";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumeratePhysicalDevices failed [" << vkResult << "]";
             throw TPR_UNKNOWN_ERROR;
         }
 
@@ -285,7 +285,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         VkPhysicalDeviceProperties props;
         mSym.vkGetPhysicalDeviceProperties(mPhysicalDevice, &props);
 
-        mrLogger.debug() << logPrxPHWL() << "Picked physical device " << props.deviceName << "\n";
+        mLogger.debug() << "Picked physical device " << props.deviceName << "\n";
     }
 
     // device
@@ -309,13 +309,13 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         uint32_t extCount;
         vkResult = vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, nullptr);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateDeviceExtensionProperties failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateDeviceExtensionProperties failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
         std::vector<VkExtensionProperties> props(extCount);
         vkResult = vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, props.data());
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEnumerateDeviceExtensionProperties failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEnumerateDeviceExtensionProperties failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
 
@@ -328,7 +328,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
                 }
             }
             if (!found) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "No support for crucial vulkan device extension: " << ext << "\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "No support for crucial vulkan device extension: " << ext << "\n";
                 throw TPR_NOT_SUPPORTED;
             }
         }
@@ -342,11 +342,11 @@ HardwareLayerVulkan::HardwareLayerVulkan(
 
         vkResult = mSym.vkCreateDevice(mPhysicalDevice, &createInfo, nullptr, &mDevice);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkCreateDevice failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateDevice failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
 
-        mrLogger.debug() << logPrxPHWL() << "Created device\n";
+        mLogger.debug() << "Created device\n";
     }
 
     // Most vulkan symbols
@@ -441,8 +441,8 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         setInfo.pBindings = bindings;
         vkResult = mSym.vkCreateDescriptorSetLayout(mDevice, &setInfo, nullptr, &mObjectDataSetLayout);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1)
-                << logPrxPHWL() << "vkCreateDescriptorSetLayout failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1)
+                << "vkCreateDescriptorSetLayout failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
 
@@ -452,8 +452,8 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         layoutCreateInfo.setLayoutCount = 1;
         vkResult = mSym.vkCreatePipelineLayout(mDevice, &layoutCreateInfo, nullptr, &mBasicPipelinelayout);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1)
-                << logPrxPHWL() << "vkCreatePipelineLayout at basic pipeline layout creation failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1)
+                << "vkCreatePipelineLayout at basic pipeline layout creation failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
     }
@@ -499,7 +499,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         vkResult = mSym.vkCreateCommandPool(mDevice, &poolInfo, nullptr, &mCommandPool);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkCreateCommandPool failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateCommandPool failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
 
@@ -510,7 +510,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         bufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         vkResult = mSym.vkAllocateCommandBuffers(mDevice, &bufferInfo, &mImmidiateCopyCmdBuffer);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkAllocateCommandBuffers failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkAllocateCommandBuffers failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
 
@@ -518,7 +518,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         vkResult = mSym.vkCreateFence(mDevice, &fenceInfo, nullptr, &mImmidiateCopyFence);
         if (vkResult != VK_SUCCESS) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkCreateFence failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateFence failed [" << vkResult << "]\n";
             throw TPR_UNKNOWN_ERROR;
         }
     }
@@ -632,7 +632,7 @@ TprResult HardwareLayerVulkan::update() {
             if (!copyRegions.empty()) {
                 vkResult = mSym.vkResetCommandBuffer(mImmidiateCopyCmdBuffer, 0);
                 if (vkResult != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkBeginCommandBuffer failed [" << vkResult << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkBeginCommandBuffer failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
                 VkCommandBufferBeginInfo cmdBeginInfo{};
@@ -640,14 +640,14 @@ TprResult HardwareLayerVulkan::update() {
                 cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
                 vkResult = mSym.vkBeginCommandBuffer(mImmidiateCopyCmdBuffer, &cmdBeginInfo);
                 if (vkResult != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkBeginCommandBuffer failed [" << vkResult << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkBeginCommandBuffer failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
 
                 mSym.vkCmdCopyBuffer(mImmidiateCopyCmdBuffer, oldBuffer.handle(), newBuffer.handle(), copyRegions.size(), copyRegions.data());
                 vkResult = mSym.vkEndCommandBuffer(mImmidiateCopyCmdBuffer);
                 if (vkResult != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "vkEndCommandBuffer failed [" << vkResult << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkEndCommandBuffer failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
                 // submitting render queue
@@ -659,18 +659,17 @@ TprResult HardwareLayerVulkan::update() {
                 submitInfo.pWaitDstStageMask = &waitStageMask;
                 vkResult = mSym.vkQueueSubmit(mRenderQueue, 1, &submitInfo, mImmidiateCopyFence);
                 if (vkResult != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkQueueSubmit failed [" << vkResult << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkQueueSubmit failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
-                mrLogger << "WAITING...\n";
                 vkResult = mSym.vkWaitForFences(mDevice, 1, &mImmidiateCopyFence, VK_TRUE, UINT64_MAX);
                 if (vkResult != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkWaitForFences failed [" << vkResult << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkWaitForFences failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
                 vkResult = mSym.vkResetFences(mDevice, 1, &mImmidiateCopyFence);
                 if (vkResult != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkResetFences failed [" << vkResult << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkResetFences failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
             }
@@ -827,10 +826,10 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
         mWindowContexts.try_emplace(handle._d, std::move(exp.value()));
 
     } catch (const std::exception& e) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unxpected exception: " << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Unxpected exception: " << e.what() << "\n";
         return TPR_UNKNOWN_ERROR;
     } catch (...) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() + "Unknowm exception\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Unknowm exception\n";
         return TPR_UNKNOWN_ERROR;
     }
 
@@ -868,8 +867,7 @@ TprResult HardwareLayerVulkan::render() {
 
         auto ctxIt = mWindowContexts.find(target.window._d);
         if (ctxIt == mWindowContexts.end()) {
-            mrLogger.error(TPR_LOG_STYLE_PANIC1) << logPrxPHWL()
-                << "Corrupted internal structures: target[" << id << "].window is not in mWindowContexts\n";
+            mLogger.error(TPR_LOG_STYLE_PANIC1) << "Corrupted internal structures: target[" << id << "].window is not in mWindowContexts\n";
             return TPR_PANIC;
         }
 
@@ -883,13 +881,13 @@ TprResult HardwareLayerVulkan::render() {
         {
             result = mSym.vkWaitForFences(mDevice, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
             if (result != VK_SUCCESS) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkWaitForFences failed [" << result << "]\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkWaitForFences failed [" << result << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
             result = mSym.vkResetCommandPool(mDevice, frame.commandPool, 0);
             if (result != VK_SUCCESS) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkResetCommandPool failed [" << result << "]\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkResetCommandPool failed [" << result << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
@@ -904,7 +902,7 @@ TprResult HardwareLayerVulkan::render() {
             if (resized) {
                 result = mSym.vkDeviceWaitIdle(mDevice);
                 if (result != VK_SUCCESS) {
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
                 ctx.recreate();
@@ -917,7 +915,7 @@ TprResult HardwareLayerVulkan::render() {
                 case VK_ERROR_OUT_OF_DATE_KHR:
                     result = mSym.vkDeviceWaitIdle(mDevice);
                     if (result != VK_SUCCESS) {
-                        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+                        mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
                         return TPR_UNKNOWN_ERROR;
                     }
                     ctx.recreate();
@@ -927,7 +925,7 @@ TprResult HardwareLayerVulkan::render() {
                 case VK_SUCCESS: break;
 
                 default:
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkAcquireNextImageKHR failed [" << result << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkAcquireNextImageKHR failed [" << result << "]\n";
                     return TPR_UNKNOWN_ERROR;
             }
             swapchainImage = ctx.chainImages()[swapchainImageIndex];
@@ -939,7 +937,7 @@ TprResult HardwareLayerVulkan::render() {
             commandBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             result = mSym.vkBeginCommandBuffer(frame.renderCommandBuffer(), &commandBeginInfo);
             if (result != VK_SUCCESS) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkBeginCommandBuffer failed [" << result << "]\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkBeginCommandBuffer failed [" << result << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
@@ -1042,13 +1040,13 @@ TprResult HardwareLayerVulkan::render() {
 
             result = mSym.vkEndCommandBuffer(frame.renderCommandBuffer());
             if (result != VK_SUCCESS) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkEndCommandBuffer failed [" << result << "]\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkEndCommandBuffer failed [" << result << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
             result = mSym.vkResetFences(mDevice, 1, &frame.inFlightFence);
             if (result != VK_SUCCESS) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkResetFences failed [" << result << "]\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkResetFences failed [" << result << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
@@ -1066,10 +1064,10 @@ TprResult HardwareLayerVulkan::render() {
             submitInfo.pWaitDstStageMask = &waitStageMask;
             result = mSym.vkQueueSubmit(mRenderQueue, 1, &submitInfo, frame.inFlightFence);
             if (result != VK_SUCCESS) {
-                mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkQueueSubmit failed [" << result << "]\n";
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkQueueSubmit failed [" << result << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
-            // mrLogger << "1\n";
+            // mLogger << "1\n";
 
             // submitting present queue
             VkSwapchainKHR swapchain = ctx.swapchain();
@@ -1086,7 +1084,7 @@ TprResult HardwareLayerVulkan::render() {
                 case VK_SUBOPTIMAL_KHR:
                     result = mSym.vkDeviceWaitIdle(mDevice);
                     if (result != VK_SUCCESS) {
-                        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+                        mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
                         return TPR_UNKNOWN_ERROR;
                     }
                     ctx.recreate();
@@ -1095,13 +1093,13 @@ TprResult HardwareLayerVulkan::render() {
                 case VK_SUCCESS: break;
 
                 default:
-                    mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "render: vkQueuePresentKHR failed [" << result << "]\n";
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkQueuePresentKHR failed [" << result << "]\n";
                     return TPR_UNKNOWN_ERROR;
             }
-            // mrLogger << "1\n";
+            // mLogger << "1\n";
         }
     }
-    // mrLogger << "AAA\n";
+    // mLogger << "AAA\n";
 
     return TPR_SUCCESS;
 }

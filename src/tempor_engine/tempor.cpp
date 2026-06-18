@@ -32,7 +32,8 @@ void TemporEngine::sigterm() noexcept {
 }
 
 
-TemporEngine::TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig) : mConfigPath(configPath), mFlushConfig(flushConfig) {
+TemporEngine::TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled)
+    : mConfigPath(configPath), mFlushConfig(flushConfig), mConfigEnabled(configEnabled) {
 
     mpLogSink = &mServHolder.construct<LogSink>(verboseLevel);
 
@@ -58,7 +59,7 @@ int TemporEngine::init() {
 
     mpSettings = &mServHolder.construct<Settings>(
         mpLogSink->createLogger((type_name_v_s<Settings> + ": "_ces).string()),
-        *mpResReg, mConfigPath, mFlushConfig
+        *mpResReg, mConfigPath, mFlushConfig, mConfigEnabled
     );
 
     threadLocalJobInfo.mainThread = true;

@@ -14,7 +14,7 @@
 
 SceneGraph::SceneGraph(Logger logger, Settings& rSettings, ResourceRegistry& rResReg)
     : mLogger(logger), mrSettings(rSettings), mrResReg(rResReg) {
-    auto size = mrSettings.createSettingIntegerOr("ECS.componentChunkSize", 1024);
+    auto size = mrSettings.createSettingIntegerOr(mrSettings.getRoot(), "ECS.componentChunkSize", 1024);
     if (size < 0) size = 1024;
     if (size > UINT32_MAX) size = 1024;
     mChunkSize = size;

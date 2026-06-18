@@ -15,6 +15,12 @@
 constexpr size_t maxVerbosity = 6;
 
 
+enum class LogDest {
+    Diagnostic = 0,
+    MachineData = 1
+};
+
+
 class LogSink;
 class Logger;
 
@@ -78,7 +84,8 @@ class LogSink {
         Logger createLogger(std::string_view prefix);
         void setVerbosity(size_t verbosity);
         size_t verbosity() const;
-        void write(std::string_view msg, TprLogDestination dest, TprLogLevel level, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept;
+        void writeLog(std::string_view msg, TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept;
+        TprResult writeData(std::span<const std::byte> data) noexcept;
 };
 
 REGISTER_TYPE_NAME_S(LogSink, "LgSk");

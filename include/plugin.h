@@ -8,7 +8,7 @@
 
 typedef struct TprEngineAPI {
 
-    struct Log {
+    struct Out {
 
         void(*log)(TprLogLevel logLevel, const char* message) NOEXCEPT_ATTR;
         void(*info)(const char* message) NOEXCEPT_ATTR;
@@ -24,7 +24,9 @@ typedef struct TprEngineAPI {
         void(*debugStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT_ATTR;
         void(*traceStyled)(TprLogStyle logStyle, const char* message) NOEXCEPT_ATTR;
 
-    } *log;
+        TprResult(*writeMachineData)(const char* pData, uint32_t size) NOEXCEPT_ATTR;
+
+    } *out;
 
     struct Scene {
 
@@ -92,7 +94,10 @@ typedef struct TprEngineAPI {
 
     struct Conf {
 
-        TprResult(*createSetting)(const char* name, TprSetting* pSetting) NOEXCEPT_ATTR;
+        TprResult(*getRootSetting)(TprSetting* pSetting) NOEXCEPT_ATTR;
+
+        TprResult(*createSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) NOEXCEPT_ATTR;
+        TprResult(*readSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) NOEXCEPT_ATTR;
         void(*destroySetting)(TprSetting pSetting) NOEXCEPT_ATTR;
 
         TprResult(*getSettingType)(TprSetting setting, TprSettingType* pType) NOEXCEPT_ATTR;
@@ -112,6 +117,13 @@ typedef struct TprEngineAPI {
         TprResult(*setSettingBool)(TprSetting setting, TprBool8 data) NOEXCEPT_ATTR;
         TprResult(*setSettingString)(TprSetting setting, const char* pData) NOEXCEPT_ATTR;
         TprResult(*setSettingNull)(TprSetting setting) NOEXCEPT_ATTR;
+        TprResult(*unsetSetting)(TprSetting setting) NOEXCEPT_ATTR;
+        TprResult(*setSettingStruct)(TprSetting setting) NOEXCEPT_ATTR;
+        TprResult(*setSettingArray)(TprSetting setting) NOEXCEPT_ATTR;
+
+        TprResult(*getSettingArraySize)(TprSetting setting, uint32_t* pSize) NOEXCEPT_ATTR;
+        TprResult(*getSettingArrayElement)(TprSetting setting, uint32_t index, TprSetting* pElement) NOEXCEPT_ATTR;
+        TprResult(*resizeSettingArray)(TprSetting setting, uint32_t size) NOEXCEPT_ATTR;
 
     } *conf;
 

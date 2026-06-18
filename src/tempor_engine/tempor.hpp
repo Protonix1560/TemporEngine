@@ -161,7 +161,7 @@ class service_singleton_holder : public service_buffer<Ts>... {
 class TemporEngine {
 
     public:
-        TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig);
+        TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled);
         int init();
         int run();
         void shutdown();
@@ -172,19 +172,20 @@ class TemporEngine {
 
         // ========== API ==========
         #pragma region api
-        // log
-        void log_log(TprLogLevel logLevel, const char* message) noexcept;
-        void log_info(const char* message) noexcept;
-        void log_warn(const char* message) noexcept;
-        void log_error(const char* message) noexcept;
-        void log_debug(const char* message) noexcept;
-        void log_trace(const char* message) noexcept;
-        void log_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept;
-        void log_infoStyled(TprLogStyle logStyle, const char* message) noexcept;
-        void log_warnStyled(TprLogStyle logStyle, const char* message) noexcept;
-        void log_errorStyled(TprLogStyle logStyle, const char* message) noexcept;
-        void log_debugStyled(TprLogStyle logStyle, const char* message) noexcept;
-        void log_traceStyled(TprLogStyle logStyle, const char* message) noexcept;
+        // out
+        void out_log(TprLogLevel logLevel, const char* message) noexcept;
+        void out_info(const char* message) noexcept;
+        void out_warn(const char* message) noexcept;
+        void out_error(const char* message) noexcept;
+        void out_debug(const char* message) noexcept;
+        void out_trace(const char* message) noexcept;
+        void out_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept;
+        void out_infoStyled(TprLogStyle logStyle, const char* message) noexcept;
+        void out_warnStyled(TprLogStyle logStyle, const char* message) noexcept;
+        void out_errorStyled(TprLogStyle logStyle, const char* message) noexcept;
+        void out_debugStyled(TprLogStyle logStyle, const char* message) noexcept;
+        void out_traceStyled(TprLogStyle logStyle, const char* message) noexcept;
+        TprResult out_writeMachineData(const char* pData, uint32_t size) noexcept;
         // scene
         TprResult scene_createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept;
         void scene_destroyComponent(TprComponent component) noexcept;
@@ -224,7 +225,9 @@ class TemporEngine {
         void geo_unloadMesh(TprMesh mesh) noexcept;
         void geo_destroyMesh(TprMesh mesh) noexcept;
         // conf
-        TprResult conf_createSetting(const char* name, TprSetting* pSetting) noexcept;
+        TprResult conf_getRootSetting(TprSetting* pSetting) noexcept;
+        TprResult conf_createSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept;
+        TprResult conf_readSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept;
         void conf_destroySetting(TprSetting pSetting) noexcept;
         TprResult conf_getSettingType(TprSetting setting, TprSettingType* pType) noexcept;
         TprResult conf_getSettingDouble(TprSetting setting, double* pData) noexcept;
@@ -240,6 +243,12 @@ class TemporEngine {
         TprResult conf_setSettingBool(TprSetting setting, TprBool8 data) noexcept;
         TprResult conf_setSettingString(TprSetting setting, const char* pData) noexcept;
         TprResult conf_setSettingNull(TprSetting setting) noexcept;
+        TprResult conf_unsetSetting(TprSetting setting) noexcept;
+        TprResult conf_setSettingStruct(TprSetting setting) noexcept;
+        TprResult conf_setSettingArray(TprSetting setting) noexcept;
+        TprResult conf_getSettingArraySize(TprSetting setting, uint32_t* pSize) noexcept;
+        TprResult conf_getSettingArrayElement(TprSetting setting, uint32_t index, TprSetting* pElement) noexcept;
+        TprResult conf_resizeSettingArray(TprSetting setting, uint32_t size) noexcept;
         // render
         TprResult render_createDepthDomain(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) noexcept;
         void render_destroyDepthDomain(TprDepthDomain domain) noexcept;
@@ -258,7 +267,7 @@ class TemporEngine {
     private:
         sleep_clock mClock;
 
-        TprEngineAPI::Log mLogAPI;
+        TprEngineAPI::Out mOutAPI;
         TprEngineAPI::VFS mVFSAPI;
         TprEngineAPI::Scene mSceneAPI;
         TprEngineAPI::Geo mGeoAPI;
@@ -280,6 +289,7 @@ class TemporEngine {
 
         std::filesystem::path mConfigPath;
         bool mFlushConfig;
+        bool mConfigEnabled;
 
         ResourceRegistry* mpResReg = nullptr;
         LogSink* mpLogSink = nullptr;

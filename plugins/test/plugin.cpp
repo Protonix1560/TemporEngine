@@ -164,6 +164,21 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
         plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
     ));
 
+    TprSetting base;
+    ROF(plugin->api->conf->getRootSetting(&base));
+    TprSetting a;
+    ROF(plugin->api->conf->createSetting(base, "A", &a));
+    uint32_t size;
+    ROF(plugin->api->conf->getSettingArraySize(a, &size));
+
+    for (uint32_t i = 0; i < size; i++) {
+        TprSetting s;
+        ROF(plugin->api->conf->getSettingArrayElement(a, i, &s));
+        int64_t value;
+        ROF(plugin->api->conf->getSettingInteger(s, &value));
+        plugin->api->out->info(std::format("{}; ", value).c_str());
+    }
+
     return 0;
 }
 

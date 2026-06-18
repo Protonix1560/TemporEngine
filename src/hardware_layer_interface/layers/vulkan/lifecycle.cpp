@@ -75,7 +75,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
     
     VkResult vkResult;
 
-    auto inFlightFrames = mrSettings.createSettingIntegerOr("maxFramesInFlight", 3);
+    auto inFlightFrames = mrSettings.createSettingIntegerOr(mrSettings.getRoot(), "maxFramesInFlight", 3);
     if (inFlightFrames < 0) inFlightFrames = 3;
     if (inFlightFrames > UINT32_MAX) inFlightFrames = 3;
     mMaxFramesInFlight = inFlightFrames;
@@ -110,7 +110,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         // layers
         std::vector<const char*> layers;
         
-        if (mrSettings.createSettingBoolOr("standartVulkanHWL.enableKhronosValidationLayer", false)) {
+        if (mrSettings.createSettingBoolOr(mrSettings.getRoot(), "standartVulkanHWL.enableKhronosValidationLayer", false)) {
             layers.push_back("VK_LAYER_KHRONOS_validation");
         }
 
@@ -159,7 +159,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         auto extExp = mrWinMan.getExtensionsVk(tmpWindow);
         if (!extExp.has_value()) throw extExp.error();
         std::vector<const char*> extensions = extExp.value();
-        if (mrSettings.createSettingBoolOr("standartVulkanHWL.enableDebugUtils", false)) {
+        if (mrSettings.createSettingBoolOr(mrSettings.getRoot(), "standartVulkanHWL.enableDebugUtils", false)) {
             createDebugMessenger = true;
             extensions.push_back("VK_EXT_debug_utils");
         }
@@ -463,7 +463,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
 
     // Geometry-related stuff
     {
-        auto size = mrSettings.createSettingIntegerOr("standartVulkanHWL.geometryBufferSize", 16777216);
+        auto size = mrSettings.createSettingIntegerOr(mrSettings.getRoot(), "standartVulkanHWL.geometryBufferSize", 16777216);
         if (size <= 0) size = 16777216;
         if (size > UINT32_MAX) size = 16777216;
         mGeometryBufferSize = size;
@@ -487,7 +487,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         if (!indicesBufferExp.has_value()) throw indicesBufferExp.error();
         mObjectIndicesBuffer.emplace(std::move(indicesBufferExp.value()));
 
-        auto growth = mrSettings.createSettingDoubleOr("standartVulkanHWL.objectBufferGrowth", 1.5);
+        auto growth = mrSettings.createSettingDoubleOr(mrSettings.getRoot(), "standartVulkanHWL.objectBufferGrowth", 1.5);
         if (growth < 1.0) growth = 1.5;
         mObjectBufferGrowth = growth;
 

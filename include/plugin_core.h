@@ -55,12 +55,6 @@ typedef enum TprLogLevel {
     TPR_LOG_LEVEL_MAX_ENUM = INT32_MAX
 } TprLogLevel;
 
-typedef enum TprLogDestination {
-    TPR_LOG_DEST_DIAGNOSTIC = 0,
-    TPR_LOG_DEST_MACHINE_DATA = 1,
-    TPR_LOG_DEST_MAX_ENUM = INT32_MAX
-} TprLogDestination;
-
 typedef enum TprResult {
     TPR_SUCCESS = 0,
     TPR_PANIC = -1,
@@ -71,19 +65,20 @@ typedef enum TprResult {
     TPR_ERROR_INVALID_OPERATION = -3,
     TPR_ERROR_DOESNT_EXIST = -4,
     TPR_ERROR_NOT_PERMITTED = -5,
+    TPR_ERROR_WRONG_TYPE = -6,
+    TPR_ERROR_OUT_OF_RANGE = -7,
 
-    TPR_COUNT_OVERFLOW = -1,
-    TPR_UNKNOWN_ERROR = -2,
-    TPR_INSUFFICIENT_INIT = -4,
-    TPR_BAD_ALLOC = -5,
-    TPR_PARSE_ERROR = -6,
-    TPR_USER_CODE_ERROR = -9,
-    TPR_NOT_SUPPORTED = -10,
-    TPR_NOT_A_FILE = -11,
-    TPR_NO_SUCH_FILE = -12,
-    TPR_ALREADY_EXISTS = -13,
-    TPR_WRONG_TYPE = -14,
-    TPR_VERSION_MISMATCH = -15,
+    TPR_COUNT_OVERFLOW = -8,
+    TPR_UNKNOWN_ERROR = -9,
+    TPR_INSUFFICIENT_INIT = -10,
+    TPR_BAD_ALLOC = -11,
+    TPR_PARSE_ERROR = -12,
+    TPR_USER_CODE_ERROR = -13,
+    TPR_NOT_SUPPORTED = -14,
+    TPR_NOT_A_FILE = -15,
+    TPR_NO_SUCH_FILE = -16,
+    TPR_ALREADY_EXISTS = -17,
+    TPR_VERSION_MISMATCH = -18,
     TPR_RESULT_MAX_ENUM = INT32_MAX
 } TprResult;
 
@@ -211,9 +206,11 @@ typedef enum TprSettingType {
     TPR_SETTING_TYPE_UNSET = 0,
     TPR_SETTING_TYPE_STRING = 1,
     TPR_SETTING_TYPE_INTEGER = 2,
-    TPR_SETTING_TYPE_FLOATING = 3,
+    TPR_SETTING_TYPE_DOUBLE = 3,
     TPR_SETTING_TYPE_BOOL = 4,
     TPR_SETTING_TYPE_NULL = 5,
+    TPR_SETTING_TYPE_ARRAY = 6,
+    TPR_SETTING_TYPE_STRUCT = 7,
     TPR_SETTING_MAX_ENUM = INT32_MAX
 } TprSettingType;
 
@@ -320,6 +317,13 @@ typedef enum TprCreateObjectImageFlagBits {
     TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = INT32_MAX
 } TprCreateObjectImageFlagBits;
 typedef TprFlag_T TprCreateObjectImageFlags;
+
+typedef enum TprSettingCapabilityFlagBits {
+    TPR_SETTING_CAPABILITY_READ_FLAG_BIT = 0x1,
+    TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT = 0x2,
+    TPR_SETTING_CAPABILITY_FLAG_BITS_MAX_ENUM = INT32_MAX
+} TprSettingCapabilityFlagBits;
+typedef TprFlag_T TprSettingCapabilityFlags;
 
 
 // handles

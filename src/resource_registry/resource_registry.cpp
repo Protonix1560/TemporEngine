@@ -21,9 +21,8 @@ ResourceRegistry::~ResourceRegistry() noexcept {}
 
 
 expected<TprResource, TprResult> ResourceRegistry::openResource(std::filesystem::path filepath, TprOpenPathResourceFlags flags) noexcept {
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         TprResource h;
 
         file_cache_key fkey{filepath};
@@ -198,9 +197,8 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(size_t size, Tpr
 expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin, std::byte* end, TprOpenReferenceResourceFlags flags) noexcept {
     if (!begin) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (!end) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         TprResource h;
 
         ResourceReference resource{};
@@ -232,9 +230,8 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(std::byte* begin
 expected<TprResource, TprResult> ResourceRegistry::openResource(const std::byte* begin, const std::byte* end, TprOpenViewResourceFlags flags) noexcept {
     if (!begin) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (!end) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         TprResource h;
 
         ResourceView resource{};
@@ -268,9 +265,8 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(
 ) noexcept {
     if (get_basic_handle_type(protectedResource) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (get_basic_handle_index(protectedResource) > mResourceCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         TprResource h;
 
         auto protIt = mHandles.find(get_basic_handle_index(protectedResource));
@@ -309,9 +305,8 @@ expected<TprResource, TprResult> ResourceRegistry::openResource(
 void ResourceRegistry::closeResource(TprResource h) noexcept {
     if (get_basic_handle_type(h) != handle_type::resource) return;
     if (get_basic_handle_index(h) > mHandleCounter) return;
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         auto it = mHandles.find(get_basic_handle_index(h));
         if (it == mHandles.end()) return;
 
@@ -358,9 +353,8 @@ void ResourceRegistry::closeResource(TprResource h) noexcept {
 expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource h) noexcept {
     if (get_basic_handle_type(h) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (get_basic_handle_index(h) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         auto handleIt = mHandles.find(get_basic_handle_index(h));
         if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
 
@@ -407,9 +401,8 @@ expected<uint64_t, TprResult> ResourceRegistry::sizeofResource(TprResource h) no
 TprResult ResourceRegistry::resizeResource(TprResource h, size_t newSize) noexcept {
     if (get_basic_handle_type(h) != handle_type::resource) return TPR_ERROR_INVALID_VALUE;
     if (get_basic_handle_index(h) > mHandleCounter) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         auto handleIt = mHandles.find(get_basic_handle_index(h));
         if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
 
@@ -462,9 +455,8 @@ TprResult ResourceRegistry::resizeResource(TprResource h, size_t newSize) noexce
 expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(TprResource h) noexcept {
     if (get_basic_handle_type(h) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (get_basic_handle_index(h) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         auto handleIt = mHandles.find(get_basic_handle_index(h));
         if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
 
@@ -515,9 +507,8 @@ expected<const std::byte*, TprResult> ResourceRegistry::getResourceConstPointer(
 expected<std::byte*, TprResult> ResourceRegistry::getResourceRawDataPointer(TprResource h) noexcept {
     if (get_basic_handle_type(h) != handle_type::resource) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (get_basic_handle_index(h) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-
         auto handleIt = mHandles.find(get_basic_handle_index(h));
         if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
 

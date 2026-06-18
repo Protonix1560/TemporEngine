@@ -162,11 +162,11 @@ expected<std::chrono::nanoseconds, const char*> parse_duration(std::string_view 
 
 
 Threading::Threading(Logger logger, Settings& rSett) : mLogger(logger), mrSett(rSett) {
-    auto shortPoolSize = mrSett.createSettingIntegerOr("shortPoolSize", 0);
+    auto shortPoolSize = mrSett.createSettingIntegerOr(mrSett.getRoot(), "shortPoolSize", 0);
     if (shortPoolSize < 0) shortPoolSize = 0;
     if (shortPoolSize > UINT32_MAX) shortPoolSize = 0;
 
-    auto threadCountFallback = mrSett.createSettingIntegerOr("threadCountFallback", 4);
+    auto threadCountFallback = mrSett.createSettingIntegerOr(mrSett.getRoot(), "threadCountFallback", 4);
     if (threadCountFallback < 0) threadCountFallback = 4;
     if (threadCountFallback > UINT32_MAX) threadCountFallback = 4;
 
@@ -178,22 +178,22 @@ Threading::Threading(Logger logger, Settings& rSett) : mLogger(logger), mrSett(r
         }
     }
 
-    auto shortPoolFactor = mrSett.createSettingDoubleOr("shortPoolFactor", 1.0);
+    auto shortPoolFactor = mrSett.createSettingDoubleOr(mrSett.getRoot(), "shortPoolFactor", 1.0);
     if (shortPoolFactor <= 0.0) shortPoolFactor = 1.0;
     shortPoolSize = std::ceil(shortPoolSize * shortPoolFactor);
 
-    auto shortPoolBias = mrSett.createSettingIntegerOr("shortPoolBias", -1);
+    auto shortPoolBias = mrSett.createSettingIntegerOr(mrSett.getRoot(), "shortPoolBias", -1);
     shortPoolSize = std::max(int64_t{1}, shortPoolSize + shortPoolBias);
 
     mShortPoolSize = shortPoolSize;
     mLogger.info() << "Using short pool size = " << mShortPoolSize << "\n";
 
     mThreadTotalTimeout = parse_duration(
-        mrSett.createSettingStringOr("threadTotalTimeout", "200ms")
+        mrSett.createSettingStringOr(mrSett.getRoot(), "threadTotalTimeout", "200ms")
     ).value_or(std::chrono::duration_cast<std::chrono::nanoseconds>(200ms));
 
     mShortThreadMigrationTimeout = parse_duration(
-        mrSett.createSettingStringOr("shortThreadMigrationTimeout", "50ms")
+        mrSett.createSettingStringOr(mrSett.getRoot(), "shortThreadMigrationTimeout", "50ms")
     ).value_or(std::chrono::duration_cast<std::chrono::nanoseconds>(50ms));
 
     mQueue = std::make_unique<Queue>();
@@ -299,10 +299,9 @@ expected<TprJob, TprResult> Threading::createJob(const TprJobCreateInfo* pInfo) 
     if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (!pInfo->func) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
-
         TprJob handle;
 
         auto& entry = mJobs.try_emplace(mMapJobCounter).first->second;
@@ -358,10 +357,9 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
     if (!pInfo) return TPR_ERROR_INVALID_VALUE;
     if (!pInfo->func) return TPR_ERROR_INVALID_VALUE;
     if (pInfo->dependencyJobCount > 0 && !pInfo->pDependencyJobs) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (!mUsable) return TPR_ERROR_INVALID_OPERATION;
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mUsable) return TPR_ERROR_INVALID_OPERATION;
-
         auto& entry = *mDetachedJobs.emplace_back(std::make_unique<JobEntry>()).get();
         {
             std::lock_guard<std::mutex> lock(entry.mutex);
@@ -413,10 +411,9 @@ TprResult Threading::createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
 
 
 expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
-
         if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
         if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mJobs.find(get_basic_handle_index(job));
@@ -430,10 +427,9 @@ expected<TprBool8, TprResult> Threading::jobFinished(TprJob job) noexcept {
 
 
 expected<uint32_t, TprResult> Threading::getJobID(TprJob job) noexcept {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mUsable) return unexpected(TPR_ERROR_INVALID_OPERATION);
-
         if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
         if (get_basic_handle_index(job) > mMapJobCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto it = mJobs.find(get_basic_handle_index(job));
@@ -447,10 +443,9 @@ expected<uint32_t, TprResult> Threading::getJobID(TprJob job) noexcept {
 
 
 void Threading::joinJob(TprJob job) noexcept {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (!mUsable) return;
     try {
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mUsable) return;
-
         if (get_basic_handle_type(job) != handle_type::job) return;
         if (get_basic_handle_index(job) > mMapJobCounter) return;
         auto it = mJobs.find(get_basic_handle_index(job));

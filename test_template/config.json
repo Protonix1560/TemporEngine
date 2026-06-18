@@ -1,4 +1,7 @@
 {
     "standartVulkanHWL.enableKhronosValidationLayer": true,
-    "standartVulkanHWL.enableDebugUtils": true
+    "standartVulkanHWL.enableDebugUtils": true,
+    "libtest_plugin.so": {
+        "A": [1, 2, 3]
+    }
 }

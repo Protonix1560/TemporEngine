@@ -36,7 +36,8 @@ int main(int argc, char* argv[]) {
 
     size_t verbose_level = 0;
     std::filesystem::path config_path;
-    bool flush_config = false;
+    bool flush_config = true;
+    bool config_enabled = true;
 
     try {
         std::ios::sync_with_stdio(false);
@@ -63,6 +64,9 @@ int main(int argc, char* argv[]) {
         );
         auto root_no_flush_config = parser.define_flag(
             0, "no-flush-config", 0, nullptr, "The engine will not rewrite the config file at any point"
+        );
+        auto root_no_config = parser.define_flag(
+            0, "no-config", 0, nullptr, "The engine will not try to open the config file"
         );
 
         arg_parser_err argp_err = parser.parse(argc, argv);
@@ -100,13 +104,9 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (root_config.present()) {
-            config_path = root_config.value_last<std::string_view>();
-        }
-
-        if (root_no_flush_config.present()) {
-            flush_config = !root_no_flush_config.value_last<bool>();
-        }
+        if (root_config.present()) config_path = root_config.value_last<std::string_view>();
+        if (root_no_flush_config.present()) flush_config = false;
+        if (root_no_config.present()) config_enabled = false;
 
     } catch (const std::exception& e) {
         std::printf("\033[91mFailed to parse arguments: %s\n", e.what());
@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
     std::fflush(stdout);
 
     try {
-        TemporEngine engine(verbose_level, std::string(config_path), flush_config);
+        TemporEngine engine(verbose_level, std::string(config_path), flush_config, config_enabled);
 
         int exit_code;
 

@@ -9,18 +9,19 @@ namespace {
 
 namespace api {
     namespace log {
-        void log(TprLogLevel logLevel, const char* message) noexcept { assert(gEngine); gEngine->log_log(logLevel, message); }
-        void info(const char* message) noexcept { assert(gEngine); gEngine->log_info(message); }
-        void warn(const char* message) noexcept { assert(gEngine); gEngine->log_warn(message); }
-        void error(const char* message) noexcept { assert(gEngine); gEngine->log_error(message); }
-        void debug(const char* message) noexcept { assert(gEngine); gEngine->log_debug(message); }
-        void trace(const char* message) noexcept { assert(gEngine); gEngine->log_trace(message); }
-        void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->log_logStyled(logLevel, logStyle, message); }
-        void infoStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->log_infoStyled(logStyle, message); }
-        void warnStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->log_warnStyled(logStyle, message); }
-        void errorStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->log_errorStyled(logStyle, message); }
-        void debugStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->log_debugStyled(logStyle, message); }
-        void traceStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->log_traceStyled(logStyle, message); }
+        void log(TprLogLevel logLevel, const char* message) noexcept { assert(gEngine); gEngine->out_log(logLevel, message); }
+        void info(const char* message) noexcept { assert(gEngine); gEngine->out_info(message); }
+        void warn(const char* message) noexcept { assert(gEngine); gEngine->out_warn(message); }
+        void error(const char* message) noexcept { assert(gEngine); gEngine->out_error(message); }
+        void debug(const char* message) noexcept { assert(gEngine); gEngine->out_debug(message); }
+        void trace(const char* message) noexcept { assert(gEngine); gEngine->out_trace(message); }
+        void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_logStyled(logLevel, logStyle, message); }
+        void infoStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_infoStyled(logStyle, message); }
+        void warnStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_warnStyled(logStyle, message); }
+        void errorStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_errorStyled(logStyle, message); }
+        void debugStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_debugStyled(logStyle, message); }
+        void traceStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_traceStyled(logStyle, message); }
+        TprResult writeMachineData(const char* pData, uint32_t size) noexcept { assert(gEngine); return gEngine->out_writeMachineData(pData, size); }
     }
     
     namespace scene {
@@ -134,8 +135,14 @@ namespace api {
     }
 
     namespace conf {
-        TprResult createSetting(const char* name, TprSetting* pSetting) noexcept {
-            assert(gEngine); return gEngine->conf_createSetting(name, pSetting);
+        TprResult getRootSetting(TprSetting* pSetting) noexcept {
+            assert(gEngine); return gEngine->conf_getRootSetting(pSetting);
+        }
+        TprResult createSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept {
+            assert(gEngine); return gEngine->conf_createSetting(baseSetting, name, pSetting);
+        }
+        TprResult readSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept {
+            assert(gEngine); return gEngine->conf_readSetting(baseSetting, name, pSetting);
         }
         void destroySetting(TprSetting pSetting) noexcept {
             assert(gEngine); gEngine->conf_destroySetting(pSetting);
@@ -182,6 +189,24 @@ namespace api {
         TprResult setSettingNull(TprSetting setting) noexcept {
             assert(gEngine); return gEngine->conf_setSettingNull(setting);
         }
+        TprResult unsetSetting(TprSetting setting) noexcept {
+            assert(gEngine); return gEngine->conf_unsetSetting(setting);
+        }
+        TprResult setSettingStruct(TprSetting setting) noexcept {
+            assert(gEngine); return gEngine->conf_setSettingStruct(setting);
+        }
+        TprResult setSettingArray(TprSetting setting) noexcept {
+            assert(gEngine); return gEngine->conf_setSettingArray(setting);
+        }
+        TprResult getSettingArraySize(TprSetting setting, uint32_t* pSize) noexcept {
+            assert(gEngine); return gEngine->conf_getSettingArraySize(setting, pSize);
+        }
+        TprResult getSettingArrayElement(TprSetting setting, uint32_t index, TprSetting* pElement) noexcept {
+            assert(gEngine); return gEngine->conf_getSettingArrayElement(setting, index, pElement);
+        }
+        TprResult resizeSettingArray(TprSetting setting, uint32_t size) noexcept {
+            assert(gEngine); return gEngine->conf_resizeSettingArray(setting, size);
+        }
     }
 
     namespace render {
@@ -222,18 +247,19 @@ void TemporEngine::registerAPI() {
     gEngine = this;
 
     // log
-    mLogAPI.log = api::log::log;
-    mLogAPI.info = api::log::info;
-    mLogAPI.warn = api::log::warn;
-    mLogAPI.error = api::log::error;
-    mLogAPI.debug = api::log::debug;
-    mLogAPI.trace = api::log::trace;
-    mLogAPI.logStyled = api::log::logStyled;
-    mLogAPI.infoStyled = api::log::infoStyled;
-    mLogAPI.warnStyled = api::log::warnStyled;
-    mLogAPI.errorStyled = api::log::errorStyled;
-    mLogAPI.debugStyled = api::log::debugStyled;
-    mLogAPI.traceStyled = api::log::traceStyled;
+    mOutAPI.log = api::log::log;
+    mOutAPI.info = api::log::info;
+    mOutAPI.warn = api::log::warn;
+    mOutAPI.error = api::log::error;
+    mOutAPI.debug = api::log::debug;
+    mOutAPI.trace = api::log::trace;
+    mOutAPI.logStyled = api::log::logStyled;
+    mOutAPI.infoStyled = api::log::infoStyled;
+    mOutAPI.warnStyled = api::log::warnStyled;
+    mOutAPI.errorStyled = api::log::errorStyled;
+    mOutAPI.debugStyled = api::log::debugStyled;
+    mOutAPI.traceStyled = api::log::traceStyled;
+    mOutAPI.writeMachineData = api::log::writeMachineData;
     // vfs
     mVFSAPI.openPathResource = api::vfs::openPathResource;
     mVFSAPI.openReferenceResource = api::vfs::openReferenceResource;
@@ -273,7 +299,9 @@ void TemporEngine::registerAPI() {
     mInputAPI.destroyAction = api::input::destroyAction;
     mInputAPI.getActionState = api::input::getActionState;
     // conf
+    mConfAPI.getRootSetting = api::conf::getRootSetting;
     mConfAPI.createSetting = api::conf::createSetting;
+    mConfAPI.readSetting = api::conf::readSetting;
     mConfAPI.destroySetting = api::conf::destroySetting;
     mConfAPI.getSettingType = api::conf::getSettingType;
     mConfAPI.getSettingDouble = api::conf::getSettingDouble;
@@ -286,9 +314,15 @@ void TemporEngine::registerAPI() {
     mConfAPI.setSettingDouble = api::conf::setSettingDouble;
     mConfAPI.setSettingInteger = api::conf::setSettingInteger;
     mConfAPI.setSettingNull = api::conf::setSettingNull;
+    mConfAPI.unsetSetting = api::conf::unsetSetting;
+    mConfAPI.setSettingStruct = api::conf::setSettingStruct;
+    mConfAPI.setSettingArray = api::conf::setSettingArray;
     mConfAPI.getSettingDoubleOr = api::conf::getSettingDoubleOr;
     mConfAPI.getSettingIntegerOr = api::conf::getSettingIntegerOr;
     mConfAPI.getSettingBoolOr = api::conf::getSettingBoolOr;
+    mConfAPI.getSettingArraySize = api::conf::getSettingArraySize;
+    mConfAPI.getSettingArrayElement = api::conf::getSettingArrayElement;
+    mConfAPI.resizeSettingArray = api::conf::resizeSettingArray;
     // render
     mRenderAPI.createDepthDomain = api::render::createDepthDomain;
     mRenderAPI.destroyDepthDomain = api::render::destroyDepthDomain;
@@ -303,7 +337,7 @@ void TemporEngine::registerAPI() {
     mThreadAPI.jobFinished = api::thread::jobFinished;
     mThreadAPI.joinJob = api::thread::joinJob;
 
-    mAPI.log = &mLogAPI;
+    mAPI.out = &mOutAPI;
     mAPI.win = &mWinAPI;
     mAPI.vfs = &mVFSAPI;
     mAPI.scene = &mSceneAPI;

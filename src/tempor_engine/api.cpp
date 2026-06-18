@@ -1,57 +1,63 @@
 
+#include "core.hpp"
 #include "plugin_core.h"
 #include "plugin_loader.hpp"
 #include "tempor.hpp"
+#include <exception>
 
 
 #pragma region log
-    void TemporEngine::log_log(TprLogLevel logLevel, const char* message) noexcept {
+    void TemporEngine::out_log(TprLogLevel logLevel, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, logLevel);
+        mpLogSink->writeLog(message, logLevel);
     }
-    void TemporEngine::log_error(const char* message) noexcept {
+    void TemporEngine::out_error(const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
     }
-    void TemporEngine::log_warn(const char* message) noexcept {
+    void TemporEngine::out_warn(const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
     }
-    void TemporEngine::log_info(const char* message) noexcept {
+    void TemporEngine::out_info(const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_INFO);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_INFO);
     }
-    void TemporEngine::log_debug(const char* message) noexcept {
+    void TemporEngine::out_debug(const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_DEBUG);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_DEBUG);
     }
-    void TemporEngine::log_trace(const char* message) noexcept {
+    void TemporEngine::out_trace(const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_TRACE);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_TRACE);
     }
-    void TemporEngine::log_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept {
+    void TemporEngine::out_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, logLevel, logStyle);
+        mpLogSink->writeLog(message, logLevel, logStyle);
     }
-    void TemporEngine::log_errorStyled(TprLogStyle logStyle, const char* message) noexcept {
+    void TemporEngine::out_errorStyled(TprLogStyle logStyle, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_ERROR, logStyle);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_ERROR, logStyle);
     }
-    void TemporEngine::log_warnStyled(TprLogStyle logStyle, const char* message) noexcept {
+    void TemporEngine::out_warnStyled(TprLogStyle logStyle, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_WARN, logStyle);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_WARN, logStyle);
     }
-    void TemporEngine::log_infoStyled(TprLogStyle logStyle, const char* message) noexcept {
+    void TemporEngine::out_infoStyled(TprLogStyle logStyle, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_INFO, logStyle);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_INFO, logStyle);
     }
-    void TemporEngine::log_debugStyled(TprLogStyle logStyle, const char* message) noexcept {
+    void TemporEngine::out_debugStyled(TprLogStyle logStyle, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_DEBUG, logStyle);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_DEBUG, logStyle);
     }
-    void TemporEngine::log_traceStyled(TprLogStyle logStyle, const char* message) noexcept {
+    void TemporEngine::out_traceStyled(TprLogStyle logStyle, const char* message) noexcept {
         if (!mpLogSink) return;
-        mpLogSink->write(message, TPR_LOG_DEST_DIAGNOSTIC, TPR_LOG_LEVEL_TRACE, logStyle);
+        mpLogSink->writeLog(message, TPR_LOG_LEVEL_TRACE, logStyle);
+    }
+    TprResult TemporEngine::out_writeMachineData(const char* pData, uint32_t size) noexcept {
+        if (!mpLogSink) return TPR_MODULE_NOT_LOADED;
+        return mpLogSink->writeData(std::span(reinterpret_cast<const std::byte*>(pData), size));
     }
 #pragma endregion  // log
 
@@ -464,23 +470,84 @@
 #pragma endregion  // geo
 
 #pragma region conf
-    TprResult TemporEngine::conf_createSetting(const char* name, TprSetting* pSetting) noexcept {
+    TprResult TemporEngine::conf_getRootSetting(TprSetting* pSetting) noexcept {
         if (!pSetting) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         if (!mpPlugLd) return TPR_MODULE_NOT_LOADED;
         try {
             auto infoExp = activePluginInfo();
-            if (!infoExp.has_value()) return infoExp.error();
+            if (!infoExp.has_value()) {
+                if (infoExp.error() == TPR_PANIC) mPanic.store(true);
+                return infoExp.error();
+            }
             auto info = infoExp.value();
-            std::string scopedName = std::format("{}.{}", info.name, name);
-            auto settingExp = mpSettings->createSetting(scopedName);
-            if (!settingExp.has_value()) return settingExp.error();
-            *pSetting = settingExp.value();
+            auto exp = mpSettings->createSetting(mpSettings->getRoot(), info.name);
+            if (!exp.has_value()) {
+                switch (exp.error()) {
+                    case TPR_SUCCESS:
+                        break;
+                    case TPR_PANIC:
+                        mPanic.store(true);
+                        return TPR_PANIC;
+                    default:
+                        return exp.error();
+                }
+            }
+            TprSetting value = exp.value();
+            auto result = mpSettings->setSettingStruct(value);
+            switch (result) {
+                case TPR_SUCCESS:
+                    break;
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    return TPR_PANIC;
+                default:
+                    return result;
+            }
+            *pSetting = value;
+        } catch (const std::exception& e) {
+            mPanic.store(true);
+            mLogger->panic() << "Exception at api.conf.createSetting: " << e.what() << "\n";
+            return TPR_PANIC;
         } catch (...) {
             mPanic.store(true);
-            mLogger->error(TPR_LOG_STYLE_PANIC1) << "Unexpected exception at api.conf.createSetting\n";
+            mLogger->panic() << "Unexpected exception at api.conf.createSetting\n";
             return TPR_PANIC;
         }
+        return TPR_SUCCESS;
+    }
+    TprResult TemporEngine::conf_createSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept {
+        if (!pSetting) return TPR_ERROR_INVALID_VALUE;
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        if (!mpPlugLd) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpSettings->createSetting(baseSetting, name);
+        if (!exp.has_value()) {
+            switch (exp.error()) {
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    return TPR_PANIC;
+                default:
+                    return exp.error();
+            }
+        }
+        *pSetting = exp.value();
+        return TPR_SUCCESS;
+    }
+    TprResult TemporEngine::conf_readSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept {
+        if (!pSetting) return TPR_ERROR_INVALID_VALUE;
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        if (!mpPlugLd) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpSettings->readSetting(baseSetting, name);
+        if (!exp.has_value()) {
+            switch (exp.error()) {
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    return TPR_PANIC;
+                default:
+                    return exp.error();
+            }
+        }
+        *pSetting = exp.value();
         return TPR_SUCCESS;
     }
     void TemporEngine::conf_destroySetting(TprSetting setting) noexcept {
@@ -633,6 +700,39 @@
                 return result;
         }
     }
+    TprResult TemporEngine::conf_unsetSetting(TprSetting setting) noexcept {
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        auto result = mpSettings->unsetSetting(setting);
+        switch (result) {
+            case TPR_PANIC:
+                mPanic.store(true);
+                return TPR_PANIC;
+            default:
+                return result;
+        }
+    }
+    TprResult TemporEngine::conf_setSettingStruct(TprSetting setting) noexcept {
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        auto result = mpSettings->setSettingStruct(setting);
+        switch (result) {
+            case TPR_PANIC:
+                mPanic.store(true);
+                return TPR_PANIC;
+            default:
+                return result;
+        }
+    }
+    TprResult TemporEngine::conf_setSettingArray(TprSetting setting) noexcept {
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        auto result = mpSettings->setSettingArray(setting);
+        switch (result) {
+            case TPR_PANIC:
+                mPanic.store(true);
+                return TPR_PANIC;
+            default:
+                return result;
+        }
+    }
     double TemporEngine::conf_getSettingDoubleOr(TprSetting setting, double fallback) noexcept {
         if (!mpSettings) return fallback;
         return mpSettings->getSettingDoubleOr(setting, fallback);
@@ -644,6 +744,49 @@
     TprBool8 TemporEngine::conf_getSettingBoolOr(TprSetting setting, TprBool8 fallback) noexcept {
         if (!mpSettings) return fallback;
         return mpSettings->getSettingBoolOr(setting, fallback);
+    }
+    TprResult TemporEngine::conf_getSettingArraySize(TprSetting setting, uint32_t* pSize) noexcept {
+        if (!pSize) return TPR_ERROR_INVALID_VALUE;
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpSettings->getSettingArraySize(setting);
+        if (!exp.has_value()) {
+            switch (exp.error()) {
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    return TPR_PANIC;
+                default:
+                    return exp.error();
+            }
+        }
+        *pSize = exp.value();
+        return TPR_SUCCESS;
+    }
+    TprResult TemporEngine::conf_getSettingArrayElement(TprSetting setting, uint32_t index, TprSetting* pElement) noexcept {
+        if (!pElement) return TPR_ERROR_INVALID_VALUE;
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpSettings->getSettingArrayElement(setting, index);
+        if (!exp.has_value()) {
+            switch (exp.error()) {
+                case TPR_PANIC:
+                    mPanic.store(true);
+                    return TPR_PANIC;
+                default:
+                    return exp.error();
+            }
+        }
+        *pElement = exp.value();
+        return TPR_SUCCESS;
+    }
+    TprResult TemporEngine::conf_resizeSettingArray(TprSetting setting, uint32_t size) noexcept {
+        if (!mpSettings) return TPR_MODULE_NOT_LOADED;
+        auto result = mpSettings->resizeSettingArray(setting, size);
+        switch (result) {
+            case TPR_PANIC:
+                mPanic.store(true);
+                return TPR_PANIC;
+            default:
+                return result;
+        }
     }
 #pragma endregion  // conf
 
@@ -727,7 +870,7 @@
             if (!jobIdExp.has_value()) {
                 // for some reason Job that was just created is invalid
                 mPanic.store(true);
-                mLogger->error(TPR_LOG_STYLE_PANIC1) << "Corrupted memory: Threading.getJobID\n";
+                mLogger->panic() << "Corrupted memory: Threading.getJobID\n";
                 return TPR_PANIC;
             }
             mJobPluginMap.try_emplace(jobIdExp.value(), pluginIdExp.value());

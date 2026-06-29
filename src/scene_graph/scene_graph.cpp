@@ -6,15 +6,15 @@
 #include "plugin_core.h"
 #include "plugin_core_extender.hpp"
 #include "settings.hpp"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 
 #include <cstdint>
 
 
 
-SceneGraph::SceneGraph(Logger& rLogger, Settings& rSettings, ResourceRegistry& rResReg)
-    : mrLogger(rLogger), mrSettings(rSettings), mrResReg(rResReg) {
-    auto size = mrSettings.createSettingIntegerOr("ECS.componentChunkSize", 1024);
+SceneGraph::SceneGraph(Logger logger, Settings& rSettings, FileRegistry& rFileReg)
+    : mLogger(logger), mrSettings(rSettings), mrFileReg(rFileReg) {
+    auto size = mrSettings.createSettingIntegerOr(mrSettings.getRoot(), "ECS.componentChunkSize", 1024);
     if (size < 0) size = 1024;
     if (size > UINT32_MAX) size = 1024;
     mChunkSize = size;
@@ -29,7 +29,7 @@ expected<TprComponent, TprResult> SceneGraph::createComponent(uint32_t component
         mComponents.try_emplace(mComponentCounter, componentSize);
         handle = construct_basic_handle<TprComponent>(mComponentCounter, 0, handle_type::component);
         mComponentCounter++;
-        mrLogger << logPrxScGr() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
+        mLogger() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
     }
@@ -40,7 +40,7 @@ expected<TprComponent, TprResult> SceneGraph::createComponent(uint32_t component
 expected<uint32_t, TprResult> SceneGraph::getComponentSize(TprComponent component) noexcept {
     try {
         auto it = mComponents.find(get_basic_handle_index(component));
-        if (it == mComponents.end()) return unexpected(TPR_INVALID_VALUE);
+        if (it == mComponents.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         return it->second.size;
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
@@ -107,13 +107,13 @@ void SceneGraph::destroyComponent(TprComponent component) noexcept {
 
         mComponents.erase(componentIt);
 
-        mrLogger << logPrxScGr() << "Explicitly destroyed component " << get_basic_handle_index(component) << "\n";
+        mLogger() << "Explicitly destroyed component " << get_basic_handle_index(component) << "\n";
     } catch (...) {}
 }
 
 
 expected<TprEntity, TprResult> SceneGraph::spawnEntity(const TprComponent* pComponents, uint32_t componentCount) noexcept {
-    if (!pComponents) return unexpected(TPR_INVALID_VALUE);
+    if (!pComponents) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     try {
 
@@ -123,7 +123,7 @@ expected<TprEntity, TprResult> SceneGraph::spawnEntity(const TprComponent* pComp
         if (it == mArchetypes.end()) {
             set_key<TprComponentInfo> componentInfoSet;
             for (const auto& component : componentSet) {
-                if (!mComponents.contains(get_basic_handle_index(component.component))) return unexpected(TPR_INVALID_VALUE);
+                if (!mComponents.contains(get_basic_handle_index(component.component))) return unexpected(TPR_ERROR_INVALID_VALUE);
                 componentInfoSet.insert({component, mComponents.at(get_basic_handle_index(component.component)).size});
             }
             it = mArchetypes.try_emplace(componentSet, Archetype{mChunkSize, componentInfoSet}).first;
@@ -171,10 +171,10 @@ void SceneGraph::killEntity(TprEntity entity) noexcept {
 TprResult SceneGraph::copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t start, uint32_t n, char* pData) noexcept {
 
     try {
-        if (!mComponents.contains(get_basic_handle_index(component))) return TPR_INVALID_VALUE;
+        if (!mComponents.contains(get_basic_handle_index(component))) return TPR_ERROR_INVALID_VALUE;
 
         size_t offset = mEntities.offset(entity.id);
-        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mEntities.null_offset) return TPR_ERROR_INVALID_VALUE;
         const EntityEntry& entry = mEntities[offset];
         Archetype& archetype = entry.archetype->archetype;
 
@@ -185,7 +185,7 @@ TprResult SceneGraph::copyEntityComponentData(TprEntity entity, TprComponent com
         auto widthExp = archetype.width(TprComponentWrapper{component});
         if (!widthExp.has_value()) return widthExp.error();
         uint32_t width = widthExp.value();
-        if (offset + n > width) return TPR_INVALID_VALUE;
+        if (offset + n > width) return TPR_ERROR_INVALID_VALUE;
 
         if (n != 0) {
             std::memcpy(pData, data + start, n);
@@ -202,13 +202,13 @@ TprResult SceneGraph::copyEntityComponentData(TprEntity entity, TprComponent com
 
 
 TprResult SceneGraph::writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t start, uint32_t n) noexcept {
-    if (!pData) return TPR_INVALID_VALUE;
+    if (!pData) return TPR_ERROR_INVALID_VALUE;
 
     try {
-        if (!mComponents.contains(get_basic_handle_index(component))) return TPR_INVALID_VALUE;
+        if (!mComponents.contains(get_basic_handle_index(component))) return TPR_ERROR_INVALID_VALUE;
         
         size_t offset = mEntities.offset(entity.id);
-        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mEntities.null_offset) return TPR_ERROR_INVALID_VALUE;
         const EntityEntry& entry = mEntities[offset];
         Archetype& archetype = entry.archetype->archetype;
 
@@ -219,7 +219,7 @@ TprResult SceneGraph::writeEntityComponentData(TprEntity entity, TprComponent co
         auto widthExp = archetype.width(component);
         if (!widthExp.has_value()) return widthExp.error();
         uint32_t width = widthExp.value();
-        if (offset + n > width) return TPR_INVALID_VALUE;
+        if (offset + n > width) return TPR_ERROR_INVALID_VALUE;
 
         auto chunkExp = archetype.entityChunk(entry.local, component);
         if (!chunkExp.has_value()) return chunkExp.error();
@@ -241,13 +241,13 @@ TprResult SceneGraph::writeEntityComponentData(TprEntity entity, TprComponent co
 
 
 TprResult SceneGraph::modifyEntityComponentSet(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) noexcept {
-    if (!pComponents) return TPR_INVALID_VALUE;
+    if (!pComponents) return TPR_ERROR_INVALID_VALUE;
 
     // TODO: increment chunks versions
 
     try {
         size_t offset = mEntities.offset(entity.id);
-        if (offset == mEntities.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mEntities.null_offset) return TPR_ERROR_INVALID_VALUE;
         EntityEntry& entry = mEntities[offset];
         ArchetypeEntry& oldArchetypeEntry = *entry.archetype;
         Archetype& oldArchetype = entry.archetype->archetype;
@@ -258,7 +258,7 @@ TprResult SceneGraph::modifyEntityComponentSet(TprEntity entity, const TprCompon
         if (it == mArchetypes.end()) {
             set_key<TprComponentInfo> componentInfoSet;
             for (const auto& component : componentSet) {
-                if (!mComponents.contains(get_basic_handle_index(component.component))) return TPR_INVALID_VALUE;
+                if (!mComponents.contains(get_basic_handle_index(component.component))) return TPR_ERROR_INVALID_VALUE;
                 componentInfoSet.insert({component, mComponents.at(get_basic_handle_index(component.component)).size});
             }
             it = mArchetypes.try_emplace(componentSet, Archetype{mChunkSize, componentInfoSet}).first;
@@ -336,9 +336,9 @@ TprResult SceneGraph::modifyEntityComponentSet(TprEntity entity, const TprCompon
 }
 
 
-TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprResource resource) noexcept {
+TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprFile file) noexcept {
     try {
-        if (!mComponents.contains(get_basic_handle_index(component))) return TPR_INVALID_VALUE;
+        if (!mComponents.contains(get_basic_handle_index(component))) return TPR_ERROR_INVALID_VALUE;
         std::vector<TprComponentChunk> handles;
         for (auto& [componentSet, archetypeEntry] : mArchetypes) {
             auto& archetype = archetypeEntry.archetype;
@@ -348,12 +348,11 @@ TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprResour
                 }
             }
         }
-        auto resizeRes = mrResReg.resizeResource(resource, handles.size() * sizeof(TprComponentChunk));
-        if (resizeRes != TPR_SUCCESS) return resizeRes;
-        auto ptrExp = mrResReg.getResourceRawDataPointer(resource);
-        if (!ptrExp.has_value()) return ptrExp.error();
-        auto ptr = ptrExp.value();
-        std::memcpy(ptr, handles.data(), handles.size() * sizeof(TprComponentChunk));
+        TprResult result;
+        result = mrFileReg.resize(file, handles.size() * sizeof(TprComponentChunk));
+        if (result != TPR_SUCCESS) return result;
+        result = mrFileReg.writeAt(file, 0, handles.size() * sizeof(TprComponentChunk), reinterpret_cast<const std::byte*>(handles.data()));
+
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
     }
@@ -369,7 +368,7 @@ uint32_t SceneGraph::getComponentChunkMaxElementCount() noexcept {
 expected<uint32_t, TprResult> SceneGraph::getComponentChunkElementCount(TprComponentChunk chunk) noexcept {
     try {
         auto offset = mChunks.offset(get_basic_handle_index(chunk));
-        if (offset == mChunks.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mChunks.null_offset) return TPR_ERROR_INVALID_VALUE;
         ChunkEntry& entry = mChunks[offset];
         auto exp = entry.archetype->archetype.chunk(entry.local, entry.component);
         if (!exp.has_value()) return exp.error();
@@ -385,13 +384,13 @@ expected<uint32_t, TprResult> SceneGraph::getComponentChunkElementCount(TprCompo
 TprResult SceneGraph::copyComponentChunkData(TprComponentChunk chunk, uint32_t start, uint32_t n, char* pData) noexcept {
     try {
         auto offset = mChunks.offset(get_basic_handle_index(chunk));
-        if (offset == mChunks.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mChunks.null_offset) return TPR_ERROR_INVALID_VALUE;
         ChunkEntry& entry = mChunks[offset];
         auto exp = entry.archetype->archetype.chunk(entry.local, entry.component);
         if (!exp.has_value()) return exp.error();
         auto* chunk = exp.value();
         uint32_t size = chunk->count() * chunk->width();
-        if (offset + n > size) return TPR_INVALID_VALUE;
+        if (offset + n > size) return TPR_ERROR_INVALID_VALUE;
         if (n != 0) {
             std::memcpy(pData, chunk->data() + start, n);
         } else {
@@ -407,14 +406,14 @@ TprResult SceneGraph::copyComponentChunkData(TprComponentChunk chunk, uint32_t s
 TprResult SceneGraph::writeComponentChunkData(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t start, uint32_t n) noexcept {
     try {
         auto offset = mChunks.offset(get_basic_handle_index(chunk));
-        if (offset == mChunks.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mChunks.null_offset) return TPR_ERROR_INVALID_VALUE;
         ChunkEntry& entry = mChunks[offset];
         auto exp = entry.archetype->archetype.chunk(entry.local, entry.component);
         if (!exp.has_value()) return exp.error();
         auto* chunk = exp.value();
         if (chunk->version() != version) return TPR_VERSION_MISMATCH;
         uint32_t size = chunk->count() * chunk->width();
-        if (offset + n > size) return TPR_INVALID_VALUE;
+        if (offset + n > size) return TPR_ERROR_INVALID_VALUE;
         if (n != 0) {
             std::memcpy(chunk->data() + start, pData, n);
         } else {
@@ -429,7 +428,7 @@ TprResult SceneGraph::writeComponentChunkData(TprComponentChunk chunk, uint32_t 
 expected<uint32_t, TprResult> SceneGraph::getComponentChunkVersion(TprComponentChunk chunk) noexcept {
     try {
         auto offset = mChunks.offset(get_basic_handle_index(chunk));
-        if (offset == mChunks.null_offset) return TPR_INVALID_VALUE;
+        if (offset == mChunks.null_offset) return TPR_ERROR_INVALID_VALUE;
         ChunkEntry& entry = mChunks[offset];
         auto exp = entry.archetype->archetype.chunk(entry.local, entry.component);
         if (!exp.has_value()) return exp.error();

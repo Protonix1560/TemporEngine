@@ -9,7 +9,6 @@
 #include <vector>
 #include <thread>
 #include <algorithm>
-#include <iostream>
 
 
 namespace {
@@ -79,30 +78,19 @@ class sleep_clock {
             m_delta_time = m_curr_time - m_prev_time;
             duration<double> sleep_time = m_desired_delta_time - m_delta_time - m_epsilon;
             duration<double> corrected = sleep_time - m_sleep_correction;
-            // std::cout << corrected.count() << "\n";
-            // std::cout.flush();
             if (corrected > duration<double>::zero()) {
-                // std::cout << 0 << "\n";
-                // std::cout.flush();
-
                 std::this_thread::sleep_for(corrected);
             }
-            // std::cout << 1 << "\n";
-            // std::cout.flush();
 
             // correcting sleep_for
             auto wake = m_curr_time + sleep_time;
             while (steady_clock::now() < wake) {
                 std::this_thread::yield();
             }
-            // std::cout << 2 << "\n";
-            // std::cout.flush();
 
             duration<double> total_time = steady_clock::now() - m_prev_time;
 
             m_prev_time = steady_clock::now();
-            // std::cout << 3 << "\n";
-            // std::cout.flush();
 
             m_sample_sum += total_time;
             m_sample_sum -= m_time_samples[m_sample_walker];
@@ -115,14 +103,10 @@ class sleep_clock {
             if (m_recorded_sample_count < m_sample_count) {
                 m_recorded_sample_count++;
             }
-            // std::cout << 4 << "\n";
-            // std::cout.flush();
 
             duration<double> error = duration<double>(estimate_delta_time()) - m_desired_delta_time;
             m_sleep_correction += error * m_error_gain;
             m_sleep_correction = std::clamp(m_sleep_correction, m_correction_min, m_correction_max);
-            // std::cout << 5 << "\n";
-            // std::cout.flush();
         }
 
         double estimateFps() {

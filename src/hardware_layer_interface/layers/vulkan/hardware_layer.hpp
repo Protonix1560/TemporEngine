@@ -8,8 +8,6 @@
 #include "plugin_core.h"
 #include "hardware_layer_interface.hpp"
 #include "logger.hpp"
-#include "resource_registry.hpp"
-#include "window_manager.hpp"
 #include "interval_union.hpp"
 
 #include <SDL2/SDL_vulkan.h>
@@ -21,6 +19,20 @@
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
+
+
+
+// from "file_registry.hpp"
+class FileRegistry;
+
+// from "window_manager.hpp"
+class WindowManager;
+
+// from "settings.hpp"
+class Settings;
+
+// from "scene_graph.hpp"
+class SceneGraph;
 
 
 
@@ -182,12 +194,12 @@ struct Allocation {
 
 struct Allocator {
     private:
-        Logger& mrLogger;
+        Logger mLogger;
         VulkanSymbols& mrSym;
         std::vector<VkMemoryType> mMemoryTypes;
         VkPhysicalDevice mPhysicalDevice;
         VkDevice mDevice;
-        uint32_t mAllocCount;
+        uint32_t mAllocCount = 0;
         uint32_t mMaxAllocCount;
         
         struct Memory {
@@ -196,7 +208,7 @@ struct Allocator {
         std::unordered_map<VkDeviceMemory, Memory> mMemories;
 
     public:
-        Allocator(Logger& rLogger, VulkanSymbols& rSym, VkPhysicalDevice physicalDevice, VkDevice device);
+        Allocator(Logger logger, VulkanSymbols& rSym, VkPhysicalDevice physicalDevice, VkDevice device);
 
         expected<uint32_t, TprResult> findMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlags property);
 
@@ -210,7 +222,7 @@ struct Allocator {
 
 
 struct BufferResources {
-    Logger& mrLogger;
+    Logger mLogger;
     VulkanSymbols& mrSym;
     Allocator& mrAlloc;
     VkPhysicalDevice mPhysicalDevice;
@@ -239,9 +251,10 @@ struct Buffer : private BufferResources {
         void* mapping() const { return mMap; }
         bool mapped() const { return mMap != nullptr; }
         uint32_t size() const { return mSize; }
+        bool empty() const { return mSize == 0; }
 
         Buffer(
-            Logger& rLogger, VulkanSymbols& rSym, Allocator& rAlloc, VkPhysicalDevice physicalDevice, VkDevice device,
+            Logger logger, VulkanSymbols& rSym, Allocator& rAlloc, VkPhysicalDevice physicalDevice, VkDevice device,
             VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
             VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE, std::span<uint32_t> queueFamilyIndices = {}
         );
@@ -264,10 +277,10 @@ struct Buffer : private BufferResources {
 
 
 struct WindowContextResources {
-    Logger& mrLogger;
+    Logger mLogger;
     Allocator& mrAlloc;
     WindowManager& mrWinMan;
-    ResourceRegistry& mrResReg;
+    FileRegistry& mrFileReg;
     VulkanSymbols& mrSym;
 
     VkInstance mInstance;
@@ -313,7 +326,7 @@ struct WindowContext : private WindowContextResources {
 
     public:
         WindowContext(
-            Logger& rLogger, Allocator& rAlloc, WindowManager& rWinMan, ResourceRegistry& rResReg,
+            Logger logger, Allocator& rAlloc, WindowManager& rWinMan, FileRegistry& rFileReg,
             VulkanSymbols& rSym, VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
             uint32_t queueFamilyIndex, uint32_t maxFramesInFlight, TprWindow window, VkPipelineLayout layout,
             VkDescriptorSetLayout objectSetLayout
@@ -394,7 +407,7 @@ struct ChunkEntry {
 class HardwareLayerVulkan : public HardwareLayer {
     public:
         HardwareLayerVulkan(
-            Logger& rLogger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
+            Logger logger, FileRegistry& rFileReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
             uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
         );
         ~HardwareLayerVulkan() noexcept;
@@ -425,11 +438,12 @@ class HardwareLayerVulkan : public HardwareLayer {
 
         expected<WindowContext, TprResult> createWindowContext(uint32_t queueFamilyIndex, TprWindow window);
 
-        Logger& mrLogger;
-        ResourceRegistry& mrResReg;
+        Logger mLogger;
+        FileRegistry& mrFileReg;
         WindowManager& mrWinMan;
         Settings& mrSettings;
         SceneGraph& mrScGr;
+
         TprComponent mComponentRenderable;
         uint32_t mObjectChunkSize;
         double mObjectBufferGrowth;
@@ -475,7 +489,7 @@ class HardwareLayerVulkan : public HardwareLayer {
         uint32_t mObjectImageCounter = 0;
 
         std::unordered_map<uint64_t, ChunkEntry> mChunks;
-        TprResource mRenderableChunkFetchResource;
+        TprFile mRenderableChunksFetchFile;
         std::optional<Buffer> mObjectBuffer;
         std::optional<Buffer> mObjectIndicesBuffer;
         std::vector<uint32_t> mObjectsFreeList;

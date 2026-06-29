@@ -6,6 +6,7 @@
 #include "plugin.h"
 #include "plugin_common_structs.hpp"
 #include "plugin_core.h"
+#include "logger.hpp"
 
 #ifdef LINUX
     #include "linux_helper.hpp"
@@ -25,20 +26,17 @@ class Plugin {
 };
 
 
-// from "logger.hpp"
-class Logger;
-
 
 class PluginInThread : public Plugin {
     public:
-        PluginInThread(Logger& rLogger, std::atomic<int32_t>& rAliveTokens);
+        PluginInThread(Logger logger, std::atomic<int32_t>& rAliveTokens);
         TprResult init(const PluginLoadInfo* pLoadInfo) override;
         void preShutdown() noexcept override;
         void shutdown() noexcept override;
         int32_t updatePerFrame() noexcept override;
         const std::string_view name() noexcept override;
     private:
-        Logger& mrLogger;
+        Logger mLogger;
         std::atomic<int32_t>& mrAliveTokens;
         Lib mPluginLib;
         std::string mName;

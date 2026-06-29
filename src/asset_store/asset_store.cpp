@@ -6,7 +6,7 @@
 #include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "logger.hpp"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
@@ -16,35 +16,32 @@
 
 
 
-AssetStore::AssetStore(Logger& rLogger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI) : mrLogger(rLogger), mrResReg(rRegReg), mrHWLI(rHWLI) {}
+AssetStore::AssetStore(Logger logger, FileRegistry& rFileReg, HardwareLayer& rHWLI) : mLogger(logger), mrFileReg(rFileReg), mrHWLI(rHWLI) {}
 
 
 AssetStore::~AssetStore() noexcept {}
 
 
 expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
+    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     try {
+        TprResult result;
+        result = mrFileReg.seek(pInfo->file, 0, TPR_SEEK_WHENCE_END);
+        if (result != TPR_SUCCESS) return unexpected(result);
+        auto tellExp = mrFileReg.tell(pInfo->file);
+        if (!tellExp.has_value()) return unexpected(tellExp.error());
+        auto size = tellExp.value();
+        if (size == 0) {
+            return unexpected(TPR_ERROR_INVALID_VALUE);
+        }
+        std::vector<std::byte> data(size);
+        result = mrFileReg.readAt(pInfo->file, 0, data.size(), data.data());
+        if (result != TPR_SUCCESS) return unexpected(result);
 
-        auto ptrExp = mrResReg.getResourceConstPointer(pInfo->resource);
-        if (!ptrExp.has_value()) {
-            return unexpected(ptrExp.error());
-        }
-        if (!ptrExp.value()) {
-            return unexpected(TPR_INVALID_VALUE);
-        }
-        auto sizeExp = mrResReg.sizeofResource(pInfo->resource);
-        if (!sizeExp.has_value()) {
-            return unexpected(sizeExp.error());
-        }
-        if (sizeExp.value() == 0) {
-            return unexpected(TPR_INVALID_VALUE);
-        }
-
-        auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(ptrExp.value(), sizeExp.value());
+        auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(data.data(), data.size());
         if (gltfDataExp.error() != fastgltf::Error::None) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << "FastGLTF error: " << fastgltf::getErrorMessage(gltfDataExp.error()) << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "FastGLTF error: " << fastgltf::getErrorMessage(gltfDataExp.error()) << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);
         }
         auto& gltfData = gltfDataExp.get();
@@ -53,12 +50,12 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
         // TODO: add support for in-memory binary chunks
         auto gltfLibraryExp = gltfParser.loadGltfBinary(gltfData, "");
         if (gltfLibraryExp.error() != fastgltf::Error::None) {
-            mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << "FastGLTF error: " << fastgltf::getErrorMessage(gltfLibraryExp.error()) << "\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "FastGLTF error: " << fastgltf::getErrorMessage(gltfLibraryExp.error()) << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);
         }
         auto& gltfLibrary = gltfLibraryExp.get();
 
-        if (pInfo->index >= gltfLibrary.meshes.size()) return unexpected(TPR_INVALID_VALUE);
+        if (pInfo->index >= gltfLibrary.meshes.size()) return unexpected(TPR_ERROR_INVALID_VALUE);
         const auto& meshData = gltfLibrary.meshes[pInfo->index];
 
         uint32_t totalPrimitiveCount = meshData.primitives.size();
@@ -148,7 +145,7 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
         return handle;
     
     } catch (const std::runtime_error& e) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxAStr() << e.what() << "\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << e.what() << "\n";
         return unexpected(TPR_UNKNOWN_ERROR);
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
@@ -158,11 +155,14 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
 
 
 TprResult AssetStore::loadMesh(TprMesh handle, const TprMeshLoadInfo* pInfo) noexcept {
+    if (!pInfo) return TPR_ERROR_INVALID_VALUE;
     try {
+        if (get_basic_handle_type(handle) != handle_type::mesh) return TPR_ERROR_INVALID_VALUE;
+        if (get_basic_handle_index(handle) > mMeshCounter) return TPR_ERROR_INVALID_VALUE;
         auto it = mMeshes.find(get_basic_handle_index(handle));
-        if (it == mMeshes.end()) return TPR_INVALID_VALUE;
+        if (it == mMeshes.end()) return TPR_ERROR_INVALID_VALUE;
         auto& mesh = it->second;
-        if (mesh.loaded) return TPR_CONTRACT_VIOLATION;
+        if (mesh.loaded) return TPR_ERROR_INVALID_OPERATION;
         mesh.loaded = true;
         return mrHWLI.loadMesh(mesh);
     } catch (...) {
@@ -174,6 +174,8 @@ TprResult AssetStore::loadMesh(TprMesh handle, const TprMeshLoadInfo* pInfo) noe
 
 void AssetStore::unloadMesh(TprMesh handle) noexcept {
     try {
+        if (get_basic_handle_type(handle) != handle_type::mesh) return;
+        if (get_basic_handle_index(handle) > mMeshCounter) return;
         auto it = mMeshes.find(get_basic_handle_index(handle));
         if (it == mMeshes.end()) return;
         auto& mesh = it->second;
@@ -188,6 +190,8 @@ void AssetStore::unloadMesh(TprMesh handle) noexcept {
 
 void AssetStore::destroyMesh(TprMesh handle) noexcept {
     try {
+        if (get_basic_handle_type(handle) != handle_type::mesh) return;
+        if (get_basic_handle_index(handle) > mMeshCounter) return;
         auto it = mMeshes.find(get_basic_handle_index(handle));
         if (it == mMeshes.end()) return;
         if (it->second.loaded) unloadMesh(handle);

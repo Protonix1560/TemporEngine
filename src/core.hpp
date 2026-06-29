@@ -8,6 +8,8 @@
 #include <optional>
 #include <format>
 #include <array>
+#include <variant>
+#include <utility>
 
 #ifdef HAVE_UNISTD_H
     #include "unistd.h"
@@ -32,16 +34,14 @@ using namespace std::string_literals;
     #define LINUX
 #endif
 
-#define THREAD_SAFE
-#define SIG_SAFE
+// #define THREAD_SAFE
+// #define SIG_SAFE
 
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__INTEL_COMPILER)
-    #define RESTRICT __restrict
-#else
-    #define RESTRICT
-#endif
-
-#define ENV_TEMPOR_CONF_PATH "TEMPOR_CONF_PATH"
+// #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__INTEL_COMPILER)
+//     #define RESTRICT __restrict
+// #else
+//     #define RESTRICT
+// #endif
 
 
 
@@ -60,6 +60,15 @@ constexpr typename std::underlying_type<E>::type to_underlying(E e) {
 
 template <typename>
 inline constexpr bool dependent_false_v = false;
+
+template<typename... A, typename... B>
+requires (sizeof...(A) > 0 && sizeof...(B) > 0)
+std::variant<A...> variant_cast(const std::variant<B...>& v)
+{
+    return std::visit([](const auto& x) -> std::variant<A...> {
+        return x;
+    }, v);
+}
 
 
 
@@ -100,22 +109,22 @@ class string_converter<T> {
 // consteval string
 // a string type that supports compile-time operations and that doesn't allocate any memory
 
-template <size_t N>
-class consteval_string {
+template <typename CharT, size_t N>
+class basic_consteval_string {
 
     public:
 
-        consteval consteval_string() : m_str{} {}
+        consteval basic_consteval_string() : m_str{} {}
 
-        consteval consteval_string(const char (&str)[N]) : m_str{} {
+        consteval basic_consteval_string(const CharT (&str)[N]) : m_str{} {
             for (size_t i = 0; i < N; i++) {
                 m_str[i] = str[i];
             }
         }
 
         template <size_t M>
-        consteval consteval_string<N + M - 1UL> operator+(const consteval_string<M>& other) const {
-            consteval_string<N + M - 1UL> concat{};
+        consteval basic_consteval_string<CharT, N + M - 1UL> operator+(const basic_consteval_string<CharT, M>& other) const {
+            basic_consteval_string<CharT, N + M - 1UL> concat{};
             for (size_t i = 0; i < N - 1; i++) {
                 concat.m_str[i] = m_str[i];
             }
@@ -127,30 +136,30 @@ class consteval_string {
         }
 
         template <size_t M>
-        consteval consteval_string<N + M - 1UL> operator+(const char (&str)[M]) const {
-            return this->operator+(consteval_string<M>(str));
+        consteval basic_consteval_string<CharT, N + M - 1UL> operator+(const CharT (&str)[M]) const {
+            return this->operator+(basic_consteval_string<CharT, M>(str));
         }
 
-        consteval char& operator[](size_t index) {
+        consteval CharT& operator[](size_t index) {
             if (index >= N) throw "consteval_string: Index out of range";
             return m_str[index];
         }
-        consteval const char& operator[](size_t index) const {
+        consteval const CharT& operator[](size_t index) const {
             if (index >= N) throw "consteval_string: Index out of range";
             return m_str[index];
         }
         
-        constexpr const char* c_str() const { return m_str.data(); }
-        constexpr operator const char*() const { return m_str.data(); }
+        constexpr const CharT* c_str() const { return m_str.data(); }
+        constexpr operator const CharT*() const { return m_str.data(); }
 
-        std::string string() const { return std::string(m_str.data()); }
+        std::basic_string<CharT> string() const { return std::basic_string<CharT>(m_str.data()); }
 
-        std::string operator+(std::string str) const { return string() + str; }
+        std::basic_string<CharT> operator+(std::basic_string<CharT> str) const { return string() + str; }
 
         template <size_t C>
         requires (C < N)
-        consteval consteval_string<C + 1UL> clamped() const {
-            consteval_string<C + 1UL> clamped{};
+        consteval basic_consteval_string<CharT, C + 1UL> clamped() const {
+            basic_consteval_string<CharT, C + 1UL> clamped{};
             for (size_t i = 0; i < C; i++) {
                 clamped.m_str[i] = m_str[i];
             }
@@ -158,25 +167,44 @@ class consteval_string {
             return clamped;
         }
 
-        consteval std::string_view view() const {
-            return std::string_view(m_str, N - 1);
+        consteval std::basic_string_view<CharT> view() const {
+            return std::basic_string_view<CharT>(m_str, N - 1);
         }
 
         template <typename... Args>
-        std::string format(Args&&... args) const {
+        std::basic_string<CharT> format(Args&&... args) const {
             constexpr auto str = m_str;
             return std::format(str.data(), std::forward<Args>(args)...);
         }
         
     private:
-        std::array<char, N> m_str;
-        template <size_t> friend class consteval_string;
+        std::array<CharT, N> m_str;
+        template <typename, size_t> friend class basic_consteval_string;
     
 };
 
-template <size_t N, size_t M>
-consteval auto operator+(const char (&const_str)[N], const consteval_string<M>& comptime_str) {
-    return consteval_string<N>(const_str) + comptime_str;
+template <typename CharT, size_t N, size_t M>
+consteval auto operator+(const CharT (&const_str)[N], const basic_consteval_string<CharT, M>& comptime_str) {
+    return basic_consteval_string<CharT, N>(const_str) + comptime_str;
+}
+
+template <size_t N>
+using consteval_string = basic_consteval_string<char, N>;
+
+
+template <size_t N>
+struct nttp {
+    char data[N];
+
+    consteval nttp(const char (&s)[N]) {
+        for (size_t i = 0; i < N; ++i)
+            data[i] = s[i];
+    }
+};
+
+template <nttp Str>
+constexpr auto operator""_ces() {
+    return basic_consteval_string<char, sizeof(Str.data)>(Str.data);;
 }
 
 
@@ -186,30 +214,34 @@ consteval auto operator+(const char (&const_str)[N], const consteval_string<M>& 
 
 #define TYPE_NAME_UNKNOWN "UNKNOWN"
 #define TYPE_NAME_UNKNOWN_SHORT "UNKN"
+#define TYPE_NAME_SHORT_SIZE 4
 
 template <typename T> struct type_name {
     static constexpr consteval_string<sizeof(TYPE_NAME_UNKNOWN)> value{TYPE_NAME_UNKNOWN};
     static constexpr consteval_string<sizeof(TYPE_NAME_UNKNOWN_SHORT)> value_short{TYPE_NAME_UNKNOWN_SHORT};
 };
 
-#define REGISTER_TYPE_NAME(T)                                                                                 \
-    template <>                                                                                               \
-    struct type_name<T> {                                                                                     \
-        public:                                                                                               \
-            static constexpr consteval_string<sizeof(#T)> value{#T};                                          \
-            static constexpr consteval_string<5> value_short{consteval_string<sizeof(#T)>(#T).clamped<4>()};  \
+#define REGISTER_TYPE_NAME(T)                                                                                                    \
+    template <>                                                                                                                  \
+    struct type_name<T> {                                                                                                        \
+        public:                                                                                                                  \
+            static constexpr consteval_string<sizeof(#T)> value{#T};                                                             \
+            static constexpr consteval_string<5> value_short{consteval_string<sizeof(#T)>(#T).clamped<TYPE_NAME_SHORT_SIZE>()};  \
     };
 
-#define REGISTER_TYPE_NAME_S(T, S)                                                                            \
-    template <>                                                                                               \
-    struct type_name<T> {                                                                                     \
-        public:                                                                                               \
-            static constexpr consteval_string<sizeof(#T)> value{#T};                                          \
-            static constexpr consteval_string<sizeof(S)> value_short{S};                                      \
+#define REGISTER_TYPE_NAME_S(T, S)                                        \
+    template <>                                                           \
+    struct type_name<T> {                                                 \
+        public:                                                           \
+            static constexpr consteval_string<sizeof(#T)> value{#T};      \
+            static constexpr consteval_string<sizeof(S)> value_short{S};  \
     };
 
 template <typename T>
-using type_name_v = typename type_name<T>::value;
+inline constexpr auto type_name_v = type_name<T>::value;
+
+template <typename T>
+inline constexpr auto type_name_v_s = type_name<T>::value_short;
 
 
 
@@ -287,7 +319,7 @@ class static_registry<T, 0> {
 enum class handle_type : uint8_t {
     undefined = 0,
     window = 1,
-    resource = 2,
+    file = 2,
     action = 3,
     component = 4,
     mesh = 5,
@@ -300,114 +332,39 @@ enum class handle_type : uint8_t {
 };
 
 template <typename T>
-inline constexpr uint32_t get_basic_handle_index(T handle) {
+inline constexpr uint32_t get_basic_handle_index(T handle) noexcept {
     return (handle._d >> 32) & 0xFFFFFFFF;
 }
 template <typename T>
-inline constexpr uint32_t get_basic_handle_generation(T handle) {
+inline constexpr uint32_t get_basic_handle_generation(T handle) noexcept {
     return (handle._d >> 8) & 0xFFFFFF;
 }
 template <typename T>
-inline constexpr handle_type get_basic_handle_type(T handle) {
+inline constexpr handle_type get_basic_handle_type(T handle) noexcept {
     return static_cast<handle_type>(handle._d & 0xFF);
 }
 template <typename T>
-inline constexpr void set_basic_handle_index(T* handle, uint32_t index) {
+inline constexpr void set_basic_handle_index(T* handle, uint32_t index) noexcept {
     handle->_d &= ~(static_cast<uint64_t>(0xFFFFFFFF) << 32);
     handle->_d |= static_cast<uint64_t>(index) << 32;
 }
 template <typename T>
-inline constexpr void set_basic_handle_generation(T* handle, uint32_t generation) {
+inline constexpr void set_basic_handle_generation(T* handle, uint32_t generation) noexcept {
     handle->_d &= ~(static_cast<uint64_t>(0xFFFFFF) << 8);
     handle->_d |= static_cast<uint64_t>(generation & 0xFFFFFF) << 8;
 }
 template <typename T>
-inline constexpr void set_basic_handle_type(T* handle, handle_type type) {
+inline constexpr void set_basic_handle_type(T* handle, handle_type type) noexcept {
     handle->_d &= ~static_cast<uint64_t>(0xFF);
     handle->_d |= static_cast<uint64_t>(type);
 }
 template <typename T>
-inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, handle_type type) {
+inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, handle_type type) noexcept {
     return {
         (static_cast<uint64_t>(index) << 32) | 
         (static_cast<uint64_t>(generation & 0xFFFFFF) << 8) |
         (static_cast<uint64_t>(type))
     };
-}
-
-
-// log names
-
-consteval auto logPHWLName() {
-    const char name[] = "PHWL";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxPHWL() {
-    return logPHWLName() + ": ";
-}
-
-consteval auto logHWMOName() {
-    const char name[] = "HWMO";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxHWMO() {
-    return logHWMOName() + ": ";
-}
-
-consteval auto logRRegName() {
-    const char name[] = "RReg";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxRReg() {
-    return logRRegName() + ": ";
-}
-
-consteval auto logPlLdName() {
-    const char name[] = "PlLd";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxPlLd() {
-    return logPlLdName() + ": ";
-}
-
-consteval auto logAStrName() {
-    const char name[] = "AStr";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxAStr() {
-    return logAStrName() + ": ";
-}
-
-consteval auto logWinMName() {
-    const char name[] = "WinM";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxWinM() {
-    return logWinMName() + ": ";
-}
-
-consteval auto logScGrName() {
-    const char name[] = "ScGr";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxScGr() {
-    return logScGrName() + ": ";
-}
-
-consteval auto logSettName() {
-    const char name[] = "Sett";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxSett() {
-    return logSettName() + ": ";
-}
-
-consteval auto logThrdName() {
-    const char name[] = "Thrd";
-    return consteval_string<std::size(name)>(name);
-}
-consteval auto logPrxThrd() {
-    return logThrdName() + ": ";
 }
 
 
@@ -424,6 +381,9 @@ class unexpected {
     private:
         E m_error;
 };
+
+template <typename E>
+unexpected(E error) -> unexpected<E>;
 
 template <typename T, typename E>
 class expected {
@@ -531,11 +491,7 @@ class expected {
         bool m_has_value;
 };
 
-
-class expected_void {
-
-};
-
+class expected_void {};
 
 template <typename E>
 class expected<void, E> {
@@ -604,6 +560,27 @@ class expected<void, E> {
         bool m_has_value;
 };
 
+
+// manual std::scope_exit
+
+template<typename F>
+class scope_exit {
+    public:
+        explicit scope_exit(F&& f) : m_f(std::forward<F>(f)) {}
+        scope_exit(const scope_exit&) = delete;
+        scope_exit& operator=(const scope_exit&) = delete;
+        scope_exit(scope_exit&& other) noexcept : m_f(std::move(other.m_f)), m_active(std::exchange(other.m_active, false)) {}
+
+        ~scope_exit() noexcept { if (m_active) m_f(); }
+        void release() noexcept { m_active = false; }
+
+    private:
+        F m_f;
+        bool m_active = true;
+};
+
+template<typename F>
+scope_exit(F) -> scope_exit<F>;
 
 
 #endif  // CORE_HPP_

@@ -5,7 +5,7 @@
 
 
 Allocator HardwareLayerVulkan::createAllocator() {
-    return Allocator(mrLogger, mSym, mPhysicalDevice, mDevice);
+    return Allocator(mLogger.derive("Allocator: "), mSym, mPhysicalDevice, mDevice);
 }
 
 expected<Buffer, TprResult> HardwareLayerVulkan::createBuffer(
@@ -15,7 +15,7 @@ expected<Buffer, TprResult> HardwareLayerVulkan::createBuffer(
     if (!mAlloc.has_value()) return unexpected(TPR_UNKNOWN_ERROR);
     try {
         return Buffer(
-            mrLogger, mSym, mAlloc.value(), mPhysicalDevice,
+            mLogger.derive("Buffer: "), mSym, mAlloc.value(), mPhysicalDevice,
             mDevice, size, usage, property, sharingMode, queueFamilyIndices
         );
     } catch (TprResult r) {
@@ -27,7 +27,7 @@ expected<WindowContext, TprResult> HardwareLayerVulkan::createWindowContext(uint
     if (!mAlloc.has_value()) return unexpected(TPR_UNKNOWN_ERROR);
     try {
         return WindowContext(
-            mrLogger, mAlloc.value(), mrWinMan, mrResReg, mSym,
+            mLogger.derive("WindowContext: "), mAlloc.value(), mrWinMan, mrFileReg, mSym,
             mInstance, mPhysicalDevice, mDevice, queueFamilyIndex,
             mMaxFramesInFlight, window, mBasicPipelinelayout,
             mObjectDataSetLayout

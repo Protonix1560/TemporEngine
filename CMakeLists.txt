@@ -33,11 +33,12 @@ else()
 endif()
 set(BUILD_VERSION "v0.0.0")
 
-target_compile_options(
-    common INTERFACE
-    -Os -fno-rtti -flto -DNDEBUG
-    -ffunction-sections -fdata-sections
-)
+# target_compile_options(
+#     common INTERFACE
+#     -fno-rtti -DNDEBUG
+#     -ffunction-sections -fdata-sections
+# )
+
 target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}")
 
 # main executable
@@ -59,8 +60,9 @@ endif()
 
 # adding services
 add_subdirectory(src/hardware_layer_interface)
+add_subdirectory(src/output_sink)
 add_subdirectory(src/logger)
-add_subdirectory(src/resource_registry)
+add_subdirectory(src/file_registry)
 add_subdirectory(src/plugin_loader)
 add_subdirectory(src/window_manager)
 add_subdirectory(src/scene_graph)
@@ -74,8 +76,8 @@ add_subdirectory(3rd_party/fastgltf)
 
 target_link_libraries(
     tempor PRIVATE
-    tempor_class logger plugin_loader window_manager scene_graph
-    hardware_layer_interface resource_registry asset_store settings threading
+    tempor_class logger plugin_loader window_manager scene_graph output_sink
+    hardware_layer_interface file_registry asset_store settings threading
 )
 
 # adding sanitizers
@@ -104,7 +106,7 @@ endfunction()
 
 add_sanitizer(address "GNU|Clang" WANT_DEBUG_ASAN)
 add_sanitizer(thread "GNU|Clang" WANT_DEBUG_TSAN)
-add_sanitizer(memory "GNU|Clang" WANT_DEBUG_MSAN -fno-omit-frame-pointer)
+add_sanitizer(memory "Clang" WANT_DEBUG_MSAN -fno-omit-frame-pointer)
 add_sanitizer(undefined "GNU|Clang" WANT_DEBUG_UBSAN -fno-sanitize=vptr)
 add_sanitizer(leak "GNU|Clang" WANT_DEBUG_LSAN -g)
 

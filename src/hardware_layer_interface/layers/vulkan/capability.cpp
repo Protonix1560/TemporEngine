@@ -5,15 +5,15 @@
 
 
 expected<TprDepthDomain, TprResult> HardwareLayerVulkan::createDepthDomain(const TprDepthDomainCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
+    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     TprDepthDomain handle;
 
     try {
         if (pInfo->pAnchor) {
-            if (!pInfo->pAnchor) return unexpected(TPR_INVALID_VALUE);
+            if (!pInfo->pAnchor) return unexpected(TPR_ERROR_INVALID_VALUE);
             auto anchorIt = std::ranges::find(mDepthDomainOrder, get_basic_handle_index(*pInfo->pAnchor));
-            if (anchorIt == mDepthDomainOrder.end()) return unexpected(TPR_INVALID_VALUE);
+            if (anchorIt == mDepthDomainOrder.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
             auto insertIt = anchorIt;
             if (!(pInfo->flags & TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_FLAG_BIT)) insertIt = std::next(insertIt);
             auto& domain = mDepthDomains.try_emplace(mDepthDomainCounter).first->second;
@@ -60,7 +60,7 @@ void HardwareLayerVulkan::destroyDepthDomain(TprDepthDomain domain) noexcept {
 
 
 expected<TprRenderTarget, TprResult> HardwareLayerVulkan::createRenderTarget(const TprRenderTargetCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
+    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     TprRenderTarget handle;
 
@@ -96,8 +96,8 @@ void HardwareLayerVulkan::destroyRenderTarget(TprRenderTarget target) noexcept {
 
 
 expected<TprObjectImage, TprResult> HardwareLayerVulkan::createObjectImage(const TprObjectImageCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_INVALID_VALUE);
-    if (pInfo->renderTargetCount > 0 && !pInfo->pRenderTargets) return unexpected(TPR_INVALID_VALUE);
+    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
+    if (pInfo->renderTargetCount > 0 && !pInfo->pRenderTargets) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     TprObjectImage handle;
 
@@ -105,7 +105,7 @@ expected<TprObjectImage, TprResult> HardwareLayerVulkan::createObjectImage(const
         for (const TprRenderTarget* ptr = pInfo->pRenderTargets; ptr < pInfo->pRenderTargets + pInfo->renderTargetCount; ptr++) {
             TprRenderTarget target = *ptr;
             auto it = mRenderTargets.find(get_basic_handle_index(target));
-            if (it == mRenderTargets.end()) return unexpected(TPR_INVALID_VALUE);
+            if (it == mRenderTargets.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         }
         auto& rImage = mObjectImages.try_emplace(mObjectImageCounter).first->second;
         for (const TprRenderTarget* ptr = pInfo->pRenderTargets; ptr < pInfo->pRenderTargets + pInfo->renderTargetCount; ptr++) {

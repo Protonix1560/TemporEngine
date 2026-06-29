@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
+#include <cstring>
 
 
 TprResult HardwareLayerVulkan::loadMesh(const AssetMesh& mesh) noexcept {

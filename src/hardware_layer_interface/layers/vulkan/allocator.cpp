@@ -3,11 +3,14 @@
 #include "hardware_layer.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
+
 #include <vulkan/vulkan_core.h>
 
+#include <cstring>
 
-Allocator::Allocator(Logger& rLogger, VulkanSymbols& rSym, VkPhysicalDevice physicalDevice, VkDevice device)
-    : mrLogger(rLogger), mrSym(rSym), mPhysicalDevice(physicalDevice), mDevice(device) {
+
+Allocator::Allocator(Logger logger, VulkanSymbols& rSym, VkPhysicalDevice physicalDevice, VkDevice device)
+    : mLogger(logger), mrSym(rSym), mPhysicalDevice(physicalDevice), mDevice(device) {
 
     VkPhysicalDeviceMemoryProperties memProps;
     mrSym.vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &memProps);
@@ -27,7 +30,7 @@ expected<uint32_t, TprResult> Allocator::findMemoryType(uint32_t memoryTypeBits,
     for (uint32_t i = 0; i < mMemoryTypes.size(); i++) {
         if ((memoryTypeBits & (1 << i)) && (mMemoryTypes[i].propertyFlags & property) == property) return i;
     }
-    mrLogger << logPrxPHWL() << "Allocator: Failed to find suitable memory type for memoryTypeBits=" << memoryTypeBits << ", memoryPropertyFlags=" << property << "\n";
+    mLogger() << "Allocator: Failed to find suitable memory type for memoryTypeBits=" << memoryTypeBits << ", memoryPropertyFlags=" << property << "\n";
     return unexpected(TPR_BAD_ALLOC);
 }
 
@@ -35,7 +38,7 @@ expected<uint32_t, TprResult> Allocator::findMemoryType(uint32_t memoryTypeBits,
 expected<Allocation, TprResult> Allocator::allocate(VkMemoryRequirements requirements, VkMemoryPropertyFlags property) {
     assert(requirements.size != 0);
     if (mAllocCount >= mMaxAllocCount) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Allocator: Exceeded max allocation count of " << mMaxAllocCount << "\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Allocator: Exceeded max allocation count of " << mMaxAllocCount << "\n";
         return unexpected(TPR_BAD_ALLOC);
     }
     auto exp = findMemoryType(requirements.memoryTypeBits, property);
@@ -47,11 +50,11 @@ expected<Allocation, TprResult> Allocator::allocate(VkMemoryRequirements require
     VkDeviceMemory memory;
     VkResult r = mrSym.vkAllocateMemory(mDevice, &info, nullptr, &memory);
     if (r == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Allocator: Device out of memory\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Allocator: Device out of memory\n";
         return unexpected(TPR_BAD_ALLOC);
     }
     if (r != VK_SUCCESS) {
-        mrLogger.error(TPR_LOG_STYLE_ERROR1) << logPrxPHWL() << "Allocator: vkAllocateMemory failed [" << r << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Allocator: vkAllocateMemory failed [" << r << "]\n";
         return unexpected(TPR_BAD_ALLOC);
     }
     mAllocCount++;
@@ -80,7 +83,7 @@ expected<void*, TprResult> Allocator::map(Allocation alloc) {
         if (r != VK_SUCCESS) return unexpected(TPR_UNKNOWN_ERROR);
         return memory.map;
     }
-    return unexpected(TPR_INVALID_VALUE);
+    return unexpected(TPR_ERROR_INVALID_VALUE);
 }
 
 

@@ -7,6 +7,7 @@
 #include "plugin_core.h"
 #include "core.hpp"
 #include "common.hpp"
+#include "logger.hpp"
 
 #include <unordered_map>
 
@@ -14,8 +15,8 @@
 // from "logger.hpp"
 class Logger;
 
-// from "resource_registy.hpp"
-class ResourceRegistry;
+// from "file_registy.hpp"
+class FileRegistry;
 
 // from "hardware_layer_interface.hpp"
 class HardwareLayer;
@@ -24,7 +25,7 @@ class HardwareLayer;
 class AssetStore {
 
     public:
-        AssetStore(Logger& rLogger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI);
+        AssetStore(Logger logger, FileRegistry& rRegReg, HardwareLayer& rHWLI);
         ~AssetStore() noexcept;
 
         expected<TprMesh, TprResult> createMesh(const TprMeshCreateInfo* info) noexcept;
@@ -32,10 +33,12 @@ class AssetStore {
         void unloadMesh(TprMesh mesh) noexcept;
         void destroyMesh(TprMesh mesh) noexcept;
 
+        expected<const AssetMesh&, TprResult> getMesh(TprMesh mesh);
+
     private:
 
-        Logger& mrLogger;
-        ResourceRegistry& mrResReg;
+        Logger mLogger;
+        FileRegistry& mrFileReg;
         HardwareLayer& mrHWLI;
 
         std::unordered_map<uint32_t, AssetMesh> mMeshes;

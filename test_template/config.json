@@ -1,2 +1,14 @@
 {
+    "standartVulkanHWL.enableKhronosValidationLayer": true,
+    "standartVulkanHWL.enableDebugUtils": true,
+    "logFiles": [
+        {
+            "level": 4,
+            "path": "info.log"
+        },
+        {
+            "level": 6,
+            "path": "trace.log"
+        }
+    ]
 }

@@ -46,7 +46,7 @@ namespace api {
         TprResult writeEntityComponentData(TprEntity entity, TprComponent component, const char* componentData, uint32_t start, uint32_t n) noexcept {
             assert(gEngine); return gEngine->scene_writeEntityComponentData(entity, component, componentData, start, n);
         }
-        TprResult getComponentChunkHandles(TprComponent component, TprResource resource) noexcept {
+        TprResult getComponentChunkHandles(TprComponent component, TprFile resource) noexcept {
             assert(gEngine); return gEngine->scene_getComponentChunkHandles(component, resource);
         }
         uint32_t getComponentChunkMaxElementCount() noexcept {
@@ -66,36 +66,57 @@ namespace api {
         }
     }
 
-    namespace vfs {
-        TprResult openPathResource(const char* path, TprOpenPathResourceFlags flags, TprResource* pResource) noexcept {
-            assert(gEngine); return gEngine->vfs_openPathResource(path, flags, pResource);
+    namespace fs {
+        TprResult openFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_openFile(path, flags, pFile);
         }
-        TprResult openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept {
-            assert(gEngine); return gEngine->vfs_openReferenceResource(begin, end, flags, pResource);
+        TprResult createMemoryFile(TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_createMemoryFile(pFile);
         }
-        TprResult openViewResource(const char* begin, const char* end, TprOpenViewResourceFlags flags, TprResource* pResource) noexcept {
-            assert(gEngine); return gEngine->vfs_openViewResource(begin, end, flags, pResource);
+        TprResult forkFile(TprFile file, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_forkFile(file, pFile);
         }
-        TprResult openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-            assert(gEngine); return gEngine->vfs_openEmptyResource(size, flags, alignment, pResource);
+        TprResult createCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_createCapability(file, mask, pFile);
         }
-        TprResult openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprResourceCapabilityFlags protectFlags, TprResource* pResource) noexcept {
-            assert(gEngine); return gEngine->vfs_openCapabilityResource(protectResource, flags, protectFlags, pResource);
+        void closeFile(TprFile file) noexcept {
+            assert(gEngine); return gEngine->fs_closeFile(file);
         }
-        TprResult resizeResource(TprResource resource, uint64_t newSize) noexcept {
-            assert(gEngine); return gEngine->vfs_resizeResource(resource, newSize);
+        TprResult seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept {
+            assert(gEngine); return gEngine->fs_seek(file, offset, whence);
         }
-        TprResult sizeofResource(TprResource resource, uint64_t* pSize) noexcept {
-            assert(gEngine); return gEngine->vfs_sizeofResource(resource, pSize);
+        TprResult tell(TprFile file, uint32_t* pPos) noexcept {
+            assert(gEngine); return gEngine->fs_tell(file, pPos);
         }
-        TprResult getResourceRawDataPointer(TprResource resource, char** pData) noexcept {
-            assert(gEngine); return gEngine->vfs_getResourceRawDataPointer(resource, pData);
+        TprResult read(TprFile file, uint32_t n, char* pData) noexcept {
+            assert(gEngine); return gEngine->fs_read(file, n, pData);
         }
-        TprResult getResourceConstPointer(TprResource resource, const char** pData) noexcept {
-            assert(gEngine); return gEngine->vfs_getResourceConstPointer(resource, pData);
+        TprResult readAt(TprFile file, uint32_t pos, uint32_t n, char* pData) noexcept {
+            assert(gEngine); return gEngine->fs_readAt(file, pos, n, pData);
         }
-        void closeResource(TprResource resource) noexcept {
-            assert(gEngine); gEngine->vfs_closeResource(resource);
+        TprResult resize(TprFile file, uint32_t newSize) noexcept {
+            assert(gEngine); return gEngine->fs_resize(file, newSize);
+        }
+        TprResult write(TprFile file, uint32_t n, const char* pData) noexcept {
+            assert(gEngine); return gEngine->fs_write(file, n, pData);
+        }
+        TprResult writeAt(TprFile file, uint32_t pos, uint32_t n, const char* pData) noexcept {
+            assert(gEngine); return gEngine->fs_writeAt(file, pos, n, pData);
+        }
+        TprResult pathType(const char* path, TprPathType* pType) noexcept {
+            assert(gEngine); return gEngine->fs_pathType(path, pType);
+        }
+        TprResult createDirectory(const char* path, TprCreateDirectoryFlags flags) noexcept {
+            assert(gEngine); return gEngine->fs_createDirectory(path, flags);
+        }
+        TprResult touchFile(const char* path, TprTouchFileFlags flags) noexcept {
+            assert(gEngine); return gEngine->fs_touchFile(path, flags);
+        }
+        TprResult remove(const char* path) noexcept {
+            assert(gEngine); return gEngine->fs_remove(path);
+        }
+        TprResult move(const char* path, const char* newPath) noexcept {
+            assert(gEngine); return gEngine->fs_move(path, newPath);
         }
     }
 
@@ -261,16 +282,23 @@ void TemporEngine::registerAPI() {
     mOutAPI.traceStyled = api::log::traceStyled;
     mOutAPI.writeMachineData = api::log::writeMachineData;
     // vfs
-    mVFSAPI.openPathResource = api::vfs::openPathResource;
-    mVFSAPI.openReferenceResource = api::vfs::openReferenceResource;
-    mVFSAPI.openViewResource = api::vfs::openViewResource;
-    mVFSAPI.openEmptyResource = api::vfs::openEmptyResource;
-    mVFSAPI.openCapabilityResource = api::vfs::openCapabilityResource;
-    mVFSAPI.resizeResource = api::vfs::resizeResource;
-    mVFSAPI.sizeofResource = api::vfs::sizeofResource;
-    mVFSAPI.getResourceRawDataPointer = api::vfs::getResourceRawDataPointer;
-    mVFSAPI.getResourceConstPointer = api::vfs::getResourceConstPointer;
-    mVFSAPI.closeResource = api::vfs::closeResource;
+    mFSAPI.openFile = api::fs::openFile;
+    mFSAPI.createMemoryFile = api::fs::createMemoryFile;
+    mFSAPI.forkFile = api::fs::forkFile;
+    mFSAPI.createCapability = api::fs::createCapability;
+    mFSAPI.closeFile = api::fs::closeFile;
+    mFSAPI.seek = api::fs::seek;
+    mFSAPI.tell = api::fs::tell;
+    mFSAPI.read = api::fs::read;
+    mFSAPI.readAt = api::fs::readAt;
+    mFSAPI.resize = api::fs::resize;
+    mFSAPI.write = api::fs::write;
+    mFSAPI.writeAt = api::fs::writeAt;
+    mFSAPI.pathType = api::fs::pathType;
+    mFSAPI.createDirectory = api::fs::createDirectory;
+    mFSAPI.touchFile = api::fs::touchFile;
+    mFSAPI.remove = api::fs::remove;
+    mFSAPI.move = api::fs::move;
     // scene
     mSceneAPI.createComponent = api::scene::createComponent;
     mSceneAPI.destroyComponent = api::scene::destroyComponent;
@@ -339,7 +367,7 @@ void TemporEngine::registerAPI() {
 
     mAPI.out = &mOutAPI;
     mAPI.win = &mWinAPI;
-    mAPI.vfs = &mVFSAPI;
+    mAPI.fs = &mFSAPI;
     mAPI.scene = &mSceneAPI;
     mAPI.geo = &mGeoAPI;
     mAPI.input = &mInputAPI;

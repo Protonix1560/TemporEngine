@@ -23,14 +23,14 @@
 // from "settings.hpp"
 class Settings;
 
-// from "resource_registry.hpp"
-class ResourceRegistry;
+// from "file_registry.hpp"
+class FileRegistry;
 
 
 class SceneGraph {
 
     public:
-        SceneGraph(Logger logger, Settings& rSettings, ResourceRegistry& rResReg);
+        SceneGraph(Logger logger, Settings& rSettings, FileRegistry& rFileReg);
         ~SceneGraph() noexcept;
 
         expected<TprComponent, TprResult> createComponent(uint32_t componentSize) noexcept;
@@ -45,7 +45,7 @@ class SceneGraph {
         TprResult copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t offset, uint32_t n, char* pData) noexcept;
         TprResult writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t offset, uint32_t n) noexcept;
 
-        TprResult getComponentChunkHandles(TprComponent component, TprResource resource) noexcept;
+        TprResult getComponentChunkHandles(TprComponent component, TprFile resource) noexcept;
         uint32_t getComponentChunkMaxElementCount() noexcept;
         expected<uint32_t, TprResult> getComponentChunkElementCount(TprComponentChunk chunk) noexcept;
         expected<uint32_t, TprResult> getComponentChunkVersion(TprComponentChunk chunk) noexcept;
@@ -76,7 +76,7 @@ class SceneGraph {
 
         Logger mLogger;
         Settings& mrSettings;
-        ResourceRegistry& mrResReg;
+        FileRegistry& mrFileReg;
 
         uint32_t mChunkSize;
         uint32_t mChunkCounter = 0;

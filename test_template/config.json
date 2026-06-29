@@ -1,7 +1,14 @@
 {
     "standartVulkanHWL.enableKhronosValidationLayer": true,
     "standartVulkanHWL.enableDebugUtils": true,
-    "libtest_plugin.so": {
-        "A": [1, 2, 3]
-    }
+    "logFiles": [
+        {
+            "level": 4,
+            "path": "info.log"
+        },
+        {
+            "level": 6,
+            "path": "trace.log"
+        }
+    ]
 }

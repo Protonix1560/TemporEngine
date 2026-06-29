@@ -6,14 +6,14 @@
 #include "plugin_core.h"
 #include "plugin_core_extender.hpp"
 #include "settings.hpp"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 
 #include <cstdint>
 
 
 
-SceneGraph::SceneGraph(Logger logger, Settings& rSettings, ResourceRegistry& rResReg)
-    : mLogger(logger), mrSettings(rSettings), mrResReg(rResReg) {
+SceneGraph::SceneGraph(Logger logger, Settings& rSettings, FileRegistry& rFileReg)
+    : mLogger(logger), mrSettings(rSettings), mrFileReg(rFileReg) {
     auto size = mrSettings.createSettingIntegerOr(mrSettings.getRoot(), "ECS.componentChunkSize", 1024);
     if (size < 0) size = 1024;
     if (size > UINT32_MAX) size = 1024;
@@ -336,7 +336,7 @@ TprResult SceneGraph::modifyEntityComponentSet(TprEntity entity, const TprCompon
 }
 
 
-TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprResource resource) noexcept {
+TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprFile file) noexcept {
     try {
         if (!mComponents.contains(get_basic_handle_index(component))) return TPR_ERROR_INVALID_VALUE;
         std::vector<TprComponentChunk> handles;
@@ -348,12 +348,11 @@ TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprResour
                 }
             }
         }
-        auto resizeRes = mrResReg.resizeResource(resource, handles.size() * sizeof(TprComponentChunk));
-        if (resizeRes != TPR_SUCCESS) return resizeRes;
-        auto ptrExp = mrResReg.getResourceRawDataPointer(resource);
-        if (!ptrExp.has_value()) return ptrExp.error();
-        auto ptr = ptrExp.value();
-        std::memcpy(ptr, handles.data(), handles.size() * sizeof(TprComponentChunk));
+        TprResult result;
+        result = mrFileReg.resize(file, handles.size() * sizeof(TprComponentChunk));
+        if (result != TPR_SUCCESS) return result;
+        result = mrFileReg.writeAt(file, 0, handles.size() * sizeof(TprComponentChunk), reinterpret_cast<const std::byte*>(handles.data()));
+
     } catch (...) {
         return TPR_UNKNOWN_ERROR;
     }

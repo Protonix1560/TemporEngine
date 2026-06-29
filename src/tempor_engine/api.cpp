@@ -8,64 +8,80 @@
 
 #pragma region log
     void TemporEngine::out_log(TprLogLevel logLevel, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, logLevel);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, logLevel);
     }
     void TemporEngine::out_error(const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
     }
     void TemporEngine::out_warn(const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
     }
     void TemporEngine::out_info(const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_INFO);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_INFO);
     }
     void TemporEngine::out_debug(const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_DEBUG);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_DEBUG);
     }
     void TemporEngine::out_trace(const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_TRACE);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_TRACE);
     }
     void TemporEngine::out_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, logLevel, logStyle);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, logLevel, logStyle);
     }
     void TemporEngine::out_errorStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_ERROR, logStyle);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_ERROR, logStyle);
     }
     void TemporEngine::out_warnStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_WARN, logStyle);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_WARN, logStyle);
     }
     void TemporEngine::out_infoStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_INFO, logStyle);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_INFO, logStyle);
     }
     void TemporEngine::out_debugStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_DEBUG, logStyle);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_DEBUG, logStyle);
     }
     void TemporEngine::out_traceStyled(TprLogStyle logStyle, const char* message) noexcept {
-        if (!mpLogSink) return;
-        mpLogSink->writeLog(message, TPR_LOG_LEVEL_TRACE, logStyle);
+        auto sink = mpOutSink.load();
+        if (!sink) return;
+        sink->writeLog(message, TPR_LOG_LEVEL_TRACE, logStyle);
     }
     TprResult TemporEngine::out_writeMachineData(const char* pData, uint32_t size) noexcept {
-        if (!mpLogSink) return TPR_MODULE_NOT_LOADED;
-        return mpLogSink->writeData(std::span(reinterpret_cast<const std::byte*>(pData), size));
+        if (!mServHolder.alive<OutputSinkVariant>()) return TPR_MODULE_NOT_LOADED;
+        return std::visit(overload{
+            [pData, size](auto& sink) {
+                return sink->writeData(std::span(reinterpret_cast<const std::byte*>(pData), size));
+            },
+        }, mServHolder.get<OutputSinkVariant>());
     }
 #pragma endregion  // log
 
-#pragma region vfs
-    TprResult TemporEngine::vfs_openPathResource(const char* path, TprOpenPathResourceFlags flags, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->openResource(std::filesystem::path(path), flags);
+#pragma region fs
+    TprResult TemporEngine::fs_openFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
+        if (!pFile) return TPR_ERROR_INVALID_VALUE;
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpFileReg->openFile(path, flags);
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -75,13 +91,13 @@
                     return exp.error();
             }
         }
-        *pResource = exp.value();
+        *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_openReferenceResource(char* begin, char* end, TprOpenReferenceResourceFlags flags, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->openResource(reinterpret_cast<std::byte*>(begin), reinterpret_cast<std::byte*>(end), flags);
+    TprResult TemporEngine::fs_createMemoryFile(TprFile* pFile) noexcept {
+        if (!pFile) return TPR_ERROR_INVALID_VALUE;
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpFileReg->createMemoryFile();
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -91,13 +107,13 @@
                     return exp.error();
             }
         }
-        *pResource = exp.value();
+        *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_openViewResource(const char* begin, const char* end, TprOpenViewResourceFlags flags, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->openResource(reinterpret_cast<const std::byte*>(begin), reinterpret_cast<const std::byte*>(end), flags);
+    TprResult TemporEngine::fs_forkFile(TprFile file, TprFile* pFile) noexcept {
+        if (!pFile) return TPR_ERROR_INVALID_VALUE;
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpFileReg->forkFile(file);
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -107,13 +123,13 @@
                     return exp.error();
             }
         }
-        *pResource = exp.value();
+        *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_openEmptyResource(uint64_t size, TprOpenEmptyResourceFlags flags, uint64_t alignment, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->openResource(size, flags, alignment);
+    TprResult TemporEngine::fs_createCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
+        if (!pFile) return TPR_ERROR_INVALID_VALUE;
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpFileReg->createCapability(file, mask);
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -123,13 +139,21 @@
                     return exp.error();
             }
         }
-        *pResource = exp.value();
+        *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_openCapabilityResource(TprResource protectResource, TprOpenEmptyResourceFlags flags, TprResourceCapabilityFlags protectFlags, TprResource* pResource) noexcept {
-        if (!pResource) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->openResource(protectResource, flags, protectFlags);
+    void TemporEngine::fs_closeFile(TprFile file) noexcept {
+        if (!mpFileReg) return;
+        mpFileReg->closeFile(file);
+    }
+    TprResult TemporEngine::fs_seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->seek(file, offset, whence);
+    }
+    TprResult TemporEngine::fs_tell(TprFile file, uint32_t* pPos) noexcept {
+        if (!pPos) return TPR_ERROR_INVALID_VALUE;
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpFileReg->tell(file);
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -139,17 +163,33 @@
                     return exp.error();
             }
         }
-        *pResource = exp.value();
+        *pPos = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_resizeResource(TprResource resource, uint64_t newSize) noexcept {
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        return mpResReg->resizeResource(resource, newSize);
+    TprResult TemporEngine::fs_read(TprFile file, uint32_t n, char* pData) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->read(file, n, reinterpret_cast<std::byte*>(pData));
     }
-    TprResult TemporEngine::vfs_sizeofResource(TprResource resource, uint64_t* pSize) noexcept {
-        if (!pSize) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->sizeofResource(resource);
+    TprResult TemporEngine::fs_readAt(TprFile file, uint32_t pos, uint32_t n, char* pData) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->readAt(file, pos, n, reinterpret_cast<std::byte*>(pData));
+    }
+    TprResult TemporEngine::fs_resize(TprFile file, uint32_t newSize) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->resize(file, newSize);
+    }
+    TprResult TemporEngine::fs_write(TprFile file, uint32_t n, const char* pData) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->write(file, n, reinterpret_cast<const std::byte*>(pData));
+    }
+    TprResult TemporEngine::fs_writeAt(TprFile file, uint32_t pos, uint32_t n, const char* pData) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->writeAt(file, pos, n, reinterpret_cast<const std::byte*>(pData));
+    }
+    TprResult TemporEngine::fs_pathType(const char* path, TprPathType* pType) noexcept {
+        if (!pType) return TPR_ERROR_INVALID_VALUE;
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpFileReg->pathType(path);
         if (!exp.has_value()) {
             switch (exp.error()) {
                 case TPR_PANIC:
@@ -159,46 +199,26 @@
                     return exp.error();
             }
         }
-        *pSize = exp.value();
+        *pType = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::vfs_getResourceRawDataPointer(TprResource resource, char** pData) noexcept {
-        if (!pData) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->getResourceRawDataPointer(resource);
-        if (!exp.has_value()) {
-            switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
-                    return TPR_PANIC;
-                default:
-                    return exp.error();
-            }
-        }
-        *pData = reinterpret_cast<char*>(exp.value());
-        return TPR_SUCCESS;
+    TprResult TemporEngine::fs_createDirectory(const char* path, TprCreateDirectoryFlags flags) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->createDirectory(path, flags);
     }
-    TprResult TemporEngine::vfs_getResourceConstPointer(TprResource resource, const char** pData) noexcept {
-        if (!pData) return TPR_ERROR_INVALID_VALUE;
-        if (!mpResReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpResReg->getResourceConstPointer(resource);
-        if (!exp.has_value()) {
-            switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
-                    return TPR_PANIC;
-                default:
-                    return exp.error();
-            }
-        }
-        *pData = reinterpret_cast<const char*>(exp.value());
-        return TPR_SUCCESS;
+    TprResult TemporEngine::fs_touchFile(const char* path, TprTouchFileFlags flags) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->touchFile(path, flags);
     }
-    void TemporEngine::vfs_closeResource(TprResource resource) noexcept {
-        if (!mpResReg) return;
-        mpResReg->closeResource(resource);
+    TprResult TemporEngine::fs_remove(const char* path) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->remove(path);
     }
-#pragma endregion  // vfs
+    TprResult TemporEngine::fs_move(const char* path, const char* newPath) noexcept {
+        if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
+        return mpFileReg->move(path, newPath);
+    }
+#pragma endregion  // fs
 
 #pragma region input
     TprResult TemporEngine::input_createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept {
@@ -360,7 +380,7 @@
                 return result;
         }
     }
-    TprResult TemporEngine::scene_getComponentChunkHandles(TprComponent component, TprResource resource) noexcept {
+    TprResult TemporEngine::scene_getComponentChunkHandles(TprComponent component, TprFile resource) noexcept {
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->getComponentChunkHandles(component, resource);
         switch (result) {

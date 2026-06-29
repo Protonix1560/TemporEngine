@@ -120,13 +120,13 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     flyDownwardInfo.highThreshold = 0.7f;
     ROF(plugin->api->input->createAction(plugin->window, &flyDownwardInfo, &plugin->flyDownwardAction));
 
-    TprResource modelResource;
-    ROF(plugin->api->vfs->openPathResource("plugins/test/model.glb", 0, &modelResource));
+    TprFile modelFile;
+    ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
     TprMeshCreateInfo parseInfo{};
-    parseInfo.resource = modelResource;
+    parseInfo.file = modelFile;
     parseInfo.index = 0;
     ROF(plugin->api->geo->createMesh(&parseInfo, &plugin->mesh));
-    plugin->api->vfs->closeResource(modelResource);
+    plugin->api->fs->closeFile(modelFile);
 
     TprMeshLoadInfo loadInfo{};
     ROF(plugin->api->geo->loadMesh(plugin->mesh, &loadInfo));
@@ -163,21 +163,6 @@ int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
     ROF(plugin->api->scene->writeEntityComponentData(
         plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
     ));
-
-    TprSetting base;
-    ROF(plugin->api->conf->getRootSetting(&base));
-    TprSetting a;
-    ROF(plugin->api->conf->createSetting(base, "A", &a));
-    uint32_t size;
-    ROF(plugin->api->conf->getSettingArraySize(a, &size));
-
-    for (uint32_t i = 0; i < size; i++) {
-        TprSetting s;
-        ROF(plugin->api->conf->getSettingArrayElement(a, i, &s));
-        int64_t value;
-        ROF(plugin->api->conf->getSettingInteger(s, &value));
-        plugin->api->out->info(std::format("{}; ", value).c_str());
-    }
 
     return 0;
 }

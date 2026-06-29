@@ -15,8 +15,8 @@
 // from "logger.hpp"
 class Logger;
 
-// from "resource_registy.hpp"
-class ResourceRegistry;
+// from "file_registy.hpp"
+class FileRegistry;
 
 // from "hardware_layer_interface.hpp"
 class HardwareLayer;
@@ -25,7 +25,7 @@ class HardwareLayer;
 class AssetStore {
 
     public:
-        AssetStore(Logger logger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI);
+        AssetStore(Logger logger, FileRegistry& rRegReg, HardwareLayer& rHWLI);
         ~AssetStore() noexcept;
 
         expected<TprMesh, TprResult> createMesh(const TprMeshCreateInfo* info) noexcept;
@@ -38,7 +38,7 @@ class AssetStore {
     private:
 
         Logger mLogger;
-        ResourceRegistry& mrResReg;
+        FileRegistry& mrFileReg;
         HardwareLayer& mrHWLI;
 
         std::unordered_map<uint32_t, AssetMesh> mMeshes;

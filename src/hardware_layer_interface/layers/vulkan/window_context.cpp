@@ -3,7 +3,7 @@
 #include "plugin_core.h"
 #include "hardware_layer.hpp"
 #include "logger.hpp"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 #include "window_manager.hpp"
 
 #include <algorithm>
@@ -13,12 +13,12 @@
 
 
 WindowContext::WindowContext(
-    Logger logger, Allocator& rAlloc, WindowManager& rWinMan, ResourceRegistry& rResReg, 
+    Logger logger, Allocator& rAlloc, WindowManager& rWinMan, FileRegistry& rFileReg, 
     VulkanSymbols& rSym, VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
     uint32_t queueFamilyIndex, uint32_t maxFramesInFlight, TprWindow window, VkPipelineLayout layout,
     VkDescriptorSetLayout objectSetLayout
 ) : WindowContextResources{
-    .mLogger = logger, .mrAlloc = rAlloc, .mrWinMan = rWinMan, .mrResReg = rResReg, .mrSym = rSym, .mInstance = instance,
+    .mLogger = logger, .mrAlloc = rAlloc, .mrWinMan = rWinMan, .mrFileReg = rFileReg, .mrSym = rSym, .mInstance = instance,
     .mPhysicalDevice = physicalDevice, .mDevice = device, .mBasicPipelineLayout = layout, .mObjectSetLayout = objectSetLayout,
     .mWindowHandle = window, .mMaxFramesInFlight = maxFramesInFlight, .mPoolQueueFamily = queueFamilyIndex
 } {
@@ -46,7 +46,7 @@ TprResult WindowContext::constructPersistent() {
         imageAvailableSemaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         vkResult = mrSym.vkCreateSemaphore(mDevice, &imageAvailableSemaphoreCreateInfo, nullptr, &frame.imageAvailableSemaphore);
         if (vkResult != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateSemaphore failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateSemaphore failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -55,7 +55,7 @@ TprResult WindowContext::constructPersistent() {
         fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         vkResult = mrSym.vkCreateFence(mDevice, &fenceCreateInfo, nullptr, &frame.inFlightFence);
         if (vkResult != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateFence failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateFence failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -64,7 +64,7 @@ TprResult WindowContext::constructPersistent() {
         poolCreateInfo.queueFamilyIndex = mPoolQueueFamily;
         vkResult = mrSym.vkCreateCommandPool(mDevice, &poolCreateInfo, nullptr, &frame.commandPool);
         if (vkResult != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateCommandPool failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateCommandPool failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -75,7 +75,7 @@ TprResult WindowContext::constructPersistent() {
         commandAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         vkResult = mrSym.vkAllocateCommandBuffers(mDevice, &commandAllocInfo, frame.commandBuffers);
         if (vkResult != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkAllocateCommandBuffers failed [" << vkResult << "]\n";
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkAllocateCommandBuffers failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
     }
@@ -91,7 +91,7 @@ TprResult WindowContext::constructPersistent() {
     vkResult = mrSym.vkCreateDescriptorPool(mDevice, &descPoolInfo, nullptr, &mDescPool);
     if (vkResult != VK_SUCCESS) {
         mLogger.error(TPR_LOG_STYLE_ERROR1)
-            << "WindowContext: vkCreateDescriptorPool failed [" << vkResult << "]\n";
+            << "vkCreateDescriptorPool failed [" << vkResult << "]\n";
         throw TPR_UNKNOWN_ERROR;
     }
 
@@ -104,7 +104,7 @@ TprResult WindowContext::constructPersistent() {
     objectSetsInfo.pSetLayouts = objectSetLayouts.data();
     vkResult = mrSym.vkAllocateDescriptorSets(mDevice, &objectSetsInfo, mObjectSets.data());
     if (vkResult != VK_SUCCESS) {
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkAllocateDescriptorSets failed [" << vkResult << "]\n";
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkAllocateDescriptorSets failed [" << vkResult << "]\n";
         return TPR_UNKNOWN_ERROR;
     }
 
@@ -113,12 +113,13 @@ TprResult WindowContext::constructPersistent() {
 
 
 TprResult WindowContext::constructInvalidatable() {
-    VkResult result;
+    VkResult vkResult;
+    TprResult tprResult;
 
     VkSurfaceCapabilitiesKHR surfaceCaps;
-    result = mrSym.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mPhysicalDevice, mSurface, &surfaceCaps);
-    if (result != VK_SUCCESS) {
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed [" << result << "]\n";
+    vkResult = mrSym.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mPhysicalDevice, mSurface, &surfaceCaps);
+    if (vkResult != VK_SUCCESS) {
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed [" << vkResult << "]\n";
         return TPR_UNKNOWN_ERROR;
     }
 
@@ -144,15 +145,15 @@ TprResult WindowContext::constructInvalidatable() {
     if (mExtent.width != 0 && mExtent.height != 0) {
 
         uint32_t formatCount;
-        result = mrSym.vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice, mSurface, &formatCount, nullptr);
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetPhysicalDeviceSurfaceFormatsKHR failed [" << result << "]\n";
+        vkResult = mrSym.vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice, mSurface, &formatCount, nullptr);
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetPhysicalDeviceSurfaceFormatsKHR failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
         std::vector<VkSurfaceFormatKHR> surfaceFormats(formatCount);
-        result = mrSym.vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice, mSurface, &formatCount, surfaceFormats.data());
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetPhysicalDeviceSurfaceFormatsKHR failed [" << result << "]\n";
+        vkResult = mrSym.vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice, mSurface, &formatCount, surfaceFormats.data());
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetPhysicalDeviceSurfaceFormatsKHR failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -211,15 +212,15 @@ TprResult WindowContext::constructInvalidatable() {
         }
 
         uint32_t presentCount;
-        result = mrSym.vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysicalDevice, mSurface, &presentCount, nullptr);
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetPhysicalDeviceSurfacePresentModesKHR at count retreival failed [" << result << "]\n";
+        vkResult = mrSym.vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysicalDevice, mSurface, &presentCount, nullptr);
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetPhysicalDeviceSurfacePresentModesKHR at count retreival failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
         std::vector<VkPresentModeKHR> presentModes(presentCount);
-        result = mrSym.vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysicalDevice, mSurface, &presentCount, presentModes.data());
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetPhysicalDeviceSurfacePresentModesKHR at modes retreival failed [" << result << "]\n";
+        vkResult = mrSym.vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysicalDevice, mSurface, &presentCount, presentModes.data());
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetPhysicalDeviceSurfacePresentModesKHR at modes retreival failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
@@ -248,9 +249,9 @@ TprResult WindowContext::constructInvalidatable() {
         createInfo.surface = mSurface;
         createInfo.presentMode = presentMode;
 
-        result = mrSym.vkCreateSwapchainKHR(mDevice, &createInfo, nullptr, &mSwapchain);
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateSwapchainKHR failed [" << result << "]\n";
+        vkResult = mrSym.vkCreateSwapchainKHR(mDevice, &createInfo, nullptr, &mSwapchain);
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateSwapchainKHR failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -276,9 +277,9 @@ TprResult WindowContext::constructInvalidatable() {
 
         mDepthImageFormat = VK_FORMAT_D32_SFLOAT;
 
-        result = mrSym.vkGetSwapchainImagesKHR(mDevice, mSwapchain, &mImageCount, nullptr);
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetSwapchainImagesKHR at count retrieval failed [" << result << "]\n";
+        vkResult = mrSym.vkGetSwapchainImagesKHR(mDevice, mSwapchain, &mImageCount, nullptr);
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetSwapchainImagesKHR at count retrieval failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -292,9 +293,9 @@ TprResult WindowContext::constructInvalidatable() {
         mSemaphores.assign(mImageCount, VK_NULL_HANDLE);
         mFramebuffers.assign(mImageCount, VK_NULL_HANDLE);
 
-        result = mrSym.vkGetSwapchainImagesKHR(mDevice, mSwapchain, &mImageCount, mChainImages.data());
-        if (result != VK_SUCCESS) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkGetSwapchainImagesKHR at image retrieval failed [" << result << "]\n";
+        vkResult = mrSym.vkGetSwapchainImagesKHR(mDevice, mSwapchain, &mImageCount, mChainImages.data());
+        if (vkResult != VK_SUCCESS) {
+            mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkGetSwapchainImagesKHR at image retrieval failed [" << vkResult << "]\n";
             return TPR_UNKNOWN_ERROR;
         }
 
@@ -317,9 +318,9 @@ TprResult WindowContext::constructInvalidatable() {
                 viewCreateInfo.subresourceRange.layerCount = 1;
                 viewCreateInfo.subresourceRange.levelCount = 1;
                 
-                result = mrSym.vkCreateImageView(mDevice, &viewCreateInfo, nullptr, &mChainImageViews[i]);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateImageView failed [" << result << "]\n";
+                vkResult = mrSym.vkCreateImageView(mDevice, &viewCreateInfo, nullptr, &mChainImageViews[i]);
+                if (vkResult != VK_SUCCESS) {
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateImageView failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
             }
@@ -341,9 +342,9 @@ TprResult WindowContext::constructInvalidatable() {
                 imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
                 imageCreateInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
                 imageCreateInfo.format = mDepthImageFormat;
-                result = mrSym.vkCreateImage(mDevice, &imageCreateInfo, nullptr, &mDepthImages[i]);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateImage failed [" << result << "]\n";
+                vkResult = mrSym.vkCreateImage(mDevice, &imageCreateInfo, nullptr, &mDepthImages[i]);
+                if (vkResult != VK_SUCCESS) {
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateImage failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
 
@@ -354,9 +355,9 @@ TprResult WindowContext::constructInvalidatable() {
                 if (!allocExp.has_value()) return allocExp.error();
                 mDepthImageMemories[i] = allocExp.value();
 
-                result = mrSym.vkBindImageMemory(mDevice, mDepthImages[i], mDepthImageMemories[i].memory, 0);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkBindMemory failed [" << result << "]\n";
+                vkResult = mrSym.vkBindImageMemory(mDevice, mDepthImages[i], mDepthImageMemories[i].memory, 0);
+                if (vkResult != VK_SUCCESS) {
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkBindMemory failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
 
@@ -375,9 +376,9 @@ TprResult WindowContext::constructInvalidatable() {
                 viewCreateInfo.subresourceRange.layerCount = 1;
                 viewCreateInfo.subresourceRange.levelCount = 1;
                 viewCreateInfo.image = mDepthImages[i];
-                result = mrSym.vkCreateImageView(mDevice, &viewCreateInfo, nullptr, &mDepthImageViews[i]);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateImageView failed [" << result << "]\n";
+                vkResult = mrSym.vkCreateImageView(mDevice, &viewCreateInfo, nullptr, &mDepthImageViews[i]);
+                if (vkResult != VK_SUCCESS) {
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateImageView failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
 
@@ -387,9 +388,9 @@ TprResult WindowContext::constructInvalidatable() {
             {
                 VkSemaphoreCreateInfo semaphoreCreateInfo{};
                 semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-                result = mrSym.vkCreateSemaphore(mDevice, &semaphoreCreateInfo, nullptr, &mSemaphores[i]);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateSemaphore failed [" << result << "]\n";
+                vkResult = mrSym.vkCreateSemaphore(mDevice, &semaphoreCreateInfo, nullptr, &mSemaphores[i]);
+                if (vkResult != VK_SUCCESS) {
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateSemaphore failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
             }
@@ -442,13 +443,13 @@ TprResult WindowContext::constructInvalidatable() {
             renderPassCreateInfo.dependencyCount = std::size(dependencies);
             renderPassCreateInfo.pDependencies = dependencies;
 
-            result = mrSym.vkCreateRenderPass(mDevice, &renderPassCreateInfo, nullptr, &mRenderPass.renderPass);
-            if (result != VK_SUCCESS) {
-                mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateRenderPass failed [" << result << "]\n";
+            vkResult = mrSym.vkCreateRenderPass(mDevice, &renderPassCreateInfo, nullptr, &mRenderPass.renderPass);
+            if (vkResult != VK_SUCCESS) {
+                mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateRenderPass failed [" << vkResult << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
-            mLogger.debug() << "WindowContext: Created render pass\n";
+            mLogger.debug() << "Created render pass\n";
 
         }
 
@@ -500,19 +501,24 @@ TprResult WindowContext::constructInvalidatable() {
             VkPipelineShaderStageCreateInfo stages[2] = {};
 
             VkShaderModule fragShader;
-            TprResource fragRes = mrResReg.openResource("shaders/vulkan/basic.frag.spv").value();
-            if (mrResReg.sizeofResource(fragRes).value() > UINT32_MAX) {
-                mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: shaders/vulkan/basic.frag.spv shader size is greater that 4GiB\n";
-                return TPR_UNKNOWN_ERROR;
-            }
+            auto fragExp = mrFileReg.openFile("shaders/vulkan/basic.frag.spv");
+            if (!fragExp.has_value()) return fragExp.error();
+            TprFile fragFile = fragExp.value();
+            tprResult = mrFileReg.seek(fragFile, 0, TPR_SEEK_WHENCE_END);
+            if (tprResult != TPR_SUCCESS) return tprResult;
+            auto fragTellExp = mrFileReg.tell(fragFile);
+            if (!fragTellExp.has_value()) return fragTellExp.error();
+            std::vector<uint32_t> fragData(fragTellExp.value() / sizeof(uint32_t));
+            tprResult = mrFileReg.readAt(fragFile, 0, fragTellExp.value(), reinterpret_cast<std::byte*>(fragData.data()));
+            if (tprResult != TPR_SUCCESS) return tprResult;
             VkShaderModuleCreateInfo fragModuleCreateInfo{};
             fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-            fragModuleCreateInfo.codeSize = static_cast<uint32_t>(mrResReg.sizeofResource(fragRes).value());
-            fragModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(mrResReg.getResourceConstPointer(fragRes).value());
-            result = mrSym.vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader);
-            if (result != VK_SUCCESS) {
+            fragModuleCreateInfo.codeSize = fragData.size() * sizeof(uint32_t);
+            fragModuleCreateInfo.pCode = fragData.data();
+            vkResult = mrSym.vkCreateShaderModule(mDevice, &fragModuleCreateInfo, nullptr, &fragShader);
+            if (vkResult != VK_SUCCESS) {
                 mLogger.error(TPR_LOG_STYLE_ERROR1)
-                    << "WindowContext: vkCreateShaderModule at debug basic pipeline's fragment shader creation failed [" << result << "]\n";
+                    << "vkCreateShaderModule at debug basic pipeline's fragment shader creation failed [" << vkResult << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
             
@@ -523,19 +529,24 @@ TprResult WindowContext::constructInvalidatable() {
             fragStage.pName = "main";
 
             VkShaderModule vertShader;
-            TprResource vertRes = mrResReg.openResource("shaders/vulkan/basic.vert.spv").value();
-            if (mrResReg.sizeofResource(vertRes).value() > UINT32_MAX) {
-                mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: shaders/vulkan/basic.frag.spv shader size is greater that 4GiB\n";
-                return TPR_UNKNOWN_ERROR;
-            }
+            auto vertExp = mrFileReg.openFile("shaders/vulkan/basic.vert.spv");
+            if (!vertExp.has_value()) return vertExp.error();
+            TprFile vertFile = vertExp.value();
+            tprResult = mrFileReg.seek(vertFile, 0, TPR_SEEK_WHENCE_END);
+            if (tprResult != TPR_SUCCESS) return tprResult;
+            auto vertTellExp = mrFileReg.tell(vertFile);
+            if (!vertTellExp.has_value()) return vertTellExp.error();
+            std::vector<uint32_t> vertData(vertTellExp.value() / sizeof(uint32_t));
+            tprResult = mrFileReg.readAt(vertFile, 0, vertTellExp.value(), reinterpret_cast<std::byte*>(vertData.data()));
+            if (tprResult != TPR_SUCCESS) return tprResult;
             VkShaderModuleCreateInfo vertModuleCreateInfo{};
             vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-            vertModuleCreateInfo.codeSize = static_cast<uint32_t>(mrResReg.sizeofResource(vertRes).value());
-            vertModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(mrResReg.getResourceConstPointer(vertRes).value());
-            result = mrSym.vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader);
-            if (result != VK_SUCCESS) {
+            vertModuleCreateInfo.codeSize = vertData.size() * sizeof(uint32_t);
+            vertModuleCreateInfo.pCode = vertData.data();
+            vkResult = mrSym.vkCreateShaderModule(mDevice, &vertModuleCreateInfo, nullptr, &vertShader);
+            if (vkResult != VK_SUCCESS) {
                 mLogger.error(TPR_LOG_STYLE_ERROR1)
-                    << "WindowContext: vkCreateShaderModule at basic pipeline's vertex shader creation failed [" << result << "]\n";
+                    << "vkCreateShaderModule at basic pipeline's vertex shader creation failed [" << vkResult << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
@@ -582,17 +593,17 @@ TprResult WindowContext::constructInvalidatable() {
             pipelineCreateInfo.pVertexInputState = &vertexInput;
             pipelineCreateInfo.pDepthStencilState = &depthState;
 
-            result = mrSym.vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &mRenderPass.basicPipeline);
-            if (result != VK_SUCCESS) {
+            vkResult = mrSym.vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &mRenderPass.basicPipeline);
+            if (vkResult != VK_SUCCESS) {
                 mLogger.error(TPR_LOG_STYLE_ERROR1)
-                    << "WindowContext: vkCreateGraphicsPipelines at basic pipeline creation failed [" << result << "]\n";
+                    << "vkCreateGraphicsPipelines at basic pipeline creation failed [" << vkResult << "]\n";
                 return TPR_UNKNOWN_ERROR;
             }
 
             mrSym.vkDestroyShaderModule(mDevice, fragShader, nullptr);
             mrSym.vkDestroyShaderModule(mDevice, vertShader, nullptr);
 
-            mLogger.debug() << "WindowContext: Created basic pipeline\n";
+            mLogger.debug() << "Created basic pipeline\n";
         }
 
         for (uint32_t i = 0; i < mImageCount; i++) {
@@ -612,9 +623,9 @@ TprResult WindowContext::constructInvalidatable() {
                 createInfo.layers = 1;
                 createInfo.renderPass = mRenderPass.renderPass;
 
-                result = mrSym.vkCreateFramebuffer(mDevice, &createInfo, nullptr, &mFramebuffers[i]);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "WindowContext: vkCreateFramebuffer failed [" << result << "]\n";
+                vkResult = mrSym.vkCreateFramebuffer(mDevice, &createInfo, nullptr, &mFramebuffers[i]);
+                if (vkResult != VK_SUCCESS) {
+                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateFramebuffer failed [" << vkResult << "]\n";
                     return TPR_UNKNOWN_ERROR;
                 }
             }

@@ -119,15 +119,9 @@ int main(int argc, char* argv[]) {
     try {
         TemporEngine engine(verbose_level, std::string(config_path), flush_config, config_enabled);
 
-        int exit_code;
-
-        exit_code = engine.init();
+        int exit_code = engine.runtime();
         if (exit_code != 0) return exit_code;
 
-        exit_code = engine.run();
-        if (exit_code != 0) return exit_code;
-
-        engine.shutdown();
     } catch (std::exception& e) {
         std::printf("\033[95mLeaked exception: %s\033[0m\n", e.what());
         return 1;

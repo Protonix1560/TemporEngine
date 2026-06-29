@@ -27,7 +27,7 @@ expected<WindowContext, TprResult> HardwareLayerVulkan::createWindowContext(uint
     if (!mAlloc.has_value()) return unexpected(TPR_UNKNOWN_ERROR);
     try {
         return WindowContext(
-            mLogger.derive("WindowContext: "), mAlloc.value(), mrWinMan, mrResReg, mSym,
+            mLogger.derive("WindowContext: "), mAlloc.value(), mrWinMan, mrFileReg, mSym,
             mInstance, mPhysicalDevice, mDevice, queueFamilyIndex,
             mMaxFramesInFlight, window, mBasicPipelinelayout,
             mObjectDataSetLayout

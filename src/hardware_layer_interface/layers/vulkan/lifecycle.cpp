@@ -5,7 +5,7 @@
 #include "hardware_layer_interface.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 #include "settings.hpp"
 #include "window_manager.hpp"
 #include "plugin_core.h"
@@ -29,12 +29,12 @@
 
 // registring renderer
 expected<PHardwareLayer, TprResult> registerLayerVulkan(
-    Logger logger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
+    Logger logger, FileRegistry& rFileReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
     uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
 ) {
     try {
         return std::unique_ptr<HardwareLayer>(std::make_unique<HardwareLayerVulkan>(
-            logger, rResReg, rWinMan, rSettings, rScGr, componentRenderable, engineVersionVariant, engineVersionMajor, engineVersionMinor, engineVersionPatch
+            logger, rFileReg, rWinMan, rSettings, rScGr, componentRenderable, engineVersionVariant, engineVersionMajor, engineVersionMinor, engineVersionPatch
         ));
     } catch (TprResult r) {
         return unexpected(r);
@@ -68,9 +68,9 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 HardwareLayerVulkan::HardwareLayerVulkan(
-    Logger logger, ResourceRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
+    Logger logger, FileRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
     uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
-) : mLogger(logger), mrResReg(rResReg), mrWinMan(rWinMan), mrSettings(rSettings), mrScGr(rScGr), mComponentRenderable(componentRenderable)
+) : mLogger(logger), mrFileReg(rResReg), mrWinMan(rWinMan), mrSettings(rSettings), mrScGr(rScGr), mComponentRenderable(componentRenderable)
 {
     
     VkResult vkResult;
@@ -471,9 +471,9 @@ HardwareLayerVulkan::HardwareLayerVulkan(
 
     // Object-related stuff
     {
-        auto resExp = mrResReg.openResource(size_t{0}, 0, sizeof(TprComponentChunk));
-        if (!resExp.has_value()) throw resExp.error();
-        mRenderableChunkFetchResource = resExp.value();
+        auto fetchFileExp = mrFileReg.createMemoryFile();
+        if (!fetchFileExp.has_value()) throw fetchFileExp.error();
+        mRenderableChunksFetchFile = fetchFileExp.value();
 
         auto objBufferExp = createBuffer(
             0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
@@ -531,19 +531,23 @@ TprResult HardwareLayerVulkan::update() {
     TprResult tprResult;
     VkResult vkResult;
 
-    tprResult = mrScGr.getComponentChunkHandles(mComponentRenderable, mRenderableChunkFetchResource);
+    tprResult = mrScGr.getComponentChunkHandles(mComponentRenderable, mRenderableChunksFetchFile);
     if (tprResult != TPR_SUCCESS) return tprResult;
-    auto chunkCountExp = mrResReg.sizeofResource(mRenderableChunkFetchResource);
-    if (!chunkCountExp.has_value()) return chunkCountExp.error();
-    auto chunkCount = chunkCountExp.value() / sizeof(TprComponentChunk);
+    tprResult = mrFileReg.seek(mRenderableChunksFetchFile, 0, TPR_SEEK_WHENCE_END);
+    if (tprResult != TPR_SUCCESS) return tprResult;
+    auto tellExp = mrFileReg.tell(mRenderableChunksFetchFile);
+    if (!tellExp.has_value()) return tellExp.error();
+    size_t chunkCount = tellExp.value() / sizeof(TprComponentChunk);
     if (chunkCount > 0) {
-        auto ptrExp = mrResReg.getResourceConstPointer(mRenderableChunkFetchResource);
-        if (!ptrExp.has_value()) return ptrExp.error();
-        auto ptr = reinterpret_cast<const TprComponentChunk*>(ptrExp.value());
+        tprResult = mrFileReg.seek(mRenderableChunksFetchFile, 0, TPR_SEEK_WHENCE_BEGIN);
+        if (tprResult != TPR_SUCCESS) return tprResult;
         std::unordered_set<uint64_t> handles;
         handles.reserve(chunkCount);
-        for (auto it = ptr; it < ptr + chunkCount; it++) {
-            handles.insert(it->_d);
+        for (uint32_t i = 0; i < chunkCount; i++) {
+            TprComponentChunk handle;
+            tprResult = mrFileReg.read(mRenderableChunksFetchFile, sizeof(TprComponentChunk), reinterpret_cast<std::byte*>(&handle));
+            if (tprResult != TPR_SUCCESS) return tprResult;
+            handles.insert(handle._d);
         }
         std::vector<TprComponentRenderable> copyBuffer(mObjectChunkSize);
         std::unordered_map<uint32_t, std::vector<uint32_t>> newObjectDataIndices;
@@ -981,33 +985,35 @@ TprResult HardwareLayerVulkan::render() {
             mSym.vkCmdSetViewport(frame.renderCommandBuffer(), 0, 1, &viewport);
 
             // updating the object data set
-            VkDescriptorBufferInfo dataBufferInfo{};
-            dataBufferInfo.buffer = mObjectBuffer->handle();
-            dataBufferInfo.offset = 0;
-            dataBufferInfo.range = VK_WHOLE_SIZE;
-            VkDescriptorBufferInfo indicesBufferInfo{};
-            indicesBufferInfo.buffer = mObjectIndicesBuffer->handle();
-            indicesBufferInfo.offset = 0;
-            indicesBufferInfo.range = VK_WHOLE_SIZE;
-            VkWriteDescriptorSet descSetWrites[] = {
-                {
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    nullptr, objectSet, 0, 0, 1,
-                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr,
-                    &dataBufferInfo
-                },
-                {
-                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    nullptr, objectSet, 1, 0, 1,
-                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr,
-                    &indicesBufferInfo
-                }
-            };
-            mSym.vkUpdateDescriptorSets(mDevice, std::size(descSetWrites), descSetWrites, 0, nullptr);
+            if (!mObjectBuffer->empty()) {
+                VkDescriptorBufferInfo dataBufferInfo{};
+                dataBufferInfo.buffer = mObjectBuffer->handle();
+                dataBufferInfo.offset = 0;
+                dataBufferInfo.range = VK_WHOLE_SIZE;
+                VkDescriptorBufferInfo indicesBufferInfo{};
+                indicesBufferInfo.buffer = mObjectIndicesBuffer->handle();
+                indicesBufferInfo.offset = 0;
+                indicesBufferInfo.range = VK_WHOLE_SIZE;
+                VkWriteDescriptorSet descSetWrites[] = {
+                    {
+                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        nullptr, objectSet, 0, 0, 1,
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr,
+                        &dataBufferInfo
+                    },
+                    {
+                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        nullptr, objectSet, 1, 0, 1,
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr,
+                        &indicesBufferInfo
+                    }
+                };
+                mSym.vkUpdateDescriptorSets(mDevice, std::size(descSetWrites), descSetWrites, 0, nullptr);
+            }
         }
 
         // rendering
-        {
+        if (!mObjectBuffer->empty()) {
             mSym.vkCmdBindPipeline(
                 frame.renderCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.renderPass().basicPipeline
             );

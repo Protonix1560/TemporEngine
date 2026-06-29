@@ -9,6 +9,7 @@
 #include <format>
 #include <array>
 #include <variant>
+#include <utility>
 
 #ifdef HAVE_UNISTD_H
     #include "unistd.h"
@@ -33,16 +34,14 @@ using namespace std::string_literals;
     #define LINUX
 #endif
 
-#define THREAD_SAFE
-#define SIG_SAFE
+// #define THREAD_SAFE
+// #define SIG_SAFE
 
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__INTEL_COMPILER)
-    #define RESTRICT __restrict
-#else
-    #define RESTRICT
-#endif
-
-#define ENV_TEMPOR_CONF_PATH "TEMPOR_CONF_PATH"
+// #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__INTEL_COMPILER)
+//     #define RESTRICT __restrict
+// #else
+//     #define RESTRICT
+// #endif
 
 
 
@@ -320,7 +319,7 @@ class static_registry<T, 0> {
 enum class handle_type : uint8_t {
     undefined = 0,
     window = 1,
-    resource = 2,
+    file = 2,
     action = 3,
     component = 4,
     mesh = 5,
@@ -382,6 +381,9 @@ class unexpected {
     private:
         E m_error;
 };
+
+template <typename E>
+unexpected(E error) -> unexpected<E>;
 
 template <typename T, typename E>
 class expected {
@@ -489,11 +491,7 @@ class expected {
         bool m_has_value;
 };
 
-
-class expected_void {
-
-};
-
+class expected_void {};
 
 template <typename E>
 class expected<void, E> {
@@ -562,6 +560,27 @@ class expected<void, E> {
         bool m_has_value;
 };
 
+
+// manual std::scope_exit
+
+template<typename F>
+class scope_exit {
+    public:
+        explicit scope_exit(F&& f) : m_f(std::forward<F>(f)) {}
+        scope_exit(const scope_exit&) = delete;
+        scope_exit& operator=(const scope_exit&) = delete;
+        scope_exit(scope_exit&& other) noexcept : m_f(std::move(other.m_f)), m_active(std::exchange(other.m_active, false)) {}
+
+        ~scope_exit() noexcept { if (m_active) m_f(); }
+        void release() noexcept { m_active = false; }
+
+    private:
+        F m_f;
+        bool m_active = true;
+};
+
+template<typename F>
+scope_exit(F) -> scope_exit<F>;
 
 
 #endif  // CORE_HPP_

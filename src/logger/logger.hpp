@@ -1,39 +1,37 @@
 
 
-#ifndef UTILS_LOGGER_LOGGER_HPP_
-#define UTILS_LOGGER_LOGGER_HPP_
+#ifndef LOGGER_LOGGER_HPP_
+#define LOGGER_LOGGER_HPP_
 
 
 #include "core.hpp"
 #include "plugin_core.h"
 
-#include <mutex>
-#include <atomic>
 #include <sstream>
+#include <atomic>
+#include <memory>
 
 
-constexpr size_t maxVerbosity = 6;
-
-
-enum class LogDest {
-    Diagnostic = 0,
-    MachineData = 1
+class LogSinkInterface {
+    public:
+        virtual void writeLog(std::string_view msg, TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept = 0;
+        virtual TprLogLevel maxVerbosity() const = 0;
 };
+REGISTER_TYPE_NAME_S(LogSinkInterface, "LgSI");
 
 
-class LogSink;
 class Logger;
 
 
 class LogEntry {
     private:
-        LogSink& mrSink;
+        std::shared_ptr<LogSinkInterface> mpSink;
         std::ostringstream mBuffer;
         bool mDummy = false;
         TprLogLevel mLevel;
         TprLogStyle mStyle;
 
-        LogEntry(LogSink& rSink, std::string_view prefix, TprLogLevel level, TprLogStyle style);
+        LogEntry(std::shared_ptr<LogSinkInterface> rSink, std::string_view prefix, TprLogLevel level, TprLogStyle style);
 
         friend class Logger;
 
@@ -50,18 +48,15 @@ class LogEntry {
 };
 
 
-
 class Logger {
     private:
-        LogSink& mrSink;
+        const std::atomic<std::shared_ptr<LogSinkInterface>>& mrSink;
         std::string mPrefix;
 
-        Logger(LogSink& rSink, std::string_view prefix);
-
-        friend class LogSink;
-
     public:
-        Logger& sink() const noexcept;
+        Logger(const std::atomic<std::shared_ptr<LogSinkInterface>>& rSink, std::string_view prefix);
+
+        std::shared_ptr<LogSinkInterface> sink() const noexcept;
         Logger derive(const std::string& prefix) const;
 
         LogEntry operator()(TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) const;
@@ -74,21 +69,4 @@ class Logger {
 };
 
 
-class LogSink {
-    private:
-        std::mutex mMutex;
-        std::atomic<size_t> mVerbosity;
-    
-    public:
-        LogSink(size_t verbosity);
-        Logger createLogger(std::string_view prefix);
-        void setVerbosity(size_t verbosity);
-        size_t verbosity() const;
-        void writeLog(std::string_view msg, TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept;
-        TprResult writeData(std::span<const std::byte> data) noexcept;
-};
-
-REGISTER_TYPE_NAME_S(LogSink, "LgSk");
-
-
-#endif  // UTILS_LOGGER_LOGGER_HPP_
+#endif  // LOGGER_LOGGER_HPP_

@@ -3,7 +3,10 @@
 #include "hardware_layer.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
+
 #include <vulkan/vulkan_core.h>
+
+#include <cstring>
 
 
 Allocator::Allocator(Logger logger, VulkanSymbols& rSym, VkPhysicalDevice physicalDevice, VkDevice device)

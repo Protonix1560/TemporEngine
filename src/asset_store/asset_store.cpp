@@ -6,7 +6,7 @@
 #include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "logger.hpp"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
@@ -16,7 +16,7 @@
 
 
 
-AssetStore::AssetStore(Logger logger, ResourceRegistry& rRegReg, HardwareLayer& rHWLI) : mLogger(logger), mrResReg(rRegReg), mrHWLI(rHWLI) {}
+AssetStore::AssetStore(Logger logger, FileRegistry& rFileReg, HardwareLayer& rHWLI) : mLogger(logger), mrFileReg(rFileReg), mrHWLI(rHWLI) {}
 
 
 AssetStore::~AssetStore() noexcept {}
@@ -26,23 +26,20 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo* pIn
     if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     try {
-
-        auto ptrExp = mrResReg.getResourceConstPointer(pInfo->resource);
-        if (!ptrExp.has_value()) {
-            return unexpected(ptrExp.error());
-        }
-        if (!ptrExp.value()) {
+        TprResult result;
+        result = mrFileReg.seek(pInfo->file, 0, TPR_SEEK_WHENCE_END);
+        if (result != TPR_SUCCESS) return unexpected(result);
+        auto tellExp = mrFileReg.tell(pInfo->file);
+        if (!tellExp.has_value()) return unexpected(tellExp.error());
+        auto size = tellExp.value();
+        if (size == 0) {
             return unexpected(TPR_ERROR_INVALID_VALUE);
         }
-        auto sizeExp = mrResReg.sizeofResource(pInfo->resource);
-        if (!sizeExp.has_value()) {
-            return unexpected(sizeExp.error());
-        }
-        if (sizeExp.value() == 0) {
-            return unexpected(TPR_ERROR_INVALID_VALUE);
-        }
+        std::vector<std::byte> data(size);
+        result = mrFileReg.readAt(pInfo->file, 0, data.size(), data.data());
+        if (result != TPR_SUCCESS) return unexpected(result);
 
-        auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(ptrExp.value(), sizeExp.value());
+        auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(data.data(), data.size());
         if (gltfDataExp.error() != fastgltf::Error::None) {
             mLogger.error(TPR_LOG_STYLE_ERROR1) << "FastGLTF error: " << fastgltf::getErrorMessage(gltfDataExp.error()) << "\n";
             return unexpected(TPR_UNKNOWN_ERROR);

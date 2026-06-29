@@ -12,4 +12,5 @@ inline std::string current_time() {
 }
 
 
+
 #endif  // TIME_HPP_

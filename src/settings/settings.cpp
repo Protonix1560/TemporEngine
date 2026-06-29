@@ -2,7 +2,7 @@
 #include "settings.hpp"
 #include "core.hpp"
 #include "plugin_core.h"
-#include "resource_registry.hpp"
+#include "file_registry.hpp"
 #include "logger.hpp"
 
 #include <exception>
@@ -17,66 +17,90 @@
 namespace sj = simdjson;
 
 
-Settings::Settings(Logger logger, ResourceRegistry& rResReg, std::filesystem::path confPath, bool flushConfig, bool configEnabled)
-    : mLogger(logger), mrResReg(rResReg), mFlushConfig(flushConfig) {
+Settings::Settings(Logger logger, FileRegistry& rFileReg) : mLogger(logger), mrFileReg(rFileReg) {}
+
+TprResult Settings::init(std::filesystem::path confPath, bool flushConfig, bool configEnabled) {
+
+    mFlushConfig = flushConfig;
+    mConfPath = confPath;
+    if (mConfPath.empty()) {
+        mConfPath = "config.json";
+    }
 
     if (configEnabled) {
-        if (confPath.empty()) {
-            confPath = "config.json";
-        }
-
-        auto confExp = mrResReg.matchFile(confPath);
-        if (confExp.has_value()) {
-            mConfPath = confExp.value();
-
-            mLogger.debug() << "Found config file at \"" << mConfPath.string() << "\"\n";
-
-            auto openExp = mrResReg.openResource(mConfPath);
-            if (!openExp.has_value()) {
-                mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open config file [" << openExp.error() << "]\n";
-            } else {
-                TprResource confRes = openExp.value();
-
-                auto dataExp = mrResReg.getResourceConstPointer(confRes);
-                auto sizeExp = mrResReg.sizeofResource(confRes);
-                if (dataExp.has_value() && sizeExp.has_value()) {
-                    const std::byte* data = dataExp.value();
-                    size_t size = sizeExp.value();
-                    mJsonData.emplace();
-                    mJsonData->data = sj::padded_string(reinterpret_cast<const char*>(data), size);
-
-                    auto docExp = mJsonData->parser.parse(mJsonData->data);
-                    if (!docExp.has_value()) {
-                        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to parse config file: " << docExp.error() << "\n";
-                        mJsonData.reset();
-                    } else {
-                        mJsonData->root = docExp.value();
-                    }
-                } else {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open config file [" << openExp.error() << "]\n";
-                }
-                mrResReg.closeResource(confRes);
-            }
-        }
+        auto res = openConfig();
+        if (res != TPR_SUCCESS) return res;
     }
 
     // root setting
-    {
-        Setting setting{};
-        setting.name = "root";
-        if (mJsonData.has_value()) {
-            setting.element = mJsonData->root;
-        }
-        setting.data = SettingStruct{};
-        SettingHandle handle{};
-        handle.setting = mSettingCounter;
-        handle.capability = TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT;
-        mSettings.try_emplace(mSettingCounter, setting);
-        mSettingHandles.try_emplace(mHandleCounter, handle);
-        mRootSetting = construct_basic_handle<TprSetting>(mHandleCounter, 0, handle_type::setting);
-        mSettingCounter++;
-        mHandleCounter++;
+    Setting setting{};
+    setting.name = "root";
+    if (mJsonData.has_value()) {
+        setting.element = mJsonData->root;
     }
+    setting.data = SettingStruct{};
+    SettingHandle handle{};
+    handle.setting = mSettingCounter;
+    handle.capability = TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT;
+    mSettings.try_emplace(mSettingCounter, setting);
+    mSettingHandles.try_emplace(mHandleCounter, handle);
+    mRootSetting = construct_basic_handle<TprSetting>(mHandleCounter, 0, handle_type::setting);
+    mSettingCounter++;
+    mHandleCounter++;
+
+    return TPR_SUCCESS;
+}
+
+TprResult Settings::openConfig() {
+    auto openExp = mrFileReg.openFile(mConfPath);
+    if (!openExp.has_value()) {
+        mLogger.error() << "Failed to open config file [" << openExp.error() << "]";
+        return TPR_SUCCESS;
+    }
+    TprFile config = openExp.value();
+    scope_exit closeConfig([&]() { mrFileReg.closeFile(config); });
+
+    TprResult result;
+    result = mrFileReg.seek(config, 0, TPR_SEEK_WHENCE_END);
+    switch (result) {
+        case TPR_SUCCESS:
+            break;
+        case TPR_PANIC:
+            return TPR_PANIC;
+        default:
+            mLogger.error() << "Failed to call seek at config file [" << result << "]";
+            return TPR_SUCCESS;
+    }
+
+    auto posExp = mrFileReg.tell(config);
+    if (!posExp.has_value()) {
+        mLogger.error() << "Failed to call tell at config file [" << posExp.error() << "]";
+        return TPR_SUCCESS;
+    }
+    uint32_t size = posExp.value();
+
+    mJsonData.emplace();
+    mJsonData->data = sj::padded_string(size);
+    result = mrFileReg.readAt(config, 0, size, reinterpret_cast<std::byte*>(mJsonData->data.data()));
+    switch (result) {
+        case TPR_SUCCESS:
+            break;
+        case TPR_PANIC:
+            return TPR_PANIC;
+        default:
+            mLogger.error() << "Failed to call read at config file [" << result << "]";
+            return TPR_SUCCESS;
+    }
+
+    auto docExp = mJsonData->parser.parse(mJsonData->data);
+    if (!docExp.has_value()) {
+        mLogger.error() << "Failed to parse config file [" << result << "]";
+        mJsonData.reset();
+    } else {
+        mJsonData->root = docExp.value();
+    }
+
+    return TPR_SUCCESS;
 }
 
 Settings::~Settings() {
@@ -115,6 +139,7 @@ Setting Settings::parseSetting(sj::dom::element element) {
         SettingArray data{};
         for (const auto& el : arrayExp.value()) {
             auto [settIt, handleIt] = createUnnamedSetting(el);
+            handleIt->second.capability = TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT;
             data.elements.push_back(settIt->first);
         }
         setting.data = data;
@@ -993,39 +1018,52 @@ void Settings::writeSetting(std::ostringstream& stream, size_t identation, const
 }
 
 
-void Settings::flush() {
+TprResult Settings::flush() {
+    if (!mFlushConfig) return TPR_SUCCESS;
 
-    if (!mFlushConfig) return;
+    TprResult result;
+    mLogger.debug() << "Writing config file to \"" << mConfPath.string() << "\"\n";
 
-    auto confExp = mrResReg.matchFile(mConfPath);
-    auto confPath = confExp.has_value() ? confExp.value() : "config.json";
-
-    mLogger.debug() << "Writing config file to \"" << confPath.string() << "\"\n";
-
-    auto openExp = mrResReg.openResource(confPath, TPR_OPEN_PATH_RESOURCE_SYNC_FLAG_BIT | TPR_OPEN_PATH_RESOURCE_ALWAYS_NEW_FLAG_BIT);
+    auto openExp = mrFileReg.openFile(mConfPath, TPR_OPEN_FILE_SYNC_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
     if (!openExp.has_value()) {
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open config file [" << openExp.error() << "]\n";
-        return;
+        mLogger.error() << "Failed to open config file [" << openExp.error() << "]\n";
+        return TPR_SUCCESS;
     }
-    TprResource confRes = openExp.value();
+    TprFile config = openExp.value();
+    scope_exit closeConfig([&]() { mrFileReg.closeFile(config); });
 
     std::ostringstream data;
     auto rootIt = mSettings.find(get_basic_handle_index(mRootSetting));
-    if (rootIt == mSettings.end()) return;  // shouldn't happen
+    if (rootIt == mSettings.end()) {
+        mLogger.panic() << "Corrupted internal structures: mRootSetting doesn't appear in mSettings";
+        return TPR_PANIC;
+    }
     writeSetting(data, 0, rootIt->second);
-
     std::string string = data.str();
 
-    TprResult resizeRes = mrResReg.resizeResource(confRes, string.size());
-    auto dataExp = mrResReg.getResourceRawDataPointer(confRes);
-    if (resizeRes == TPR_SUCCESS && dataExp.has_value()) {
-        std::byte* data = dataExp.value();
-        std::memcpy(data, string.data(), string.size());
-    } else {
-        mrResReg.closeResource(confRes);
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to write to config file [" << dataExp.error() << "]\n";
+    result = mrFileReg.resize(config, string.size());
+    switch (result) {
+        case TPR_SUCCESS:
+            break;
+        case TPR_PANIC:
+            return TPR_PANIC;
+        default:
+            mLogger.error() << "Failed to call resize at config file [" << result << "]";
+            return TPR_SUCCESS;
     }
-    mrResReg.closeResource(confRes);
+
+    result = mrFileReg.write(config, string.size(), reinterpret_cast<const std::byte*>(string.c_str()));
+    switch (result) {
+        case TPR_SUCCESS:
+            break;
+        case TPR_PANIC:
+            return TPR_PANIC;
+        default:
+            mLogger.error() << "Failed to call write at config file [" << result << "]";
+            return TPR_SUCCESS;
+    }
+
+    return TPR_SUCCESS;
 }
 
 

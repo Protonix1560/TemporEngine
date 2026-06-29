@@ -12,14 +12,15 @@
 #include <string_view>
 #include <unordered_map>
 #include <filesystem>
+#include <mutex>
 
 #include <simdjson.h>
 
 namespace sj = simdjson;
 
 
-// from "resource_registry.hpp"
-class ResourceRegistry;
+// from "file_registry.hpp"
+class FileRegistry;
 
 
 struct SettingUnset {};
@@ -55,7 +56,8 @@ struct JsonData {
 class Settings {
 
     public:
-        Settings(Logger logger, ResourceRegistry& rResReg, std::filesystem::path configPath, bool flushConfig, bool configEnabled);
+        Settings(Logger logger, FileRegistry& rResReg);
+        TprResult init(std::filesystem::path configPath, bool flushConfig, bool configEnabled);
         ~Settings();
 
         expected<TprSetting, TprResult> createSetting(TprSetting baseSetting, std::string_view name) noexcept;
@@ -96,9 +98,11 @@ class Settings {
         TprSetting getRoot() const;
 
         void finalizeRead();
-        void flush();
+        TprResult flush();
 
     private:
+
+        TprResult openConfig();
 
         Setting parseSetting(sj::dom::element element);
 
@@ -117,7 +121,7 @@ class Settings {
 
         void destroySettingById(uint32_t id);
 
-        ResourceRegistry& mrResReg;
+        FileRegistry& mrFileReg;
         Logger mLogger;
 
         std::mutex mMutex;

@@ -7,6 +7,10 @@
             "path": "info.log"
         },
         {
+            "level": 5,
+            "path": "debug.log"
+        },
+        {
             "level": 6,
             "path": "trace.log"
         }

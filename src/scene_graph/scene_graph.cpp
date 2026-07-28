@@ -29,7 +29,7 @@ expected<TprComponent, TprResult> SceneGraph::createComponent(uint32_t component
         mComponents.try_emplace(mComponentCounter, componentSize);
         handle = construct_basic_handle<TprComponent>(mComponentCounter, 0, handle_type::component);
         mComponentCounter++;
-        mLogger() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
+        mLogger.trace() << "Created component " << get_basic_handle_index(handle) << " with size " << componentSize << "\n";
     } catch (...) {
         return unexpected(TPR_UNKNOWN_ERROR);
     }

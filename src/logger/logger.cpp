@@ -4,22 +4,21 @@
 
 #include <memory>
 #include <string_view>
-#include <cstdio>
 
 
 Logger::Logger(const std::atomic<std::shared_ptr<LogSinkInterface>>& rSink, std::string_view prefix)
-    : mrSink(rSink), mPrefix(prefix) {}
+    : mpSink(&rSink), mPrefix(prefix) {}
 
 LogEntry Logger::operator()(TprLogLevel level, TprLogStyle style) const {
-    return LogEntry(mrSink.load(), mPrefix, level, style);
+    return LogEntry(mpSink->load(), mPrefix, level, style);
 }
 
 std::shared_ptr<LogSinkInterface> Logger::sink() const noexcept {
-    return mrSink.load();
+    return mpSink->load();
 }
 
 Logger Logger::derive(const std::string& prefix) const {
-    return Logger(mrSink, mPrefix + prefix);
+    return Logger(*mpSink, mPrefix + prefix);
 }
 
 LogEntry Logger::panic(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_PANIC, style); }
@@ -33,9 +32,8 @@ LogEntry Logger::trace(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_T
 
 LogEntry::LogEntry(std::shared_ptr<LogSinkInterface> rSink, std::string_view prefix, TprLogLevel level, TprLogStyle style)
     : mpSink(rSink), mLevel(level), mStyle(style) {
-    if (mpSink->maxVerbosity() < mLevel) mDummy = true;
+    if (!mpSink || mpSink->maxVerbosity() < mLevel) mDummy = true;
     if (!mDummy) mBuffer << prefix;
-    if (mDummy) std::printf("%d\n", mpSink->maxVerbosity());
 }
 
 LogEntry::~LogEntry() {

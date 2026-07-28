@@ -16,6 +16,7 @@ class LogSinkInterface {
     public:
         virtual void writeLog(std::string_view msg, TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept = 0;
         virtual TprLogLevel maxVerbosity() const = 0;
+        virtual bool colourEnabled() const = 0;
 };
 REGISTER_TYPE_NAME_S(LogSinkInterface, "LgSI");
 
@@ -41,6 +42,9 @@ class LogEntry {
         void flush();
 
         template <typename T>
+        requires requires(const T& msg, std::ostringstream& buffer) {
+            buffer << msg;
+        }
         LogEntry& operator<<(const T& msg) {
             if (!mDummy) mBuffer << msg;
             return *this;
@@ -50,10 +54,11 @@ class LogEntry {
 
 class Logger {
     private:
-        const std::atomic<std::shared_ptr<LogSinkInterface>>& mrSink;
+        const std::atomic<std::shared_ptr<LogSinkInterface>>* mpSink = nullptr;
         std::string mPrefix;
 
     public:
+        Logger() = default;
         Logger(const std::atomic<std::shared_ptr<LogSinkInterface>>& rSink, std::string_view prefix);
 
         std::shared_ptr<LogSinkInterface> sink() const noexcept;

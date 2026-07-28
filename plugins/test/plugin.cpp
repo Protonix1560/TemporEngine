@@ -2,15 +2,16 @@
 #include "plugin.h"
 #include "plugin_core.h"
 
-#include <string>  // IWYU pragma: keep
-#include <format>  // IWYU pragma: keep
+#include <string>
+#include <format>
+#include <thread>  // IWYU pragma: keep
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 
 using namespace std::string_literals;
-
+using namespace std::chrono_literals;
 
 
 #define ROF(__expr) do {            \
@@ -18,13 +19,21 @@ using namespace std::string_literals;
     if (__r < 0) return __r;        \
 } while (0)
 
+#define LOF(__expr) do {                                                                                                      \
+    auto __r = (__expr);                                                                                                      \
+    if (__r < 0) {                                                                                                            \
+        plugin->api->out->error(std::format("Test plugin error at {}: {}", __LINE__, static_cast<int32_t>(__r)).c_str());     \
+        return;                                                                                                               \
+    }                                                                                                                         \
+} while (0)
 
 
-
-class Plugin {
+class PluginWrapper {
     public:
         const TprEngineAPI* api;
         TprWindow window;
+        TprJob frameJob;
+        TprJob shutdownJob;
 
         TprAction quitAction;
         TprAction cameraAction;
@@ -47,148 +56,76 @@ class Plugin {
 };
 
 
+int32_t testScheduler(PluginWrapper* plugin) {
 
-extern "C" {
+    // #define TEST_SCHEDULER_SCENARIO_1
 
+    #ifdef TEST_SCHEDULER_SCENARIO_1
+    {
+        TprResult result;
 
+        TprJob jobA;
+        TprJobCreateInfo jobAInfo{};
+        jobAInfo.context = plugin;
+        jobAInfo.duration = TPR_JOB_DURATION_SHORT;
+        jobAInfo.function = [](void* ctx, TprJob job) noexcept -> void {
+            PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
+            plugin->api->out->info("\e[91mJOB A");
+            plugin->api->sched->scheduleJob(job, plugin->api->sched->now() + 100'000'000);
+        };
+        jobAInfo.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;
+        plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "\e[41m ======== CREATING JOB A ======== \e[0m");
+        ROF(plugin->api->sched->createJob(&jobAInfo, &jobA));
+        ROF(plugin->api->sched->scheduleJob(jobA, plugin->api->sched->now() + 1'000'000'000));
 
-int32_t init(void** ctx, const TprEngineAPI* api) noexcept {
+        std::this_thread::sleep_for(1500ms);
 
-    Plugin* plugin = new Plugin;
-    if (!plugin) return -1;
+        TprJob jobB;
+        TprJobCreateInfo jobBInfo{};
+        jobBInfo.context = plugin;
+        jobBInfo.duration = TPR_JOB_DURATION_SHORT;
+        jobBInfo.pDependencies = &jobA;
+        jobBInfo.dependencyCount = 1;
+        jobBInfo.function = [](void* ctx, TprJob job) noexcept -> void {
+            PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
+            plugin->api->out->info("\e[92mJOB B");
+        };
+        jobBInfo.triggerType = TPR_JOB_TRIGGER_TYPE_DEPENDENCIES;
+        plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "\e[42m ======== CREATING JOB B ======== \e[0m");
+        ROF(plugin->api->sched->createJob(&jobBInfo, &jobB));
 
-    *ctx = plugin;
-    plugin->api = api;
+        std::this_thread::sleep_for(500ms);
 
-    TprWindowCreateInfo windowCreateInfo{};
-    windowCreateInfo.name = "Tempor Testing Initiative";
-    windowCreateInfo.prefferedWidth = 1300;
-    windowCreateInfo.prefferedHeight = 800;
-    ROF(plugin->api->win->openWindow(&windowCreateInfo, &plugin->window));
+        plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "\e[42m ======== DESTROYING JOB B ======== \e[0m");
+        plugin->api->sched->pendJobDestruction(jobB);
 
-    TprActionCreateInfo quitActionInfo{};
-    quitActionInfo.element = TPR_KEY_ESCAPE;
-    quitActionInfo.lowThreshold = 0.3f;
-    quitActionInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &quitActionInfo, &plugin->quitAction));
+        std::this_thread::sleep_for(1000ms);
 
-    TprActionCreateInfo cameraActionInfo{};
-    cameraActionInfo.element = TPR_MOUSE_MOTION;
-    cameraActionInfo.lowThreshold = 0.0f;
-    cameraActionInfo.highThreshold = 0.0f;
-    ROF(plugin->api->input->createAction(plugin->window, &cameraActionInfo, &plugin->cameraAction));
+        plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "\e[41m ======== DESTROYING JOB A ======== \e[0m");
+        plugin->api->sched->pendJobDestruction(jobA);
 
-    TprActionCreateInfo mouseActionInfo{};
-    mouseActionInfo.element = TPR_MOUSE_BUTTON1;
-    mouseActionInfo.lowThreshold = 0.3f;
-    mouseActionInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &mouseActionInfo, &plugin->mouseAction));
-
-    TprActionCreateInfo walkForwardInfo{};
-    walkForwardInfo.element = TPR_KEY_W;
-    walkForwardInfo.lowThreshold = 0.3f;
-    walkForwardInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &walkForwardInfo, &plugin->walkForwardAction));
-
-    TprActionCreateInfo walkBackwardInfo{};
-    walkBackwardInfo.element = TPR_KEY_S;
-    walkBackwardInfo.lowThreshold = 0.3f;
-    walkBackwardInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &walkBackwardInfo, &plugin->walkBackwardAction));
-
-    TprActionCreateInfo strafeRightInfo{};
-    strafeRightInfo.element = TPR_KEY_D;
-    strafeRightInfo.lowThreshold = 0.3f;
-    strafeRightInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &strafeRightInfo, &plugin->strafeRightAction));
-    
-    TprActionCreateInfo strafeLeftInfo{};
-    strafeLeftInfo.element = TPR_KEY_A;
-    strafeLeftInfo.lowThreshold = 0.3f;
-    strafeLeftInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &strafeLeftInfo, &plugin->strafeLeftAction));
-
-    TprActionCreateInfo flyUpwardInfo{};
-    flyUpwardInfo.element = TPR_KEY_E;
-    flyUpwardInfo.lowThreshold = 0.3f;
-    flyUpwardInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &flyUpwardInfo, &plugin->flyUpwardAction));
-    
-    TprActionCreateInfo flyDownwardInfo{};
-    flyDownwardInfo.element = TPR_KEY_Q;
-    flyDownwardInfo.lowThreshold = 0.3f;
-    flyDownwardInfo.highThreshold = 0.7f;
-    ROF(plugin->api->input->createAction(plugin->window, &flyDownwardInfo, &plugin->flyDownwardAction));
-
-    TprFile modelFile;
-    ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
-    TprMeshCreateInfo parseInfo{};
-    parseInfo.file = modelFile;
-    parseInfo.index = 0;
-    ROF(plugin->api->geo->createMesh(&parseInfo, &plugin->mesh));
-    plugin->api->fs->closeFile(modelFile);
-
-    TprMeshLoadInfo loadInfo{};
-    ROF(plugin->api->geo->loadMesh(plugin->mesh, &loadInfo));
-
-    TprDepthDomainCreateInfo domainInfo{};
-    ROF(plugin->api->render->createDepthDomain(&domainInfo, &plugin->domain));
-
-    TprRenderTargetCreateInfo targetInfo{};
-    targetInfo.depthDomain = plugin->domain;
-    targetInfo.scissor = {0, 0, 1300, 800};
-    targetInfo.viewport = {0.0f, 0.0f, 1300.0f, 800.0f, 0.0f, 1.0f};
-    targetInfo.window = plugin->window;
-    ROF(plugin->api->render->createRenderTarget(&targetInfo, &plugin->target));
-
-    TprObjectImageCreateInfo imageInfo{};
-    imageInfo.mesh = plugin->mesh;
-    imageInfo.pRenderTargets = &plugin->target;
-    imageInfo.renderTargetCount = 1;
-    ROF(plugin->api->render->createObjectImage(&imageInfo, &plugin->image));
-
-    TprComponent components[] = {
-        plugin->api->render->getComponentRenderable()
-    };
-    ROF(plugin->api->scene->spawnEntity(components, std::size(components), &plugin->object));
-
-    TprComponentRenderable renderable{};
-    renderable.image = plugin->image;
-    renderable.transform.x0 = 1.0f;
-    renderable.transform.y1 = 1.0f;
-    renderable.transform.z2 = 1.0f;
-    renderable.transform.w3 = 1.0f;
-    renderable.transform.z0 = 3.0f;
-    renderable.transform.x0 = 0.5f;
-    ROF(plugin->api->scene->writeEntityComponentData(
-        plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
-    ));
+        std::this_thread::sleep_for(200ms);
+    }
+    #endif  // TEST_SCHEDULER_SCENARIO_1
 
     return 0;
 }
 
 
+void frame(void* ctx, TprJob job) noexcept {
 
-void pluginShutdown(void* ctx) noexcept {
-    Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
-    delete plugin;
-}
-
-
-
-int32_t updatePerFrame(void* ctx) noexcept {
-    Plugin* plugin = reinterpret_cast<Plugin*>(ctx);
+    PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
 
     TprActionState quitActionState;
-    ROF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
+    LOF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
     if (quitActionState.state) {
         plugin->api->win->closeWindow(plugin->window);
     }
 
     TprActionState cameraActionState;
     TprActionState mouseActionState;
-    ROF(plugin->api->input->getActionState(plugin->cameraAction, &cameraActionState));
-    ROF(plugin->api->input->getActionState(plugin->mouseAction, &mouseActionState));
+    LOF(plugin->api->input->getActionState(plugin->cameraAction, &cameraActionState));
+    LOF(plugin->api->input->getActionState(plugin->mouseAction, &mouseActionState));
 
     TprActionState walkForwardState;
     TprActionState walkBackwardState;
@@ -196,12 +133,12 @@ int32_t updatePerFrame(void* ctx) noexcept {
     TprActionState strafeLeftState;
     TprActionState flyUpwardState;
     TprActionState flyDownwardState;
-    ROF(plugin->api->input->getActionState(plugin->walkForwardAction, &walkForwardState));
-    ROF(plugin->api->input->getActionState(plugin->walkBackwardAction, &walkBackwardState));
-    ROF(plugin->api->input->getActionState(plugin->strafeRightAction, &strafeRightState));
-    ROF(plugin->api->input->getActionState(plugin->strafeLeftAction, &strafeLeftState));
-    ROF(plugin->api->input->getActionState(plugin->flyUpwardAction, &flyUpwardState));
-    ROF(plugin->api->input->getActionState(plugin->flyDownwardAction, &flyDownwardState));
+    LOF(plugin->api->input->getActionState(plugin->walkForwardAction, &walkForwardState));
+    LOF(plugin->api->input->getActionState(plugin->walkBackwardAction, &walkBackwardState));
+    LOF(plugin->api->input->getActionState(plugin->strafeRightAction, &strafeRightState));
+    LOF(plugin->api->input->getActionState(plugin->strafeLeftAction, &strafeLeftState));
+    LOF(plugin->api->input->getActionState(plugin->flyUpwardAction, &flyUpwardState));
+    LOF(plugin->api->input->getActionState(plugin->flyDownwardAction, &flyDownwardState));
 
     bool update = false;
 
@@ -270,27 +207,158 @@ int32_t updatePerFrame(void* ctx) noexcept {
         renderable.transform.w1 = mvpMat[1][3];
         renderable.transform.w2 = mvpMat[2][3];
         renderable.transform.w3 = mvpMat[3][3];
-        ROF(plugin->api->scene->writeEntityComponentData(
+        LOF(plugin->api->scene->writeEntityComponentData(
             plugin->object, plugin->api->render->getComponentRenderable(),
             reinterpret_cast<const char*>(&renderable), 0, 0
         ));
     }
-
-    return 0;
 }
 
 
+extern "C" {
 
-int32_t getPluginCallbacks(TprPluginCallbacks *pCallbacks) noexcept {
+    int32_t pluginInit(const TprEngineAPI* api) noexcept {
 
-    pCallbacks->init = init;
-    pCallbacks->shutdown = pluginShutdown;
-    pCallbacks->updatePerFrame = updatePerFrame;
+        // return -1;
 
-    return 0;
-}
+        PluginWrapper* plugin = new PluginWrapper;
+        if (!plugin) return -1;
 
+        plugin->api = api;
 
+        ROF(testScheduler(plugin));
 
+        TprWindowCreateInfo windowCreateInfo{};
+        windowCreateInfo.name = "Tempor Testing Initiative";
+        windowCreateInfo.prefferedWidth = 1300;
+        windowCreateInfo.prefferedHeight = 800;
+        ROF(plugin->api->win->openWindow(&windowCreateInfo, &plugin->window));
+
+        TprActionCreateInfo quitActionInfo{};
+        quitActionInfo.element = TPR_KEY_ESCAPE;
+        quitActionInfo.lowThreshold = 0.3f;
+        quitActionInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &quitActionInfo, &plugin->quitAction));
+
+        TprActionCreateInfo cameraActionInfo{};
+        cameraActionInfo.element = TPR_MOUSE_MOTION;
+        cameraActionInfo.lowThreshold = 0.0f;
+        cameraActionInfo.highThreshold = 0.0f;
+        ROF(plugin->api->input->createAction(plugin->window, &cameraActionInfo, &plugin->cameraAction));
+
+        TprActionCreateInfo mouseActionInfo{};
+        mouseActionInfo.element = TPR_MOUSE_BUTTON1;
+        mouseActionInfo.lowThreshold = 0.3f;
+        mouseActionInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &mouseActionInfo, &plugin->mouseAction));
+
+        TprActionCreateInfo walkForwardInfo{};
+        walkForwardInfo.element = TPR_KEY_W;
+        walkForwardInfo.lowThreshold = 0.3f;
+        walkForwardInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &walkForwardInfo, &plugin->walkForwardAction));
+
+        TprActionCreateInfo walkBackwardInfo{};
+        walkBackwardInfo.element = TPR_KEY_S;
+        walkBackwardInfo.lowThreshold = 0.3f;
+        walkBackwardInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &walkBackwardInfo, &plugin->walkBackwardAction));
+
+        TprActionCreateInfo strafeRightInfo{};
+        strafeRightInfo.element = TPR_KEY_D;
+        strafeRightInfo.lowThreshold = 0.3f;
+        strafeRightInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &strafeRightInfo, &plugin->strafeRightAction));
+        
+        TprActionCreateInfo strafeLeftInfo{};
+        strafeLeftInfo.element = TPR_KEY_A;
+        strafeLeftInfo.lowThreshold = 0.3f;
+        strafeLeftInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &strafeLeftInfo, &plugin->strafeLeftAction));
+
+        TprActionCreateInfo flyUpwardInfo{};
+        flyUpwardInfo.element = TPR_KEY_E;
+        flyUpwardInfo.lowThreshold = 0.3f;
+        flyUpwardInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &flyUpwardInfo, &plugin->flyUpwardAction));
+        
+        TprActionCreateInfo flyDownwardInfo{};
+        flyDownwardInfo.element = TPR_KEY_Q;
+        flyDownwardInfo.lowThreshold = 0.3f;
+        flyDownwardInfo.highThreshold = 0.7f;
+        ROF(plugin->api->input->createAction(plugin->window, &flyDownwardInfo, &plugin->flyDownwardAction));
+
+        TprFile modelFile;
+        ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
+        TprMeshCreateInfo parseInfo{};
+        parseInfo.file = modelFile;
+        parseInfo.index = 0;
+        ROF(plugin->api->geo->createMesh(&parseInfo, &plugin->mesh));
+        plugin->api->fs->closeFile(modelFile);
+
+        TprMeshLoadInfo loadInfo{};
+        ROF(plugin->api->geo->loadMesh(plugin->mesh, &loadInfo));
+
+        TprDepthDomainCreateInfo domainInfo{};
+        ROF(plugin->api->render->createDepthDomain(&domainInfo, &plugin->domain));
+
+        TprRenderTargetCreateInfo targetInfo{};
+        targetInfo.depthDomain = plugin->domain;
+        targetInfo.scissor = {0, 0, 1300, 800};
+        targetInfo.viewport = {0.0f, 0.0f, 1300.0f, 800.0f, 0.0f, 1.0f};
+        targetInfo.window = plugin->window;
+        ROF(plugin->api->render->createRenderTarget(&targetInfo, &plugin->target));
+
+        TprObjectImageCreateInfo imageInfo{};
+        imageInfo.mesh = plugin->mesh;
+        imageInfo.pRenderTargets = &plugin->target;
+        imageInfo.renderTargetCount = 1;
+        ROF(plugin->api->render->createObjectImage(&imageInfo, &plugin->image));
+
+        TprComponent components[] = {
+            plugin->api->render->getComponentRenderable()
+        };
+        ROF(plugin->api->scene->spawnEntity(components, std::size(components), &plugin->object));
+
+        TprComponentRenderable renderable{};
+        renderable.image = plugin->image;
+        renderable.transform.x0 = 1.0f;
+        renderable.transform.y1 = 1.0f;
+        renderable.transform.z2 = 1.0f;
+        renderable.transform.w3 = 1.0f;
+        renderable.transform.z0 = 3.0f;
+        renderable.transform.x0 = 0.5f;
+        ROF(plugin->api->scene->writeEntityComponentData(
+            plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
+        ));
+
+        TprJob renderJob = plugin->api->render->getRenderJob();
+
+        TprJobCreateInfo frameInfo{};
+        frameInfo.context = plugin;
+        frameInfo.triggerType = TPR_JOB_TRIGGER_TYPE_DEPENDENCIES;
+        frameInfo.dependencyCount = 1;
+        frameInfo.pDependencies = &renderJob;
+        frameInfo.duration = TPR_JOB_DURATION_SHORT;
+        frameInfo.function = frame;
+        ROF(plugin->api->sched->createJob(&frameInfo, &plugin->frameJob));
+
+        TprJob shutdownJob = plugin->api->sched->getShutdownJob();
+
+        TprJobCreateInfo shutdownInfo{};
+        shutdownInfo.context = plugin;
+        shutdownInfo.triggerType = TPR_JOB_TRIGGER_TYPE_DEPENDENCIES;
+        shutdownInfo.dependencyCount = 1;
+        shutdownInfo.pDependencies = &shutdownJob;
+        shutdownInfo.duration = TPR_JOB_DURATION_SHORT;
+        shutdownInfo.function = [](void* ctx, TprJob job) noexcept {
+            auto plugin = reinterpret_cast<PluginWrapper*>(ctx);
+            plugin->api->out->info("Deleting test plugin");
+            delete plugin;
+        };
+        ROF(plugin->api->sched->createJob(&shutdownInfo, &plugin->shutdownJob));
+
+        return 0;
+    }
 
 } // extern "C"

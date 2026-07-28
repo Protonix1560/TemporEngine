@@ -4,22 +4,19 @@
 #include "output_sink.hpp"
 #include "plugin_core.h"
 #include "thread_job_info.hpp"
-#include "hardware_common_structs.hpp"
-#include "plugin_common_structs.hpp"
 
 #include <chrono>
 #include <cstddef>
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <optional>
 
+using namespace std::chrono_literals;
 
-void TemporEngine::sigint() noexcept {
-    mSigInt = 1;
-}
 
-void TemporEngine::sigterm() noexcept {
-    mSigTerm = 1;
+void TemporEngine::signal(int sig) noexcept {
+    mSignal = sig;
 }
 
 
@@ -37,13 +34,12 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
             // the caller is probably not a plugin
             return unexpected(TPR_ERROR_INVALID_OPERATION);
         }
-        uint32_t id = threadLocalJobInfo.job.value();
-        auto it = mJobPluginMap.find(id);
+        TprJob job = threadLocalJobInfo.job.value();
+        auto it = mJobPluginMap.find(job._d);
         if (it == mJobPluginMap.end()) {
             // the map is desynced for some reason
             // therefore, threadLocalJobInfo is probably corrupted
-            mPanic.store(true);
-            mLogger->error(TPR_LOG_STYLE_PANIC1) << "TemporEngine.mJobPluginMap is desynced";
+            mLogger->panic() << "Corrupted internal structures: job " << job._d << " doesn't appear in mJobPluginMap";
             return unexpected(TPR_PANIC);
         }
         return it->second;
@@ -53,27 +49,28 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
 
 expected<PluginInfo, TprResult> TemporEngine::activePluginInfo() {
     if (!mpPlugLd) return unexpected(TPR_MODULE_NOT_LOADED);
-    auto idExp = activePluginID();
-    if (!idExp.has_value()) return unexpected(idExp.error());
-    auto infoExp = mpPlugLd->getPluginInfo(idExp.value());
+    auto pluginExp = activePluginID();
+    if (!pluginExp.has_value()) return unexpected(pluginExp.error());
+    auto infoExp = mpPlugLd->getPluginInfo(pluginExp.value());
     if (!infoExp.has_value()) {
-        mLogger->error(TPR_LOG_STYLE_PANIC1) << "TemporEngine.mJobPluginMap is desynced";
-        mPanic.store(true);
+        mLogger->panic() << "Corrupted internal structures: PluginLoader.getPluginInfo doesn't"
+            "recognise plugin id that was returned by PluginLoader.getActivePluginID";
         return unexpected(TPR_PANIC);
     }
     return infoExp.value();
 }
 
 
-TemporEngine::TemporEngine(size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled)
-    : mConfigPath(configPath), mFlushConfig(flushConfig), mConfigEnabled(configEnabled) {
+TemporEngine::TemporEngine(
+    size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled, bool colourEnabled
+) : mConfigPath(configPath), mFlushConfig(flushConfig), mConfigEnabled(configEnabled), mColourEnabled(colourEnabled) {
 
     mVerbosity = static_cast<TprLogLevel>(verboseLevel);
 
     mpOutSink.store(
         std::visit(overload{
             [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); }
-        }, mServHolder.construct<OutputSinkVariant>(std::make_shared<TermSink>(mVerbosity)))
+        }, mServHolder.construct<OutputSinkVariant>(std::make_shared<TermSink>(mVerbosity, mColourEnabled)))
     );
 
     mLogger.emplace(Logger(mpOutSink, ""));
@@ -85,10 +82,11 @@ TemporEngine::TemporEngine(size_t verboseLevel, std::filesystem::path configPath
 
 int TemporEngine::runtime() {
 
+    TprResult result;
+
     // init
     {
         auto initStartTimepoint = std::chrono::steady_clock::now();
-
         mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Initializing services";
 
         mpFileReg = &mServHolder.construct<FileRegistry>(Logger(mpOutSink, (type_name_v_s<FileRegistry> + ": "_ces).string()));
@@ -96,10 +94,10 @@ int TemporEngine::runtime() {
         mpSettings = &mServHolder.construct<Settings>(
             Logger(mpOutSink, (type_name_v_s<Settings> + ": "_ces).string()), *mpFileReg
         );
-        TprResult r = mpSettings->init(mConfigPath, mFlushConfig, mConfigEnabled);
-        if (r != TPR_SUCCESS) {
-            mLogger->error() << "Failed to initialize Settings [" << r << "]";
-            return -1;
+        result = mpSettings->init(mConfigPath, mFlushConfig, mConfigEnabled);
+        if (result != TPR_SUCCESS) {
+            mLogger->error() << "Failed to initialize Settings [" << result << "]";
+            return 2;
         }
 
         // switching TermSink to TermFileSink
@@ -107,7 +105,7 @@ int TemporEngine::runtime() {
             std::shared_ptr<TermSink> sink = std::get<std::shared_ptr<TermSink>>(mServHolder.get<OutputSinkVariant>());
             mServHolder.destruct<OutputSinkVariant>();
             auto& var = mServHolder.construct<OutputSinkVariant>(std::make_shared<TermFileSink>(
-                *mpSettings, *mpFileReg, *sink.get(), mVerbosity
+                *mpSettings, *mpFileReg, *sink.get(), mVerbosity, mColourEnabled
             ));
             std::shared_ptr<LogSinkInterface> shar = std::visit(overload{
                 [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); }
@@ -116,7 +114,41 @@ int TemporEngine::runtime() {
         }
 
         threadLocalJobInfo.mainThread = true;
-        mpThread = &mServHolder.construct<Threading>(Logger(mpOutSink, (type_name_v_s<Threading> + ": "_ces).string()), *mpSettings);
+        mpSched = &mServHolder.construct<Scheduler>(Logger(mpOutSink, (type_name_v_s<Scheduler> + ": "_ces).string()), *mpSettings);
+        result = mpSched->init();
+        if (result != TPR_SUCCESS) {
+            mLogger->error() << "Failed to initialize Scheduler [" << result << "]";
+            return 2;
+        }
+
+        {
+            TprJobCreateInfo renderJobInfo{};
+            renderJobInfo.context = this;
+            renderJobInfo.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;
+            renderJobInfo.duration = TPR_JOB_DURATION_LONG;
+            renderJobInfo.function = [](void* ctx, TprJob job) noexcept {
+                auto* engine = reinterpret_cast<TemporEngine*>(ctx);
+                engine->runtimeRender();
+            };
+            auto exp = mpSched->createJob(&renderJobInfo);
+            if (!exp.has_value()) {
+                mLogger->error() << "Failed to create Render Job [" << result << "]";
+                return 2;
+            }
+            mRenderJob = exp.value();
+        }
+
+        {
+            TprJobCreateInfo shutdownJobInfo{};
+            shutdownJobInfo.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;
+            shutdownJobInfo.duration = TPR_JOB_DURATION_LONG;
+            auto exp = mpSched->createJob(&shutdownJobInfo);
+            if (!exp.has_value()) {
+                mLogger->error() << "Failed to create Shutdown Job [" << result << "]";
+                return 2;
+            }
+            mShutdownJob = exp.value();
+        }
 
         mpSceneGraph = &mServHolder.construct<SceneGraph>(
             Logger(mpOutSink, (type_name_v_s<SceneGraph> + ": "_ces).string()),
@@ -125,7 +157,10 @@ int TemporEngine::runtime() {
 
         {
             auto exp = mpSceneGraph->createComponent(sizeof(TprComponentRenderable));
-            if (!exp.has_value()) return 1;
+            if (!exp.has_value()) {
+                mLogger->error() << "Failed to create TprComponentRenderable [" << result << "]";
+                return 2;
+            }
             mComponentRenderable = exp.value();
         }
 
@@ -190,19 +225,12 @@ int TemporEngine::runtime() {
 
         registerAPI();
 
-        // auto pluginsExp = mpFileReg->enumDir("plugins", TPR_ENUM_DIR_RUNTIME_LIBS_FLAG_BIT, 1);
-        // if (!pluginsExp.has_value()) return -1;
-        // auto plugins = pluginsExp.value();
-        // for (const auto& plugin : plugins) {
-        //     try {
-        //         PluginLoadInfo info{};
-        //         info.loadType = PluginLoadType::InThread;
-        //         info.name = plugin.filename().string();
-        //         info.pAPI = &mAPI;
-        //         info.path = plugin;
-        //         mpPlugLd->loadPlugin(&info);
-        //     } catch (...) {}
-        // }
+        auto initEndTimepoint = std::chrono::steady_clock::now();
+        std::chrono::duration<double, std::milli> initTime = initEndTimepoint - initStartTimepoint;
+        mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Service initialization done in " << initTime.count() << " ms";
+
+        auto pluginStartTimepoint = std::chrono::steady_clock::now();
+        mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Initializing plugins";
 
         PluginLoadInfo info{};
         info.loadType = PluginLoadType::InThread;
@@ -211,99 +239,46 @@ int TemporEngine::runtime() {
         info.path = "plugins/test/libtest_plugin.so";
         mpPlugLd->loadPlugin(&info);
 
+        auto pluginEndTimepoint = std::chrono::steady_clock::now();
+        std::chrono::duration<double, std::milli> pluginTime = pluginEndTimepoint - pluginStartTimepoint;
+        mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Plugin initialization done in " << pluginTime.count() << " ms";
+
         mpSettings->finalizeRead();
 
-        auto initEndTimepoint = std::chrono::steady_clock::now();
-        std::chrono::duration<double, std::milli> initTime = initEndTimepoint - initStartTimepoint;
-
-        mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Service initialization done in " << initTime.count() << " ms";
+        mRenderLastLaunch = mpSched->now();
+        mpSched->scheduleJob(mRenderJob, mRenderLastLaunch);
     }
-    
-    // run
-    {
 
-        mClock.begin();
-
-        while (!mPanic.load() && mAliveTokens > 0 && !mMustShutdown) {
-
-            mpWinMan->update();
-
-            mpPlugLd->triggerCallback(PluginCallback::UpdatePerFrame);
-
-            mpThread->update();
-
-            if (mpHWLI) {
-                TprResult r;
-                r = mpHWLI->update();
-                switch (r) {
-                    case TPR_SUCCESS:
-                        break;
-                    case TPR_PANIC:
-                        mPanic.store(true);
-                        break;
-                    default:
-                        break;
-                }
-                r = mpHWLI->render();
-                switch (r) {
-                    case TPR_SUCCESS:
-                        break;
-                    case TPR_PANIC:
-                        mPanic.store(true);
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            if (mSigInt || mSigTerm) {
-                if (mSigInt) {
-                    mLogger->info(TPR_LOG_STYLE_STANDART) << "\n";
-                }
-                auto l = mLogger->debug(TPR_LOG_STYLE_TIMESTAMP1);
-                l << "Received ";
-                if (mSigInt) {
-                    l << "SIG_INT";
-                } else if (mSigTerm) {
-                    l << "SIG_TERM";
-                }
-                l << " signal";
-                mMustShutdown = true;
-            }
-
-            mClock.tick();
-        }
-
-        if (mPanic.load()) {
-            mLogger->error(TPR_LOG_STYLE_STANDART) << "\033[95mEngine panicked!";
-        }
+    std::unique_lock<std::mutex> lock(mMainThreadMutex);
+    // polling because signals in C++ are dumb
+    while (!mRunResult.has_value() && mSignal == 0) {
+        mMainThreadCv.wait_for(lock, 10ms);
     }
-    
+
+    if (mRunResult && mRunResult.value() == TPR_PANIC) mLogger->panic(TPR_LOG_STYLE_TIMESTAMP1) << "Engine panicked!";
+
     // shutdown
     {
-
         auto shutdownStartTimepoint = std::chrono::steady_clock::now();
-
         mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down";
 
-        mpPlugLd->triggerCallback(PluginCallback::PreShutdown).value();
+        mpSched->scheduleJob(mShutdownJob, 0);
 
-        mpThread->joinAll();
-        
-        mpPlugLd->triggerCallback(PluginCallback::Shutdown).value();
+        mpSched->shutdown();
 
         mServHolder.destruct<PluginLoader>();
         if (mpHWLI) mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
         mServHolder.destruct<SceneGraph>();
         mServHolder.destruct<WindowManager>();
         mServHolder.destruct<AssetStore>();
-        mServHolder.destruct<Threading>();
+
+        mServHolder.destruct<Scheduler>();
 
         // switching TermFileSink back to TermSink
         {
             std::shared_ptr<TermFileSink> sink = std::get<std::shared_ptr<TermFileSink>>(mServHolder.get<OutputSinkVariant>());
             mServHolder.destruct<OutputSinkVariant>();
-            auto& var = mServHolder.construct<OutputSinkVariant>(std::make_shared<TermSink>(mVerbosity));
+            auto& var = mServHolder.construct<OutputSinkVariant>(std::make_shared<TermSink>(mVerbosity, mColourEnabled));
             std::shared_ptr<LogSinkInterface> shar = std::visit(overload{
                 [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); }
             }, var);
@@ -319,7 +294,41 @@ int TemporEngine::runtime() {
         mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Shutdown finished in " << shutdownTime.count() << " ms";
     }
 
-    return 0;
+    return (mRunResult && mRunResult.value() != TPR_SUCCESS) ? 3 : 0;
+}
+
+
+void TemporEngine::runtimeRender() {
+
+    std::optional<TprResult> runResult;
+    {
+        std::lock_guard<std::mutex> lock(mMainThreadMutex);
+        runResult = mRunResult;
+    }
+    if (!runResult.has_value()) {
+
+        mpWinMan->update();
+
+        if (mpHWLI) {
+            if (auto result = mpHWLI->update(); result != TPR_SUCCESS) {
+                mLogger->error() << "Failed to update PHWL [" << result << "]";
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(result);
+                mMainThreadCv.notify_all();
+                return;
+            }
+            if (auto result = mpHWLI->render(); result != TPR_SUCCESS) {
+                mLogger->error() << "Failed to render [" << result << "]";
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(result);
+                mMainThreadCv.notify_all();
+                return;
+            }
+        }
+    }
+
+    mRenderLastLaunch += 16'666'667;
+    mpSched->scheduleJob(mRenderJob, mRenderLastLaunch);
 }
 
 

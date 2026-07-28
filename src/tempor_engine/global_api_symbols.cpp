@@ -1,5 +1,7 @@
 
+#include "plugin_core.h"
 #include "tempor.hpp"
+#include <cassert>
 
 
 namespace {
@@ -76,8 +78,8 @@ namespace api {
         TprResult forkFile(TprFile file, TprFile* pFile) noexcept {
             assert(gEngine); return gEngine->fs_forkFile(file, pFile);
         }
-        TprResult createCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
-            assert(gEngine); return gEngine->fs_createCapability(file, mask, pFile);
+        TprResult createFileCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_createFileCapability(file, mask, pFile);
         }
         void closeFile(TprFile file) noexcept {
             assert(gEngine); return gEngine->fs_closeFile(file);
@@ -246,6 +248,9 @@ namespace api {
         TprComponent getComponentRenderable() noexcept {
             assert(gEngine); return gEngine->render_getComponentRenderable();
         }
+        TprJob getRenderJob() noexcept {
+            assert(gEngine); return gEngine->render_getRenderJob();
+        }
         TprResult createObjectImage(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) noexcept {
             assert(gEngine); return gEngine->render_createObjectImage(pInfo, pImage);
         }
@@ -254,11 +259,25 @@ namespace api {
         }
     }
 
-    namespace thread {
-        TprResult createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept { assert(gEngine); return gEngine->thread_createJob(pInfo, pJob); }
-        TprResult createDetachedJob(const TprJobCreateInfo* pInfo) noexcept { assert(gEngine); return gEngine->thread_createDetachedJob(pInfo); }
-        TprResult jobFinished(TprJob job, TprBool8* pData) noexcept { assert(gEngine); return gEngine->thread_jobFinished(job, pData); }
-        void joinJob(TprJob job) noexcept { assert(gEngine); gEngine->thread_joinJob(job); }
+    namespace sched {
+        TprResult createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept {
+            assert(gEngine); return gEngine->sched_createJob(pInfo, pJob);
+        }
+        TprResult createJobCapability(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) noexcept {
+            assert(gEngine); return gEngine->sched_createJobCapability(job, mask, pJob);
+        }
+        TprResult scheduleJob(TprJob job, uint64_t timepoint) noexcept {
+            assert(gEngine); return gEngine->sched_scheduleJob(job, timepoint);
+        }
+        void pendJobDestruction(TprJob job) noexcept {
+            assert(gEngine); return gEngine->sched_pendJobDestruction(job);
+        }
+        TprJob getShutdownJob() noexcept {
+            assert(gEngine); return gEngine->sched_getShutdownJob();
+        }
+        uint64_t now() noexcept {
+            assert(gEngine); return gEngine->sched_now();
+        }
     }
 }
 
@@ -285,7 +304,7 @@ void TemporEngine::registerAPI() {
     mFSAPI.openFile = api::fs::openFile;
     mFSAPI.createMemoryFile = api::fs::createMemoryFile;
     mFSAPI.forkFile = api::fs::forkFile;
-    mFSAPI.createCapability = api::fs::createCapability;
+    mFSAPI.createFileCapability = api::fs::createFileCapability;
     mFSAPI.closeFile = api::fs::closeFile;
     mFSAPI.seek = api::fs::seek;
     mFSAPI.tell = api::fs::tell;
@@ -357,13 +376,16 @@ void TemporEngine::registerAPI() {
     mRenderAPI.createRenderTarget = api::render::createRenderTarget;
     mRenderAPI.destroyRenderTarget = api::render::destroyRenderTarget;
     mRenderAPI.getComponentRenderable = api::render::getComponentRenderable;
+    mRenderAPI.getRenderJob = api::render::getRenderJob;
     mRenderAPI.createObjectImage = api::render::createObjectImage;
     mRenderAPI.destroyObjectImage = api::render::destroyObjectImage;
     // thread
-    mThreadAPI.createJob = api::thread::createJob;
-    mThreadAPI.createDetachedJob = api::thread::createDetachedJob;
-    mThreadAPI.jobFinished = api::thread::jobFinished;
-    mThreadAPI.joinJob = api::thread::joinJob;
+    mSchedAPI.createJob = api::sched::createJob;
+    mSchedAPI.createJobCapability = api::sched::createJobCapability;
+    mSchedAPI.scheduleJob = api::sched::scheduleJob;
+    mSchedAPI.pendJobDestruction = api::sched::pendJobDestruction;
+    mSchedAPI.getShutdownJob = api::sched::getShutdownJob;
+    mSchedAPI.now = api::sched::now;
 
     mAPI.out = &mOutAPI;
     mAPI.win = &mWinAPI;
@@ -373,6 +395,6 @@ void TemporEngine::registerAPI() {
     mAPI.input = &mInputAPI;
     mAPI.conf = &mConfAPI;
     mAPI.render = &mRenderAPI;
-    mAPI.thread = &mThreadAPI;
+    mAPI.sched = &mSchedAPI;
 }
 

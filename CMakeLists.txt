@@ -33,19 +33,20 @@ else()
 endif()
 set(BUILD_VERSION "v0.0.0")
 
-# target_compile_options(
-#     common INTERFACE
-#     -fno-rtti -DNDEBUG
-#     -ffunction-sections -fdata-sections
-# )
+target_compile_options(
+    common INTERFACE
+    -g -O0 -fno-rtti -DNDEBUG
+    -ffunction-sections -fdata-sections
+)
 
 target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}")
 
 # main executable
-add_executable(tempor src/bootstrap.cpp)
-target_link_libraries(tempor PRIVATE common)
-set_target_properties(tempor PROPERTIES
+add_executable(tempor_executable src/bootstrap.cpp)
+target_link_libraries(tempor_executable PRIVATE common)
+set_target_properties(tempor_executable PROPERTIES
     INSTALL_RPATH "$ORIGIN/lib"
+    OUTPUT_NAME tempor
 )
 
 # checking if system is posix
@@ -68,17 +69,13 @@ add_subdirectory(src/window_manager)
 add_subdirectory(src/scene_graph)
 add_subdirectory(src/asset_store)
 add_subdirectory(src/settings)
-add_subdirectory(src/threading)
+add_subdirectory(src/scheduler)
 add_subdirectory(src/tempor_engine)
 
 set(FASTGLTF_ENABLE_INSTALL OFF)
 add_subdirectory(3rd_party/fastgltf)
 
-target_link_libraries(
-    tempor PRIVATE
-    tempor_class logger plugin_loader window_manager scene_graph output_sink
-    hardware_layer_interface file_registry asset_store settings threading
-)
+target_link_libraries(tempor_executable PRIVATE tempor_engine)
 
 # adding sanitizers
 function(add_sanitizer sanitizer supported_compilers want_flag)
@@ -111,7 +108,7 @@ add_sanitizer(undefined "GNU|Clang" WANT_DEBUG_UBSAN -fno-sanitize=vptr)
 add_sanitizer(leak "GNU|Clang" WANT_DEBUG_LSAN -g)
 
 # installment
-install(TARGETS tempor RUNTIME DESTINATION .)
+install(TARGETS tempor_executable RUNTIME DESTINATION .)
 
 # test template
 install(

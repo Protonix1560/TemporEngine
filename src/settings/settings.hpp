@@ -97,6 +97,8 @@ class Settings {
 
         TprSetting getRoot() const;
 
+        expected<std::string, TprResult> getSettingString(TprSetting setting);
+
         void finalizeRead();
         TprResult flush();
 

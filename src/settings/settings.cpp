@@ -100,6 +100,8 @@ TprResult Settings::openConfig() {
         mJsonData->root = docExp.value();
     }
 
+    mLogger.debug() << "Loading config file \"" << mConfPath.string() << "\"";
+
     return TPR_SUCCESS;
 }
 
@@ -265,12 +267,12 @@ expected<TprSetting, TprResult> Settings::createSetting(TprSetting baseSetting, 
             base.elements.push_back(get_basic_handle_index(h));
 
             if (mJsonData.has_value()) {
-                auto l = mLogger.debug();
+                auto l = mLogger.trace();
                 l << "Created setting " << name << " = ";
                 printSettingValue(l, *psett);
                 l << "\n";
             } else {
-                mLogger.debug() << "Created new setting " << name << "\n";
+                mLogger.trace() << "Created new setting " << name << "\n";
             }
         }
 
@@ -363,12 +365,12 @@ expected<TprSetting, TprResult> Settings::readSetting(TprSetting baseSetting, st
             base.elements.push_back(get_basic_handle_index(h));
 
             if (mJsonData.has_value()) {
-                auto l = mLogger.debug();
+                auto l = mLogger.trace();
                 l << "Read setting " << name << " = ";
                 printSettingValue(l, *psett);
                 l << "\n";
             } else {
-                mLogger.debug() << "Read new setting " << name << "\n";
+                mLogger.trace() << "Read new setting " << name << "\n";
             }
         }
 
@@ -680,6 +682,32 @@ TprResult Settings::setSettingInteger(TprSetting setting, int64_t data) noexcept
         return TPR_PANIC;
     }
 }
+
+expected<std::string, TprResult> Settings::getSettingString(TprSetting setting) {
+    if (get_basic_handle_type(setting) != handle_type::setting) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        if (get_basic_handle_index(setting) > mHandleCounter) return unexpected(TPR_ERROR_INVALID_VALUE);
+        auto it = mSettingHandles.find(get_basic_handle_index(setting));
+        if (it == mSettingHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+        auto settIt = mSettings.find(it->second.setting);
+        if (settIt == mSettings.end()) {
+            mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
+                << "from handle " << it->first << " does not appear in mSettings\n";
+            return unexpected(TPR_PANIC);
+        }
+        auto& setting = settIt->second;
+        if (!std::holds_alternative<SettingString>(setting.data)) return unexpected(TPR_ERROR_WRONG_TYPE);
+        return std::get<SettingString>(setting.data).value;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what() << "\n";
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mLogger.panic() << "Unknown exception\n";
+        return unexpected(TPR_PANIC);
+    }
+}
+
 
 TprResult Settings::setSettingBool(TprSetting setting, TprBool8 data) noexcept {
     if (get_basic_handle_type(setting) != handle_type::setting) return TPR_ERROR_INVALID_VALUE;

@@ -9,11 +9,6 @@
 #include <filesystem>
 
 
-enum class PluginCallback {
-    PreShutdown, Shutdown, UpdatePerFrame
-};
-
-
 enum class PluginLoadType {
     Process, OutThread, InThread
 };

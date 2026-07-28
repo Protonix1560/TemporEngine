@@ -1,8 +1,6 @@
 
 #include "window_manager.hpp"
 #include "core.hpp"
-#include "hardware_layer_interface.hpp"
-#include "logger.hpp"  // IWYU pragma: keep
 #include "plugin_core.h"
 
 #include <SDL2/SDL_video.h>
@@ -12,6 +10,7 @@
 
 #include <cmath>
 #include <algorithm>
+
 #include <vulkan/vulkan_core.h>
 
 
@@ -212,7 +211,7 @@ expected<TprWindow, TprResult> WindowManager::openWindow(const TprWindowCreateIn
 
     mrAliveTokens++;
 
-    mLogger.debug() << "Opened window " << index << "\n";
+    mLogger.trace() << "Opened window " << index << "\n";
 
     return window.handle;
 }
@@ -234,7 +233,7 @@ void WindowManager::destroyWindow(Window& window) noexcept {
     for (auto& [index, action] : window.actions) {
         mActionMap.erase(index);
     }
-    mLogger.debug() << "Closed window " << window.index << "\n";
+    mLogger.trace() << "Closed window " << window.index << "\n";
     mrAliveTokens--;
 }
 

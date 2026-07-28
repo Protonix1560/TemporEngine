@@ -5,9 +5,9 @@
 
 
 #include "core.hpp"
-#include "hardware_common_structs.hpp"
+#include "hardware_layer_common.hpp"
 #include "plugin_core.h"
-#include "asset_store/common.hpp"
+#include "asset_store/asset_store_common.hpp"
 
 #include <glm/glm.hpp>
 

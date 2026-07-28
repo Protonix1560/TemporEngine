@@ -63,8 +63,59 @@ expected<std::string, TprResult> formatted(std::string_view msg, TprLogStyle sty
 }
 
 
+expected<std::string, TprResult> formattedColourless(std::string_view msg, TprLogStyle style) {
+    std::string f;
 
-TermSink::TermSink(TprLogLevel termVerbosity) : mTermVerbosity(termVerbosity) {
+    std::string nsep;
+
+    switch (style) {
+        case TPR_LOG_STYLE_2IDENT:
+            f = "  "; nsep = "  "; break;
+        case TPR_LOG_STYLE_6IDENT:
+            f = "      "; nsep = "      "; break;
+        case TPR_LOG_STYLE_TIMESTAMP1:
+            f = "  > [" + current_time() + "]: "; nsep = "    "; break;
+        case TPR_LOG_STYLE_ERROR1:
+            f = "      "; nsep = "      "; break;
+        case TPR_LOG_STYLE_WARN1:
+            f =  "      "; nsep = "      "; break;
+        case TPR_LOG_STYLE_SUCCESS1:
+            f = "      "; nsep = "      "; break;
+        case TPR_LOG_STYLE_STARTSTAMP1:
+            f = "r-> [" + current_time() + "]: "; nsep = "    "; break;
+        case TPR_LOG_STYLE_ENDSTAMP1:
+            f = "l-> [" + current_time() + "]: "; nsep = "    "; break;
+        case TPR_LOG_STYLE_PANIC1:
+            f = ""; break;
+        case TPR_LOG_STYLE_STANDART: break;
+        default: return unexpected(TPR_ERROR_INVALID_VALUE);
+    }
+
+    if (style != TPR_LOG_STYLE_STANDART) {
+        std::string_view view = msg;
+        size_t nlinepos = 0;
+        while (nlinepos != std::string_view::npos) {
+            nlinepos = view.find('\n');
+            if (nlinepos == std::string_view::npos) {
+                f += view;
+                f += "\n";
+            } else {
+                f += view.substr(0, nlinepos + 1);
+                view = view.substr(nlinepos + 1);
+                if (!view.empty()) {
+                    f += nsep;
+                }
+                if (view.empty()) break;
+            }
+        }
+    } else {
+        f = msg;
+    }
+    return f;
+}
+
+
+TermSink::TermSink(TprLogLevel termVerbosity, bool colourEnabled) : mTermVerbosity(termVerbosity), mColourEnabled(colourEnabled) {
     std::fprintf(stderr, "\033[0m");
     std::fflush(stderr);
 }
@@ -73,11 +124,17 @@ void TermSink::writeLog(std::string_view msg, TprLogLevel level, TprLogStyle sty
     if (msg.empty()) return;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto exp = formatted(msg, style);
-        if (!exp.has_value()) return;
-        mLogHistory.emplace_back(exp.value(), level);
+        auto expColourless = formattedColourless(msg, style);
+        if (!expColourless.has_value()) return;
+        mLogHistory.emplace_back(expColourless.value(), level);
         if (level <= mTermVerbosity) {
-            std::fprintf(stderr, "%s", exp.value().c_str());
+            if (mColourEnabled) {
+                auto expNorm = formatted(msg, style);
+                if (!expNorm.has_value()) return;
+                std::fprintf(stderr, "%s", expNorm.value().c_str());
+            } else {
+                std::fprintf(stderr, "%s", expColourless.value().c_str());
+            }
             std::fflush(stderr);
         }
     } catch (...) {}
@@ -104,10 +161,15 @@ TprLogLevel TermSink::termVerbosity() const {
     return mTermVerbosity;
 }
 
+bool TermSink::colourEnabled() const {
+    return mColourEnabled;
+}
 
 
-TermFileSink::TermFileSink(Settings& rSettings, FileRegistry& rResReg, const TermSink& rTermSink, TprLogLevel termVerbosity)
-    : mrSettings(rSettings), mrFileReg(rResReg), mTermVerbosity(termVerbosity) {
+
+TermFileSink::TermFileSink(
+    Settings& rSettings, FileRegistry& rResReg, const TermSink& rTermSink, TprLogLevel termVerbosity, bool colourEnabled
+) : mrSettings(rSettings), mrFileReg(rResReg), mTermVerbosity(termVerbosity), mColourEnabled(colourEnabled) {
 
     size_t maxVerbosity = mTermVerbosity;
 
@@ -167,13 +229,18 @@ void TermFileSink::writeLog(std::string_view msg, TprLogLevel level, TprLogStyle
     if (msg.empty()) return;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto exp = formatted(msg, style);
-        if (!exp.has_value()) return;
+        auto expColourless = formattedColourless(msg, style);
+        if (!expColourless.has_value()) return;
+        writeToFiles(expColourless.value(), level);
         if (level <= mTermVerbosity) {
-            std::fprintf(stderr, "%s", exp.value().c_str());
-            std::fflush(stderr);
+            if (mColourEnabled) {
+                auto expNorm = formatted(msg, style);
+                if (!expNorm.has_value()) return;
+                std::fprintf(stderr, "%s", expNorm.value().c_str());
+            } else {
+                std::fprintf(stderr, "%s", expColourless.value().c_str());
+            }
         }
-        writeToFiles(exp.value(), level);
     } catch (...) {}
 }
 
@@ -187,4 +254,8 @@ TprResult TermFileSink::writeData(std::span<const std::byte> data) noexcept {
 
 TprLogLevel TermFileSink::maxVerbosity() const {
     return mMaxVerbosity;
+}
+
+bool TermFileSink::colourEnabled() const {
+    return mColourEnabled;
 }

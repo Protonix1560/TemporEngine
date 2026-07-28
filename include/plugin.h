@@ -55,7 +55,7 @@ typedef struct TprEngineAPI {
         TprResult(*openFile)(const char* path, TprOpenFileFlags flags, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
         TprResult(*createMemoryFile)(TprFile* pFile) _TPR_NOEXCEPT_ATTR;
         TprResult(*forkFile)(TprFile file, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
-        TprResult(*createCapability)(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createFileCapability)(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
         void(*closeFile)(TprFile file) _TPR_NOEXCEPT_ATTR;
 
         TprResult(*seek)(TprFile file, int32_t offset, TprSeekWhence whence) _TPR_NOEXCEPT_ATTR;
@@ -143,39 +143,34 @@ typedef struct TprEngineAPI {
         void(*destroyRenderTarget)(TprRenderTarget target) _TPR_NOEXCEPT_ATTR;
 
         TprComponent(*getComponentRenderable)() _TPR_NOEXCEPT_ATTR;
+        TprJob(*getRenderJob)() _TPR_NOEXCEPT_ATTR;
 
         TprResult(*createObjectImage)(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) _TPR_NOEXCEPT_ATTR;
         void(*destroyObjectImage)(TprObjectImage image) _TPR_NOEXCEPT_ATTR;
 
     } *render;
 
-    struct Thread {
+    struct Sched {
 
         TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
-        TprResult(*createDetachedJob)(const TprJobCreateInfo* pInfo) _TPR_NOEXCEPT_ATTR;
-        TprResult(*jobFinished)(TprJob job, TprBool8* pData) _TPR_NOEXCEPT_ATTR;
-        void(*joinJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createJobCapability)(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
+        TprResult(*scheduleJob)(TprJob job, uint64_t timepoint) _TPR_NOEXCEPT_ATTR;
+        void(*pendJobDestruction)(TprJob job) _TPR_NOEXCEPT_ATTR;
 
-    } *thread;
+        TprJob(*getShutdownJob)() _TPR_NOEXCEPT_ATTR;
+
+        uint64_t(*now)() _TPR_NOEXCEPT_ATTR;
+
+    } *sched;
 
 } TprEngineAPI;
-
-
-typedef struct TprPluginCallbacks {
-
-    int32_t(*init)(void** ctx, const TprEngineAPI* pEngineAPI) _TPR_NOEXCEPT_ATTR;
-    void(*preShutdown)(void* ctx) _TPR_NOEXCEPT_ATTR;
-    void(*shutdown)(void* ctx) _TPR_NOEXCEPT_ATTR;
-    int32_t(*updatePerFrame)(void* ctx) _TPR_NOEXCEPT_ATTR;
-
-} TprPluginCallbacks;
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int32_t getPluginCallbacks(TprPluginCallbacks* pCallbacks) _TPR_NOEXCEPT;
+int32_t pluginInit(const TprEngineAPI* pAPI) _TPR_NOEXCEPT;
 
 #ifdef __cplusplus
 }

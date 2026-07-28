@@ -6,7 +6,7 @@
 #include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "core.hpp"
-#include "common.hpp"
+#include "asset_store_common.hpp"
 #include "logger.hpp"
 
 #include <unordered_map>

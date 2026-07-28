@@ -6,9 +6,9 @@
 
 
 #include "core.hpp"
-#include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
-#include "hardware_common_structs.hpp"
+#include "hardware_layer_interface/hardware_layer_interface.hpp"
+#include "hardware_layer_interface/hardware_layer_common.hpp"
 #include "logger.hpp"
 
 #include <SDL2/SDL_events.h>

@@ -83,7 +83,7 @@ expected<TprFile, TprResult> FileRegistry::openFile(std::filesystem::path path, 
             FileHandle handle{};
             if (!(flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) handle.mask &= ~TPR_FILE_CAPABILITY_WRITE_FLAG_BIT;
             handle.entry = entryIt->first;
-            mHandles[mHandleCounter] = handle;
+            mHandles.insert_or_assign(mHandleCounter, handle);
             entry.refcount++;
             auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
             mHandleCounter++;
@@ -95,8 +95,8 @@ expected<TprFile, TprResult> FileRegistry::openFile(std::filesystem::path path, 
             FileHandle handle{};
             if (!(flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) handle.mask &= ~TPR_FILE_CAPABILITY_WRITE_FLAG_BIT;
             handle.entry = mEntryCounter;
-            mEntries[mEntryCounter] = entry;
-            mHandles[mHandleCounter] = handle;
+            mEntries.insert_or_assign(mEntryCounter, entry);
+            mHandles.insert_or_assign(mHandleCounter, handle);
             auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
             mEntryCounter++;
             mHandleCounter++;
@@ -118,8 +118,8 @@ expected<TprFile, TprResult> FileRegistry::createMemoryFile() noexcept {
         entry.source = MemorySource{};
         FileHandle handle{};
         handle.entry = mEntryCounter;
-        mEntries[mEntryCounter] = entry;
-        mHandles[mHandleCounter] = handle;
+        mEntries.insert_or_assign(mEntryCounter, entry);
+        mHandles.insert_or_assign(mHandleCounter, handle);
         auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
         mEntryCounter++;
         mHandleCounter++;
@@ -172,8 +172,8 @@ expected<TprFile, TprResult> FileRegistry::forkFile(TprFile file) noexcept {
         dstEntry.source = mem;
         FileHandle handle{};
         handle.entry = mEntryCounter;
-        mEntries[mEntryCounter] = dstEntry;
-        mHandles[mHandleCounter] = handle;
+        mEntries.insert_or_assign(mEntryCounter, dstEntry);
+        mHandles.insert_or_assign(mHandleCounter, handle);
         auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
         mEntryCounter++;
         mHandleCounter++;
@@ -187,7 +187,7 @@ expected<TprFile, TprResult> FileRegistry::forkFile(TprFile file) noexcept {
     }
 }
 
-expected<TprFile, TprResult> FileRegistry::createCapability(TprFile file, TprFileCapabilityFlags mask) noexcept {
+expected<TprFile, TprResult> FileRegistry::createFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
@@ -204,7 +204,7 @@ expected<TprFile, TprResult> FileRegistry::createCapability(TprFile file, TprFil
         FileHandle handle{};
         handle.mask = mask & handleIt->second.mask;
         handle.entry = entryIt->first;
-        mHandles[mHandleCounter] = handle;
+        mHandles.insert_or_assign(mHandleCounter, handle);
         auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
         mEntryCounter++;
         mHandleCounter++;

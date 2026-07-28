@@ -144,7 +144,7 @@ class FileRegistry {
         expected<TprFile, TprResult> openFile(std::filesystem::path path, TprOpenFileFlags flags = 0) noexcept;
         expected<TprFile, TprResult> createMemoryFile() noexcept;
         expected<TprFile, TprResult> forkFile(TprFile file) noexcept;
-        expected<TprFile, TprResult> createCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
+        expected<TprFile, TprResult> createFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
         void closeFile(TprFile file) noexcept;
 
         TprResult seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept;

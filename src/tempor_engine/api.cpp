@@ -3,7 +3,8 @@
 #include "plugin_core.h"
 #include "plugin_loader.hpp"
 #include "tempor.hpp"
-#include <exception>
+
+#include <mutex>
 
 
 #pragma region log
@@ -84,11 +85,12 @@
         auto exp = mpFileReg->openFile(path, flags);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pFile = exp.value();
@@ -100,11 +102,12 @@
         auto exp = mpFileReg->createMemoryFile();
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pFile = exp.value();
@@ -116,27 +119,29 @@
         auto exp = mpFileReg->forkFile(file);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::fs_createCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
+    TprResult TemporEngine::fs_createFileCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileReg) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpFileReg->createCapability(file, mask);
+        auto exp = mpFileReg->createFileCapability(file, mask);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pFile = exp.value();
@@ -156,11 +161,12 @@
         auto exp = mpFileReg->tell(file);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pPos = exp.value();
@@ -192,11 +198,12 @@
         auto exp = mpFileReg->pathType(path);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pType = exp.value();
@@ -227,11 +234,12 @@
         auto exp = mpWinMan->createAction(window, pCreateInfo);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pAction = exp.value();
@@ -246,22 +254,24 @@
         if (!mpWinMan) return TPR_MODULE_NOT_LOADED;
         auto result = mpWinMan->getActionState(action, pState);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::input_getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept {
         if (!mpWinMan) return TPR_MODULE_NOT_LOADED;
         auto result = mpWinMan->getInputElementVector(window, element, pVector);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
 #pragma endregion  // input
@@ -270,31 +280,28 @@
     TprResult TemporEngine::win_openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept {
         if (!pWindow) return TPR_ERROR_INVALID_VALUE;
         if (!mpWinMan) return TPR_MODULE_NOT_LOADED;
-        TprWindow handle;
         auto exp = mpWinMan->openWindow(pCreateInfo);
-        if (exp.has_value()) {
-            handle = exp.value();
-        } else {
+        if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
+        TprWindow handle = exp.value();
         if (mpHWLI) {
             TprResult r = mpHWLI->registerWindow(handle);
-            if (r != TPR_SUCCESS) {
-                switch (exp.error()) {
-                    case TPR_PANIC:
-                        mPanic.store(true);
-                        return TPR_PANIC;
-                    default:
-                        mpWinMan->closeWindow(handle);
-                        // TODO: recreate HWLI
-                        return exp.error();
+            switch (r) {
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
+                    return TPR_PANIC;
                 }
+                case TPR_SUCCESS: break;
+                default: return r;
             }
         }
         *pWindow = handle;
@@ -313,11 +320,12 @@
         auto exp = mpSceneGraph->createComponent(componentSize);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pComponent = exp.value();
@@ -333,11 +341,12 @@
         auto exp = mpSceneGraph->spawnEntity(pComponents, componentCount);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pEntity = exp.value();
@@ -351,44 +360,48 @@
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->modifyEntityComponentSet(entity, pComponents, componentCount);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::scene_copyEntityComponentData(TprEntity entity, TprComponent component, uint32_t offset, uint32_t n, char* pData) noexcept {
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->copyEntityComponentData(entity, component, offset, n, pData);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::scene_writeEntityComponentData(TprEntity entity, TprComponent component, const char* pData, uint32_t offset, uint32_t n) noexcept {
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->writeEntityComponentData(entity, component, pData, offset, n);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::scene_getComponentChunkHandles(TprComponent component, TprFile resource) noexcept {
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->getComponentChunkHandles(component, resource);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     uint32_t TemporEngine::scene_getComponentChunkMaxElementCount() noexcept {
@@ -401,11 +414,12 @@
         auto exp = mpSceneGraph->getComponentChunkElementCount(chunk);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pCount = exp.value();
@@ -417,11 +431,12 @@
         auto exp = mpSceneGraph->getComponentChunkVersion(chunk);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pVersion = exp.value();
@@ -431,22 +446,24 @@
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->copyComponentChunkData(chunk, offset, n, pData);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::scene_writeComponentChunkData(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) noexcept {
         if (!mpSceneGraph) return TPR_MODULE_NOT_LOADED;
         auto result = mpSceneGraph->writeComponentChunkData(chunk, version, pData, offset, n);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
 #pragma endregion  // scene
@@ -458,11 +475,12 @@
         auto exp = mpAssetStore->createMesh(pInfo);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pMesh = exp.value();
@@ -472,11 +490,12 @@
         if (!mpAssetStore) return TPR_MODULE_NOT_LOADED;
         auto result = mpAssetStore->loadMesh(mesh, pInfo);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     void TemporEngine::geo_unloadMesh(TprMesh mesh) noexcept {
@@ -494,46 +513,41 @@
         if (!pSetting) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         if (!mpPlugLd) return TPR_MODULE_NOT_LOADED;
-        try {
-            auto infoExp = activePluginInfo();
-            if (!infoExp.has_value()) {
-                if (infoExp.error() == TPR_PANIC) mPanic.store(true);
-                return infoExp.error();
-            }
-            auto info = infoExp.value();
-            auto exp = mpSettings->createSetting(mpSettings->getRoot(), info.name);
-            if (!exp.has_value()) {
-                switch (exp.error()) {
-                    case TPR_SUCCESS:
-                        break;
-                    case TPR_PANIC:
-                        mPanic.store(true);
-                        return TPR_PANIC;
-                    default:
-                        return exp.error();
-                }
-            }
-            TprSetting value = exp.value();
-            auto result = mpSettings->setSettingStruct(value);
-            switch (result) {
-                case TPR_SUCCESS:
-                    break;
-                case TPR_PANIC:
-                    mPanic.store(true);
+        auto infoExp = activePluginInfo();
+        if (!infoExp.has_value()) {
+            switch (infoExp.error()) {
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return result;
+                }
+                default: return infoExp.error();
             }
-            *pSetting = value;
-        } catch (const std::exception& e) {
-            mPanic.store(true);
-            mLogger->panic() << "Exception at api.conf.createSetting: " << e.what() << "\n";
-            return TPR_PANIC;
-        } catch (...) {
-            mPanic.store(true);
-            mLogger->panic() << "Unexpected exception at api.conf.createSetting\n";
-            return TPR_PANIC;
         }
+        auto info = infoExp.value();
+        auto exp = mpSettings->createSetting(mpSettings->getRoot(), info.name);
+        if (!exp.has_value()) {
+        switch (exp.error()) {
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
+                    return TPR_PANIC;
+                }
+                default: return exp.error();
+            }
+        }
+        TprSetting value = exp.value();
+        auto result = mpSettings->setSettingStruct(value);
+        switch (result) {
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
+                return TPR_PANIC;
+            }
+            case TPR_SUCCESS: break;
+            default: return result;
+        }
+        *pSetting = value;
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::conf_createSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept {
@@ -543,11 +557,12 @@
         auto exp = mpSettings->createSetting(baseSetting, name);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pSetting = exp.value();
@@ -560,11 +575,12 @@
         auto exp = mpSettings->readSetting(baseSetting, name);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pSetting = exp.value();
@@ -580,11 +596,12 @@
         auto exp = mpSettings->getSettingType(setting);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pType = exp.value();
@@ -596,11 +613,12 @@
         auto exp = mpSettings->getSettingDouble(setting);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pData = exp.value();
@@ -612,11 +630,12 @@
         auto exp = mpSettings->getSettingInteger(setting);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pData = exp.value();
@@ -628,11 +647,12 @@
         auto exp = mpSettings->getSettingBool(setting);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pData = exp.value();
@@ -644,11 +664,12 @@
         auto exp = mpSettings->getSettingStringSize(setting);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pSize = exp.value();
@@ -658,99 +679,108 @@
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->copySettingString(setting, pData);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingDouble(TprSetting setting, double data) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingDouble(setting, data);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingInteger(TprSetting setting, int64_t data) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingInteger(setting, data);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingBool(TprSetting setting, TprBool8 data) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingBool(setting, data);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingString(TprSetting setting, const char* pData) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingString(setting, pData);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingNull(TprSetting setting) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingNull(setting);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_unsetSetting(TprSetting setting) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->unsetSetting(setting);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingStruct(TprSetting setting) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingStruct(setting);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     TprResult TemporEngine::conf_setSettingArray(TprSetting setting) noexcept {
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->setSettingArray(setting);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
     double TemporEngine::conf_getSettingDoubleOr(TprSetting setting, double fallback) noexcept {
@@ -771,11 +801,12 @@
         auto exp = mpSettings->getSettingArraySize(setting);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pSize = exp.value();
@@ -787,11 +818,12 @@
         auto exp = mpSettings->getSettingArrayElement(setting, index);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pElement = exp.value();
@@ -801,11 +833,12 @@
         if (!mpSettings) return TPR_MODULE_NOT_LOADED;
         auto result = mpSettings->resizeSettingArray(setting, size);
         switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
                 return TPR_PANIC;
-            default:
-                return result;
+            }
+            default: return result;
         }
     }
 #pragma endregion  // conf
@@ -817,11 +850,12 @@
         auto exp = mpHWLI->createDepthDomain(pInfo);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pDomain = exp.value();
@@ -837,11 +871,12 @@
         auto exp = mpHWLI->createRenderTarget(pInfo);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pTarget = exp.value();
@@ -852,7 +887,10 @@
         mpHWLI->destroyRenderTarget(target);
     }
     TprComponent TemporEngine::render_getComponentRenderable() noexcept {
-        return mComponentRenderable;
+        return mComponentRenderable;  // TODO: make it create a capability every time so that a plugin can't destroy this component
+    }
+    TprJob TemporEngine::render_getRenderJob() noexcept {
+        return mRenderJob;  // TODO: make it create a capability every time so that a plugin can't destroy this job
     }
     TprResult TemporEngine::render_createObjectImage(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) noexcept {
         if (!pImage) return TPR_ERROR_INVALID_VALUE;
@@ -860,11 +898,12 @@
         auto exp = mpHWLI->createObjectImage(pInfo);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
         *pImage = exp.value();
@@ -876,63 +915,63 @@
     }
 #pragma endregion  // render
 
-#pragma region thread
-    TprResult TemporEngine::thread_createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept {
+#pragma region sched
+    TprResult TemporEngine::sched_createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept {
         if (!pJob) return TPR_ERROR_INVALID_VALUE;
-        if (!mpThread) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpThread->createJob(pInfo);
-        if (!exp.has_value()) return exp.error();
-        TprJob job = exp.value();
-        try {
-            auto pluginIdExp = activePluginID();
-            if (!pluginIdExp.has_value()) return pluginIdExp.error();
-            auto jobIdExp = mpThread->getJobID(job);
-            if (!jobIdExp.has_value()) {
-                // for some reason Job that was just created is invalid
-                mPanic.store(true);
-                mLogger->panic() << "Corrupted memory: Threading.getJobID\n";
-                return TPR_PANIC;
-            }
-            mJobPluginMap.try_emplace(jobIdExp.value(), pluginIdExp.value());
-        } catch (...) {
-            
-        }
-        *pJob = job;
-        return TPR_SUCCESS;
-    }
-
-    TprResult TemporEngine::thread_createDetachedJob(const TprJobCreateInfo* pInfo) noexcept {
-        if (!mpThread) return TPR_MODULE_NOT_LOADED;
-        auto result = mpThread->createDetachedJob(pInfo);
-        switch (result) {
-            case TPR_PANIC:
-                mPanic.store(true);
-                return TPR_PANIC;
-            default:
-                return result;
-        }
-    }
-
-    TprResult TemporEngine::thread_jobFinished(TprJob job, TprBool8* pData) noexcept {
-        if (!pData) return TPR_ERROR_INVALID_VALUE;
-        if (!mpThread) return TPR_MODULE_NOT_LOADED;
-        auto exp = mpThread->jobFinished(job);
+        if (!mpSched) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpSched->createJob(pInfo);
         if (!exp.has_value()) {
             switch (exp.error()) {
-                case TPR_PANIC:
-                    mPanic.store(true);
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
                     return TPR_PANIC;
-                default:
-                    return exp.error();
+                }
+                default: return exp.error();
             }
         }
-        *pData = exp.value();
+        *pJob = exp.value();
         return TPR_SUCCESS;
     }
-
-    void TemporEngine::thread_joinJob(TprJob job) noexcept {
-        if (!mpThread) return;
-        mpThread->joinJob(job);
+    TprResult TemporEngine::sched_createJobCapability(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) noexcept {
+        if (!pJob) return TPR_ERROR_INVALID_VALUE;
+        if (!mpSched) return TPR_MODULE_NOT_LOADED;
+        auto exp = mpSched->createJobCapability(job, mask);
+        if (!exp.has_value()) {
+            switch (exp.error()) {
+                case TPR_PANIC: {
+                    std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                    mRunResult.emplace(TPR_PANIC);
+                    return TPR_PANIC;
+                }
+                default: return exp.error();
+            }
+        }
+        *pJob = exp.value();
+        return TPR_SUCCESS;
     }
-#pragma endregion  // thread
+    TprResult TemporEngine::sched_scheduleJob(TprJob job, uint64_t timepoint) noexcept {
+        if (!mpSched) return TPR_MODULE_NOT_LOADED;
+        auto result = mpSched->scheduleJob(job, timepoint);
+        switch (result) {
+            case TPR_PANIC: {
+                std::lock_guard<std::mutex> lock(mMainThreadMutex);
+                mRunResult.emplace(TPR_PANIC);
+                return TPR_PANIC;
+            }
+            default: return result;
+        }
+    }
+    void TemporEngine::sched_pendJobDestruction(TprJob job) noexcept {
+        if (!mpSched) return;
+        mpSched->pendJobDestruction(job);
+    }
+    TprJob TemporEngine::sched_getShutdownJob() noexcept {
+        return mShutdownJob;  // TODO: make it create a capability every time so that a plugin can't destroy this job
+    }
+    uint64_t TemporEngine::sched_now() noexcept {
+        if (!mpSched) return 0;
+        return mpSched->now();
+    }
+#pragma endregion  // sched
 

@@ -19,11 +19,12 @@
     #define _TPR_NOEXCEPT
 #endif
 
+typedef uint32_t _TprFlag_T;
+#define _TPR_MAX_ENUM INT32_MAX
+
 typedef uint8_t TprBool8;
 #define TPR_TRUE 1
 #define TPR_FALSE 0
-typedef uint32_t TprFlag_T;
-#define _TPR_MAX_ENUM INT32_MAX
 
 
 // enums
@@ -39,7 +40,7 @@ typedef enum TprLogStyle {
     TPR_LOG_STYLE_STARTSTAMP1 = 7,
     TPR_LOG_STYLE_6IDENT = 8,
     TPR_LOG_STYLE_PANIC1 = 9,
-    TPR_LOG_STYLE_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_LOG_STYLE_MAX_ENUM = _TPR_MAX_ENUM
 } TprLogStyle;
 
 typedef enum TprLogLevel {
@@ -49,7 +50,7 @@ typedef enum TprLogLevel {
     TPR_LOG_LEVEL_INFO = 4,
     TPR_LOG_LEVEL_DEBUG = 5,
     TPR_LOG_LEVEL_TRACE = 6,
-    TPR_LOG_LEVEL_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_LOG_LEVEL_MAX_ENUM = _TPR_MAX_ENUM
 } TprLogLevel;
 
 typedef enum TprResult {
@@ -73,11 +74,10 @@ typedef enum TprResult {
     TPR_PARSE_ERROR = -12,
     TPR_USER_CODE_ERROR = -13,
     TPR_NOT_SUPPORTED = -14,
-    TPR_NOT_A_FILE = -15,
-    TPR_NO_SUCH_FILE = -16,
     TPR_ALREADY_EXISTS = -17,
     TPR_VERSION_MISMATCH = -18,
-    TPR_RESULT_MAX_ENUM = _TPR_MAX_ENUM
+
+    _TPR_RESULT_MAX_ENUM = _TPR_MAX_ENUM
 } TprResult;
 
 typedef enum TprInputElement {
@@ -197,7 +197,7 @@ typedef enum TprInputElement {
 
     TPR_MOUSE_MOTION = 100000,
 
-    TPR_KEY_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_KEY_MAX_ENUM = _TPR_MAX_ENUM
 } TprInputElement;
 
 typedef enum TprSettingType {
@@ -209,27 +209,33 @@ typedef enum TprSettingType {
     TPR_SETTING_TYPE_NULL = 5,
     TPR_SETTING_TYPE_ARRAY = 6,
     TPR_SETTING_TYPE_STRUCT = 7,
-    TPR_SETTING_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_SETTING_MAX_ENUM = _TPR_MAX_ENUM
 } TprSettingType;
-
-typedef enum TprJobType {
-    TPR_JOB_TYPE_SHORT_TERM = 0,
-    TPR_JOB_TYPE_LONG_TERM = 1,
-    TPR_JOB_TYPE_MAX_ENUM = _TPR_MAX_ENUM
-} TprJobType;
 
 typedef enum TprSeekWhence {
     TPR_SEEK_WHENCE_BEGIN = 0,
     TPR_SEEK_WHENCE_CURRENT = 1,
     TPR_SEEK_WHENCE_END = 2,
-    TPR_SEEK_WHENCE_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_SEEK_WHENCE_MAX_ENUM = _TPR_MAX_ENUM
 } TprSeekWhence;
 
 typedef enum TprPathType {
     TPR_PATH_TYPE_FILE = 0,
     TPR_PATH_TYPE_DIRECTORY = 1,
-    TPR_PATH_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_PATH_TYPE_MAX_ENUM = _TPR_MAX_ENUM
 } TprPathType;
+
+typedef enum TprJobDuration {
+    TPR_JOB_DURATION_LONG = 0,
+    TPR_JOB_DURATION_SHORT = 1,
+    _TPR_JOB_DURATION_MAX_ENUM = _TPR_MAX_ENUM
+} TprJobDuration;
+
+typedef enum TprJobTriggerType {
+    TPR_JOB_TRIGGER_TYPE_SCHEDULE = 0,
+    TPR_JOB_TRIGGER_TYPE_DEPENDENCIES = 1,
+    _TPR_JOB_TRIGGER_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+} TprJobTriggerType;
 
 
 // flags
@@ -237,77 +243,82 @@ typedef enum TprPathType {
 typedef enum TprCreateWindowFlagBits {
     TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT = 0x1,
     TPR_CREATE_WINDOW_UNRESIZEABLE_FLAG_BIT = 0x2,
-    TPR_CREATE_WINDOW_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_WINDOW_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateWindowFlagBits;
-typedef TprFlag_T TprCreateWindowFlags;
+typedef _TprFlag_T TprCreateWindowFlags;
 
 typedef enum TprCreateActionFlagBits {
-    TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateActionFlagBits;
-typedef TprFlag_T TprCreateActionFlags;
+typedef _TprFlag_T TprCreateActionFlags;
 
 typedef enum TprCreateDepthDomainFlagBits {
     TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_FLAG_BIT = 0x1,
-    TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateDepthDomainFlagBits;
-typedef TprFlag_T TprCreateDepthDomainFlags;
-
-typedef enum TprCreateJobFlagBits {
-    TPR_CREATE_JOB_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
-} TprCreateJobFlagBits;
-typedef TprFlag_T TprCreateJobFlags;
+typedef _TprFlag_T TprCreateDepthDomainFlags;
 
 typedef enum TprCreateMeshFlagBits {
-    TPR_CREATE_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateMeshFlagBits;
-typedef TprFlag_T TprCreateMeshFlags;
+typedef _TprFlag_T TprCreateMeshFlags;
 
 typedef enum TprLoadMeshFlagBits {
-    TPR_LOAD_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_LOAD_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprLoadMeshFlagBits;
-typedef TprFlag_T TprLoadMeshFlags;
+typedef _TprFlag_T TprLoadMeshFlags;
 
 typedef enum TprCreateRenderTargetFlagBits {
-    TPR_CREATE_RENDER_TARGET_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_RENDER_TARGET_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateRenderTargetFlagBits;
-typedef TprFlag_T TprCreateRenderTargetFlags;
+typedef _TprFlag_T TprCreateRenderTargetFlags;
 
 typedef enum TprCreateObjectImageFlagBits {
-    TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateObjectImageFlagBits;
-typedef TprFlag_T TprCreateObjectImageFlags;
+typedef _TprFlag_T TprCreateObjectImageFlags;
 
 typedef enum TprSettingCapabilityFlagBits {
     TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT = 0x1,
-    TPR_SETTING_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_SETTING_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprSettingCapabilityFlagBits;
-typedef TprFlag_T TprSettingCapabilityFlags;
+typedef _TprFlag_T TprSettingCapabilityFlags;
 
 typedef enum TprOpenFileFlagBits {
     TPR_OPEN_FILE_SYNC_FLAG_BIT = 0x1,
     TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT = 0x2,
     TPR_OPEN_FILE_NEW_IF_NONE_FLAG_BIT = 0x4,
-    TPR_OPEN_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_OPEN_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprOpenFileFlagBits;
-typedef TprFlag_T TprOpenFileFlags;
+typedef _TprFlag_T TprOpenFileFlags;
 
 typedef enum TprTouchFileFlagBits {
     // TPR_CREATE_NEW_FILE_VFS_FLAG_BIT = 0x1,  // TODO: add proper VFS
-    TPR_CREATE_NEW_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_NEW_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprTouchFileFlagBits;
-typedef TprFlag_T TprTouchFileFlags;
+typedef _TprFlag_T TprTouchFileFlags;
 
 typedef enum TprCreateDirectoryFlagBits {
     // TPR_CREATE_DIRECTORY_VFS_FLAG_BIT = 0x1,  // TODO: add proper VFS
-    TPR_CREATE_DIRECTORY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_CREATE_DIRECTORY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateDirectoryFlagBits;
-typedef TprFlag_T TprCreateDirectoryFlags;
+typedef _TprFlag_T TprCreateDirectoryFlags;
 
 typedef enum TprFileCapabilityFlagBits {
     TPR_FILE_CAPABILITY_WRITE_FLAG_BIT = 0x1,
-    TPR_FILE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_FILE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprFileCapabilityFlagBits;
-typedef TprFlag_T TprFileCapabilityFlags;
+typedef _TprFlag_T TprFileCapabilityFlags;
+
+typedef enum TprCreateJobFlagBits {
+    _TPR_CREATE_JOB_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprCreateJobFlagBits;
+typedef _TprFlag_T TprCreateJobFlags;
+
+typedef enum TprJobCapabilityFlagBits {
+    _TPR_JOB_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprJobCapabilityFlagBits;
+typedef _TprFlag_T TprJobCapabilityFlags;
 
 
 // handles
@@ -418,14 +429,14 @@ typedef struct TprObjectImageCreateInfo {
     const TprRenderTarget* pRenderTargets;
 } TprObjectImageCreateInfo;
 
-typedef struct TprJobInfo {
+typedef struct TprJobCreateInfo {
     TprCreateJobFlags flags;
-    TprJobType type;
-    void(*func)(void* ctx) _TPR_NOEXCEPT_ATTR;
-    void* ctx;
-    float priority;
-    uint32_t dependencyJobCount;
-    const TprJob* pDependencyJobs;
+    TprJobDuration duration;
+    void* context;
+    void(*function)(void* ctx, TprJob job);
+    TprJobTriggerType triggerType;
+    uint32_t dependencyCount;
+    const TprJob* pDependencies;
 } TprJobCreateInfo;
 
 

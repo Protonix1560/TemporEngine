@@ -3,8 +3,7 @@
 #define PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
 
 #include "core.hpp"
-#include "plugin.h"
-#include "plugin_common_structs.hpp"
+#include "plugin_loader_common.hpp"
 #include "plugin_core.h"
 #include "logger.hpp"
 
@@ -15,32 +14,25 @@
 #include <atomic>
 
 
-class Plugin {
+class PluginWrapper {
     public:
-        virtual ~Plugin() noexcept = default;
+        virtual ~PluginWrapper() noexcept = default;
         virtual TprResult init(const PluginLoadInfo* pLoadInfo) = 0;
-        virtual void preShutdown() noexcept = 0;
-        virtual void shutdown() noexcept = 0;
-        virtual int32_t updatePerFrame() noexcept = 0;
         virtual const std::string_view name() noexcept = 0;
 };
 
 
 
-class PluginInThread : public Plugin {
+class PluginWrapperInThread : public PluginWrapper {
     public:
-        PluginInThread(Logger logger, std::atomic<int32_t>& rAliveTokens);
+        PluginWrapperInThread(Logger logger, std::atomic<int32_t>& rAliveTokens);
         TprResult init(const PluginLoadInfo* pLoadInfo) override;
-        void preShutdown() noexcept override;
-        void shutdown() noexcept override;
-        int32_t updatePerFrame() noexcept override;
         const std::string_view name() noexcept override;
     private:
         Logger mLogger;
         std::atomic<int32_t>& mrAliveTokens;
         Lib mPluginLib;
         std::string mName;
-        TprPluginCallbacks mCallbacks{};
         void* mCtx;
 };
 

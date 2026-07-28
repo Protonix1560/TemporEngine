@@ -1,12 +1,12 @@
 
-
-// everything low-level, that is a part of bootstrap sequence or is a generally useful helper is in snake_case or ALL_CAPS
+// everything low-level, that is a part of bootstrap sequence or is a general helper is in snake_case or ALL_CAPS
 // everything else is in camelCase, PascalCase or ALL_CAPS
 
 
 #include "core.hpp"
 
 #if !defined(LINUX)
+    // yeah
     #error "Unsupported OS"
 #endif
 
@@ -24,25 +24,27 @@ namespace {
 }
 
 
-void sigint_handler(int) noexcept {
-    if (g_engine) g_engine->sigint();
-}
-void sigterm_handler(int) noexcept {
-    if (g_engine) g_engine->sigterm();
+extern "C" void signal_handler(int sig) noexcept {
+    if (g_engine) g_engine->signal(sig);
 }
 
 
 int main(int argc, char* argv[]) {
 
+    std::signal(SIGINT, SIG_DFL);
+    std::signal(SIGTERM, SIG_DFL);
+
     size_t verbose_level = 0;
     std::filesystem::path config_path;
     bool flush_config = true;
     bool config_enabled = true;
+    bool colour_enabled = false;
+    const char* red_ansi = "";
+    const char* purple_ansi = "";
+    const char* clear_ansi = "";
 
     try {
         std::ios::sync_with_stdio(false);
-        std::signal(SIGINT, sigint_handler);
-        std::signal(SIGTERM, sigterm_handler);
 
         arg_parser parser{};
 
@@ -53,11 +55,11 @@ int main(int argc, char* argv[]) {
             0, "help", 0, nullptr, "Shows advanced help message"
         );
         auto root_v = parser.define_flag(
-            'v', {}, 0, nullptr, "Sets runtime log verbosity. -v: 4, -vv: 5, -vvv: 6"
+            'v', {}, 0, nullptr, "Sets runtime log verbosity. -v: 4, -vv: 5, -vvv: 6. Default verbosity is 0"
         );
         auto root_verbose = parser.define_flag(
             0, "verbose", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr,
-            "Sets runtime log verbosity [0, 6]. Overrides -v"
+            "Sets runtime log verbosity [0, 6]. Overrides -v. Default verbosity is 0"
         );
         auto root_config = parser.define_flag(
             'c', "config", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr, "Sets path to config file"
@@ -67,6 +69,9 @@ int main(int argc, char* argv[]) {
         );
         auto root_no_config = parser.define_flag(
             0, "no-config", 0, nullptr, "The engine will not try to open the config file"
+        );
+        auto root_colour = parser.define_flag(
+            0, "colour", ARGP_FLAG_HAS_VALUE_FLAG_BIT, nullptr, "Sets colour mode {bool, auto}. Default is auto"
         );
 
         arg_parser_err argp_err = parser.parse(argc, argv);
@@ -108,25 +113,53 @@ int main(int argc, char* argv[]) {
         if (root_no_flush_config.present()) flush_config = false;
         if (root_no_config.present()) config_enabled = false;
 
+        if (root_colour.present()) {
+            if (root_colour.value_last<std::string_view>() == "auto") {
+                // TODO: fix that
+                colour_enabled = true;
+                red_ansi = "\e[91m";
+                purple_ansi = "\e[95m";
+                clear_ansi = "\e[0m";
+            } else if (root_colour.value_last<bool>()) {
+                colour_enabled = true;
+                red_ansi = "\e[91m";
+                purple_ansi = "\e[95m";
+                clear_ansi = "\e[0m";
+            }
+        } else {
+            colour_enabled = true;
+            red_ansi = "\e[91m";
+            purple_ansi = "\e[95m";
+            clear_ansi = "\e[0m";
+        }
+
     } catch (const std::exception& e) {
-        std::printf("\033[91mFailed to parse arguments: %s\n", e.what());
+        std::printf("%sFailed to parse arguments: %s%s\n", red_ansi, e.what(), clear_ansi);
     } catch (...) {
-        std::printf("\033[91mFailed to parse arguments\n");
+        std::printf("%sFailed to parse arguments%s\n", red_ansi, clear_ansi);
     }
 
     std::fflush(stdout);
 
     try {
-        TemporEngine engine(verbose_level, std::string(config_path), flush_config, config_enabled);
+        TemporEngine engine(
+            verbose_level, config_path, flush_config,
+            config_enabled, colour_enabled
+        );
+
+        g_engine = &engine;
+
+        std::signal(SIGINT, signal_handler);
+        std::signal(SIGTERM, signal_handler);
 
         int exit_code = engine.runtime();
         if (exit_code != 0) return exit_code;
 
     } catch (std::exception& e) {
-        std::printf("\033[95mLeaked exception: %s\033[0m\n", e.what());
+        std::printf("%sLeaked exception: %s%s\n", e.what(), purple_ansi, clear_ansi);
         return 1;
     } catch (...) {
-        std::printf("\033[95mLeaked exception\033[0m\n");
+        std::printf("%sLeaked exception%s\n", purple_ansi, clear_ansi);
         return 1;
     }
     return 0;

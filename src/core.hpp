@@ -10,11 +10,11 @@
 #include <array>
 #include <variant>
 #include <utility>
+#include <functional>
 
 #ifdef HAVE_UNISTD_H
     #include "unistd.h"
 #endif
-
 
 
 using namespace std::string_literals;
@@ -33,16 +33,6 @@ using namespace std::string_literals;
 #if defined(__linux__)
     #define LINUX
 #endif
-
-// #define THREAD_SAFE
-// #define SIG_SAFE
-
-// #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__INTEL_COMPILER)
-//     #define RESTRICT __restrict
-// #else
-//     #define RESTRICT
-// #endif
-
 
 
 // smol utility things
@@ -63,13 +53,19 @@ inline constexpr bool dependent_false_v = false;
 
 template<typename... A, typename... B>
 requires (sizeof...(A) > 0 && sizeof...(B) > 0)
-std::variant<A...> variant_cast(const std::variant<B...>& v)
-{
+std::variant<A...> variant_cast(const std::variant<B...>& v) {
     return std::visit([](const auto& x) -> std::variant<A...> {
         return x;
     }, v);
 }
 
+template<typename A, typename... B>
+requires (sizeof...(B) > 0)
+A variant_cast_to(const std::variant<B...>& v) {
+    return std::visit([](const auto& x) -> A {
+        return static_cast<A>(x);
+    }, v);
+}
 
 
 // converter from something to string
@@ -314,7 +310,7 @@ class static_registry<T, 0> {
 
 
 
-// opaque handles utilities
+// opaque handles
 
 enum class handle_type : uint8_t {
     undefined = 0,
@@ -388,6 +384,9 @@ unexpected(E error) -> unexpected<E>;
 template <typename T, typename E>
 class expected {
     public:
+        using value_type = T;
+        using error_type = E;
+
         expected(T value) : m_has_value(true) {
             new (&m_data.value) T(std::move(value));
         }
@@ -474,6 +473,18 @@ class expected {
         T& operator*() { return value(); }
         T* operator->() { return &value(); }
 
+        operator bool() const { return has_value(); }
+        
+        template<typename F>
+        requires std::same_as<expected<typename std::invoke_result_t<F, const T&>::value_type, E>, std::invoke_result_t<F, const T&>>
+        auto and_then(F&& f) {
+            if (m_has_value) {
+                return std::invoke(f, **this);
+            } else {
+                return std::invoke_result_t<F, T>(unexpected(m_data.error));
+            }
+        }
+
         template <typename U>
         requires std::is_convertible_v<U, T>
         T value_or(U value) {
@@ -496,6 +507,9 @@ class expected_void {};
 template <typename E>
 class expected<void, E> {
     public:
+        using value_type = void;
+        using error_type = E;
+
         expected() : m_has_value(true) {}
         expected(unexpected<E> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(error.error()));
@@ -549,6 +563,18 @@ class expected<void, E> {
         const E& error() const & {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return m_data.error;
+        }
+
+        operator bool() const { return has_value(); }
+        
+        template<typename F>
+        requires std::same_as<expected<typename std::invoke_result_t<F>::value_type, E>, std::invoke_result_t<F>>
+        auto and_then(F&& f) {
+            if (m_has_value) {
+                return std::invoke(f, **this);
+            } else {
+                return std::invoke_result_t<F>(unexpected(m_data.error));
+            }
         }
 
     private:

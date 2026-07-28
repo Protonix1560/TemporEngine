@@ -1,8 +1,8 @@
 
-1. Plugin (as dynamic library) loading
+- Plugin (as dynamic library) loading
 
-2. Partially signal handling
+- Partially signal handling
 
-3. aligned_allocator
+- All of FileRegistry
 
-4. file_cache_key
+- ANSI escape codes support check

@@ -1,7 +1,6 @@
 
 
 #include "asset_store.hpp"
-#include "common.hpp"
 #include "core.hpp"
 #include "hardware_layer_interface.hpp"
 #include "plugin_core.h"

@@ -1,8 +1,6 @@
 
 #include "hardware_layer.hpp"
 #include "core.hpp"
-#include "hardware_common_structs.hpp"
-#include "hardware_layer_interface.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
 #include "file_registry.hpp"
@@ -43,7 +41,7 @@ expected<PHardwareLayer, TprResult> registerLayerVulkan(
 HardwareLayerManifest manifestVulkanHWL {
     GraphicsBackend::Vulkan,
     registerLayerVulkan,
-    "Standart Vulkan HWL"
+    "Standard Vulkan HWL"
 };
 static_registry<HardwareLayerManifest, 0>::registrar registrar(manifestVulkanHWL);
 
@@ -146,7 +144,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         tmpWindowCreateInfo.prefferedWidth = 0;
         tmpWindowCreateInfo.prefferedHeight = 0;
         tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
-        mLogger.trace() << "Opening a hidden temporary window\n";
+        mLogger.debug() << "Opening a hidden temporary window\n";
         auto tmpWindowExp = mrWinMan.openWindow(&tmpWindowCreateInfo);
         if (!tmpWindowExp.has_value()) {
             mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open a temporary window\n";
@@ -154,7 +152,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         }
         tmpWindow = tmpWindowExp.value();
 
-        mLogger.trace() << "Getting Vulkan Instance extension list\n";
+        mLogger.debug() << "Getting Vulkan Instance extension list\n";
         // extensions
         auto extExp = mrWinMan.getExtensionsVk(tmpWindow);
         if (!extExp.has_value()) throw extExp.error();

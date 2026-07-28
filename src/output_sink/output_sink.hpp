@@ -22,10 +22,11 @@ class TermSink : public LogSinkInterface {
     private:
         mutable std::mutex mMutex;
         TprLogLevel mTermVerbosity;
+        bool mColourEnabled;
         std::vector<HistoryEntry> mLogHistory;
     
     public:
-        TermSink(TprLogLevel termVerbosity);
+        TermSink(TprLogLevel termVerbosity, bool colourEnabled);
 
         std::span<const HistoryEntry> logHistory() const;
         TprLogLevel termVerbosity() const;
@@ -34,6 +35,7 @@ class TermSink : public LogSinkInterface {
 
         TprLogLevel maxVerbosity() const override;
         void writeLog(std::string_view msg, TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept override;
+        bool colourEnabled() const override;
 };
 REGISTER_TYPE_NAME_S(TermSink, "TmSk");
 
@@ -57,16 +59,18 @@ class TermFileSink : public LogSinkInterface {
         std::vector<LogDest> mLogDests;
         TprLogLevel mMaxVerbosity;
         TprLogLevel mTermVerbosity;
+        bool mColourEnabled;
 
         void writeToFiles(std::string_view msg, TprLogLevel level);
     
     public:
-        TermFileSink(Settings& rSettings, FileRegistry& rResReg, const TermSink& rTermSink, TprLogLevel termVerbosity);
+        TermFileSink(Settings& rSettings, FileRegistry& rResReg, const TermSink& rTermSink, TprLogLevel termVerbosity, bool colourEnabled);
 
         TprResult writeData(std::span<const std::byte> data) noexcept;
 
         TprLogLevel maxVerbosity() const override;
         void writeLog(std::string_view msg, TprLogLevel level = TPR_LOG_LEVEL_INFO, TprLogStyle style = TPR_LOG_STYLE_6IDENT) noexcept override;
+        bool colourEnabled() const override;
 };
 REGISTER_TYPE_NAME_S(TermFileSink, "TFSk");
 

@@ -20,7 +20,7 @@ endforeach()
 
 add_custom_target(vulkan_shaders ALL DEPENDS ${SPV_OUTPUTS})
 
-# renderer
+# layer
 add_library(
     hardware_layer_vulkan SHARED
     lifecycle.cpp buffer.cpp utility.cpp window_context.cpp asset.cpp allocator.cpp capability.cpp
@@ -28,10 +28,9 @@ add_library(
 add_dependencies(hardware_layer_vulkan vulkan_shaders)
 target_link_libraries(
     hardware_layer_vulkan PRIVATE
-    Vulkan::Vulkan hardware_layer_interface logger window_manager scene_graph
-    common hardware_common_structs file_registry settings
+    Vulkan::Vulkan logger window_manager scheduler scene_graph common file_registry settings
 )
-target_include_directories(hardware_layer_vulkan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(hardware_layer_vulkan PRIVATE ${HARDWARE_LAYER_INTERFACE_SOURCE_DIR})
 
 # linking to hardware_layer_interface
 target_link_libraries(hardware_layer_interface INTERFACE hardware_layer_vulkan)

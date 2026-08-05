@@ -10,7 +10,11 @@ Logger::Logger(const std::atomic<std::shared_ptr<LogSinkInterface>>& rSink, std:
     : mpSink(&rSink), mPrefix(prefix) {}
 
 LogEntry Logger::operator()(TprLogLevel level, TprLogStyle style) const {
-    return LogEntry(mpSink->load(), mPrefix, level, style);
+    if (mpSink) {
+        return LogEntry(mpSink->load(), mPrefix, level, style);
+    } else {
+        return LogEntry(nullptr, mPrefix, level, style);
+    }
 }
 
 std::shared_ptr<LogSinkInterface> Logger::sink() const noexcept {

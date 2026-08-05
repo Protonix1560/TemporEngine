@@ -7,25 +7,12 @@ if [ -z ${COMPILE_TEST_PLUGIN+x} ]; then
     COMPILE_TEST_PLUGIN=1
 fi
 
-# tempor build
-if [[ COMPILE_ENGINE -eq 1 ]]; then
-    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=test \
-        -B build/tempor -S . -G "Unix Makefiles" || exit 1
-fi
-
-# test plugin build
-if [[ COMPILE_TEST_PLUGIN -eq 1 ]]; then
-    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=test \
-        -B build/plugins/test -S plugins/test/ -G "Unix Makefiles" || exit 1
-fi
-
-# generating final compile_commands.json
+./config-build.sh &&
 {
-    SEARCH_DIR="."
-    OUTPUT="build/compile_commands.json"
-    FILES=$(find "$SEARCH_DIR" -name compile_commands.json)
-    echo "[]" > "$OUTPUT"
-    for f in $FILES; do
-        jq -s '.[0] + .[1]' "$OUTPUT" "$f" > "$OUTPUT.tmp" && mv "$OUTPUT.tmp" "$OUTPUT"
-    done
+    if [[ COMPILE_ENGINE -eq 1 ]]; then
+        make install -j$(( $(nproc) - 1 )) -C build/tempor || exit 1
+    fi
+    if [[ COMPILE_TEST_PLUGIN -eq 1 ]]; then
+        make install -j$(( $(nproc) - 1 )) -C build/plugins/test || exit 1
+    fi
 }

@@ -33,7 +33,6 @@ class PluginWrapperInThread : public PluginWrapper {
         std::atomic<int32_t>& mrAliveTokens;
         Lib mPluginLib;
         std::string mName;
-        void* mCtx;
 };
 
 

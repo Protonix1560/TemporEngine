@@ -21,8 +21,8 @@ void TemporEngine::signal(int sig) noexcept {
 
 
 expected<uint32_t, TprResult> TemporEngine::activePluginID() {
-    if (!mpPlugLd) return unexpected(TPR_MODULE_NOT_LOADED);
-    if (threadLocalJobInfo.mainThread) {
+    if (!mpPlugLd) return unexpected(TPR_ERROR_MODULE_NOT_LOADED);
+    if (threadInfo.mainThread) {
         auto pluginOpt = mpPlugLd->getActivePluginID();
         if (!pluginOpt.has_value()) {
             // the caller is probably not a plugin
@@ -30,15 +30,15 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
         }
         return pluginOpt.value();
     } else {
-        if (!threadLocalJobInfo.job.has_value()) {
+        if (!threadInfo.currentJob.has_value()) {
             // the caller is probably not a plugin
             return unexpected(TPR_ERROR_INVALID_OPERATION);
         }
-        TprJob job = threadLocalJobInfo.job.value();
+        TprJob job = threadInfo.currentJob.value();
         auto it = mJobPluginMap.find(job._d);
         if (it == mJobPluginMap.end()) {
             // the map is desynced for some reason
-            // therefore, threadLocalJobInfo is probably corrupted
+            // therefore, threadInfo is probably corrupted
             mLogger->panic() << "Corrupted internal structures: job " << job._d << " doesn't appear in mJobPluginMap";
             return unexpected(TPR_PANIC);
         }
@@ -48,7 +48,7 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
 
 
 expected<PluginInfo, TprResult> TemporEngine::activePluginInfo() {
-    if (!mpPlugLd) return unexpected(TPR_MODULE_NOT_LOADED);
+    if (!mpPlugLd) return unexpected(TPR_ERROR_MODULE_NOT_LOADED);
     auto pluginExp = activePluginID();
     if (!pluginExp.has_value()) return unexpected(pluginExp.error());
     auto infoExp = mpPlugLd->getPluginInfo(pluginExp.value());
@@ -89,6 +89,8 @@ int TemporEngine::runtime() {
         auto initStartTimepoint = std::chrono::steady_clock::now();
         mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Initializing services";
 
+        threadInfo.mainThread = true;
+
         mpFileReg = &mServHolder.construct<FileRegistry>(Logger(mpOutSink, (type_name_v_s<FileRegistry> + ": "_ces).string()));
 
         mpSettings = &mServHolder.construct<Settings>(
@@ -113,7 +115,6 @@ int TemporEngine::runtime() {
             mpOutSink.store(shar);
         }
 
-        threadLocalJobInfo.mainThread = true;
         mpSched = &mServHolder.construct<Scheduler>(Logger(mpOutSink, (type_name_v_s<Scheduler> + ": "_ces).string()), *mpSettings);
         result = mpSched->init();
         if (result != TPR_SUCCESS) {
@@ -166,56 +167,62 @@ int TemporEngine::runtime() {
 
         // finding sufficient HWL
         for (
-            auto it = static_registry<HardwareLayerManifest, 0>::instance().begin();
-            it < static_registry<HardwareLayerManifest, 0>::instance().end();
+            auto it = static_registry<GraphicsDeviceBackendInfo, 0>::instance().begin();
+            it < static_registry<GraphicsDeviceBackendInfo, 0>::instance().end();
             it++
         ) {
-            const auto& manifest = *it;
+            const auto& info = *it;
 
             try {
 
-                mLogger->debug() << "Trying hardware layer " << manifest.name << " with GraphicsBackend = " << graphicsBackendName[to_underlying(manifest.graphicsBackend)] << "";
+                mLogger->debug() << "Trying graphics device backend " << info.name << " with " << graphicsBackendName[to_underlying(info.graphicsAPI)] << "";
 
-                WindowManager* localWinMan = &mServHolder.construct<WindowManager>(
-                    manifest.graphicsBackend,
-                    Logger(mpOutSink, (type_name_v_s<WindowManager> + ": "_ces).string()),
-                    mAliveTokens
+                Windowing* localWinMan = &mServHolder.construct<Windowing>(
+                    Logger(mpOutSink, (type_name_v_s<Windowing> + ": "_ces).string()),
+                    *mpSched, info.graphicsAPI
                 );
+                if (auto r = localWinMan->init(); r != TPR_SUCCESS) {
+                    mLogger->panic() << "Failed to initialize Windowing [" << r << "]";
+                    return 2;
+                }
 
-                auto layerExp = manifest.factory(
-                    Logger(mpOutSink, (type_name_v_s<PHardwareLayer> + ": "_ces).string()),
-                    *mpFileReg, *localWinMan, *mpSettings, *mpSceneGraph, mComponentRenderable, 0, 1, 0, 0
+                auto layerExp = info.factory(
+                    Logger(mpOutSink, (type_name_v_s<PGraphicsDevice> + ": "_ces).string()),
+                    *mpFileReg, *localWinMan, *mpSettings, *mpSceneGraph, mComponentRenderable, 0
                 );
-                HardwareLayer* localHWLI = mServHolder.construct<std::unique_ptr<HardwareLayer>>(std::move(layerExp.value())).get();
+                IGraphicsDevice* localGDev = mServHolder.construct<std::unique_ptr<IGraphicsDevice>>(std::move(layerExp.value())).get();
 
-                mpWinMan = localWinMan;
-                mpHWLI = localHWLI;
+                mpWindowing = localWinMan;
+                mpGDev = localGDev;
 
             } catch (const std::exception& e) {
-                mLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << ":\n" << e.what() << "";
-                mServHolder.destruct<WindowManager>();
-                mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
+                mLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize graphics device backend " << info.name << ":\n" << e.what() << "";
+                mServHolder.destruct<Windowing>();
+                mServHolder.destruct<std::unique_ptr<IGraphicsDevice>>();
                 
             } catch (...) {
-                mLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize hardware layer " << manifest.name << "";
-                mServHolder.destruct<WindowManager>();
-                mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
+                mLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize graphics device backend " << info.name << "";
+                mServHolder.destruct<Windowing>();
+                mServHolder.destruct<std::unique_ptr<IGraphicsDevice>>();
             }
 
         }
 
-        if (!mpHWLI) {
-            mLogger->warn(TPR_LOG_STYLE_WARN1) << "Failed to initialize any hardware layer. Continuing without it";
-            mpWinMan = &mServHolder.construct<WindowManager>(
-                GraphicsBackend::None,
-                Logger(mpOutSink, (type_name_v_s<WindowManager> + ": "_ces).string()),
-                mAliveTokens
+        if (!mpGDev) {
+            mLogger->warn(TPR_LOG_STYLE_WARN1) << "Failed to initialize any graphics device backend. Continuing without it";
+            mpWindowing = &mServHolder.construct<Windowing>(
+                Logger(mpOutSink, (type_name_v_s<Windowing> + ": "_ces).string()),
+                *mpSched, GraphicsAPI::None
             );
+            if (auto r = mpWindowing->init(); r != TPR_SUCCESS) {
+                mLogger->panic() << "Failed to initialize Windowing [" << r << "]";
+                return 2;
+            }
         }
 
         mpAssetStore = &mServHolder.construct<AssetStore>(
             Logger(mpOutSink, (type_name_v_s<AssetStore> + ": "_ces).string()),
-            *mpFileReg, *mpHWLI
+            *mpFileReg, *mpGDev
         );
 
         mpPlugLd = &mServHolder.construct<PluginLoader>(
@@ -250,9 +257,12 @@ int TemporEngine::runtime() {
     }
 
     std::unique_lock<std::mutex> lock(mMainThreadMutex);
-    // polling because signals in C++ are dumb
+    // polling because:
+    // 1. signal handling in cross-platform C++ is dumb
+    // 2. cocoa is dumb, only main thread is allowed for UI for some reason
     while (!mRunResult.has_value() && mSignal == 0) {
-        mMainThreadCv.wait_for(lock, 10ms);
+        mMainThreadCv.wait_for(lock, 5ms);
+        mpWindowing->update();
     }
 
     if (mRunResult && mRunResult.value() == TPR_PANIC) mLogger->panic(TPR_LOG_STYLE_TIMESTAMP1) << "Engine panicked!";
@@ -267,9 +277,9 @@ int TemporEngine::runtime() {
         mpSched->shutdown();
 
         mServHolder.destruct<PluginLoader>();
-        if (mpHWLI) mServHolder.destruct<std::unique_ptr<HardwareLayer>>();
+        if (mpGDev) mServHolder.destruct<std::unique_ptr<IGraphicsDevice>>();
         mServHolder.destruct<SceneGraph>();
-        mServHolder.destruct<WindowManager>();
+        mServHolder.destruct<Windowing>();
         mServHolder.destruct<AssetStore>();
 
         mServHolder.destruct<Scheduler>();
@@ -307,17 +317,17 @@ void TemporEngine::runtimeRender() {
     }
     if (!runResult.has_value()) {
 
-        mpWinMan->update();
+        mpWindowing->update();
 
-        if (mpHWLI) {
-            if (auto result = mpHWLI->update(); result != TPR_SUCCESS) {
+        if (mpGDev) {
+            if (auto result = mpGDev->update(); result != TPR_SUCCESS) {
                 mLogger->error() << "Failed to update PHWL [" << result << "]";
                 std::lock_guard<std::mutex> lock(mMainThreadMutex);
                 mRunResult.emplace(result);
                 mMainThreadCv.notify_all();
                 return;
             }
-            if (auto result = mpHWLI->render(); result != TPR_SUCCESS) {
+            if (auto result = mpGDev->render(); result != TPR_SUCCESS) {
                 mLogger->error() << "Failed to render [" << result << "]";
                 std::lock_guard<std::mutex> lock(mMainThreadMutex);
                 mRunResult.emplace(result);

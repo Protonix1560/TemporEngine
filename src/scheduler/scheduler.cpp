@@ -105,11 +105,11 @@ expected<std::chrono::steady_clock::duration, TprResult> parseDuration(std::stri
 
 
 Scheduler::Scheduler(Logger logger, Settings& rSett) : mLogger(logger), mrSett(rSett), mTimeBegin(std::chrono::steady_clock::now()) {
-    if (logger.sink()->colourEnabled()) {
-        mSpamLogger = mLogger.derive("\e[44mspam:\e[0m ");
-    } else {
-        mSpamLogger = mLogger.derive("spam: ");
-    }
+//     if (logger.sink()->colourEnabled()) {
+//         mSpamLogger = mLogger.derive("\e[44mspam:\e[0m ");
+//     } else {
+//         mSpamLogger = mLogger.derive("spam: ");
+//     }
 }
 
 
@@ -156,9 +156,12 @@ TprResult Scheduler::init() {
 
     for (uint32_t i = 0; i < mShortPoolSize; i++) {
         auto thread = mThreads.insert_or_assign(mThreadCounter, std::make_shared<Thread>(mThreadCounter)).first->second;
-        thread->thread = std::jthread([&](std::stop_token stop) {
+        thread->thread = std::jthread([this, thread](std::stop_token stop) {
+            thread->ready.wait(false);
             shortThread(stop, thread);
         });
+        thread->ready.store_true();
+        thread->ready.notify_all();
         mLogger.trace() << "Created short thread " << mThreadCounter;
         mThreadCounter++;
     }
@@ -184,66 +187,87 @@ void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread
     while (!stop.stop_requested()) {
         auto launch = mQueue.pull(stop);
         if (!launch.has_value()) break;
+        mSpamLogger.debug() << "Processing Job " << get_basic_handle_index(launch->entry->mainHandle)
+            << " in thread " << thread->id;
         processLaunch(launch.value());
     }
 }
 
 void Scheduler::processLaunch(JobLaunch launch) {
 
-    std::unique_lock<std::mutex> currLock(launch.entry->mutex);
+    std::vector<JobLaunch> plannedLaunches;
 
-    if (launch.entry->destroyed) return;
+    if (launch.entry->destroyed.load()) return;
 
-    if (launch.entry->destructionPended) {
+    if (launch.entry->destructionPended.load()) {
+        std::lock_guard<std::mutex> schedLock(mMutex);
+        launch.entry->destroyed.store_true();
+        // entry->capabilities can't be accessed while Scheduler::mMutex is locked
         for (auto capability : launch.entry->capabilities) {
             mJobs.erase(capability);
             mLogger.trace() << "Destroyed job capability " << capability;
         }
         mJobs.erase(get_basic_handle_index(launch.entry->mainHandle));
         mLogger.trace() << "Destroyed job " << get_basic_handle_index(launch.entry->mainHandle);
-        launch.entry->destroyed = true;
 
     } else if (launch.entry->function) {
-        currLock.unlock();
+        mSpamLogger.debug() << "Launching Job " << get_basic_handle_index(launch.entry->mainHandle);
 
-        threadLocalJobInfo.job = launch.entry->mainHandle;
+        threadInfo.currentJob = launch.entry->mainHandle;
         launch.entry->function(launch.entry->context, launch.entry->mainHandle);
         // Great job!
-        threadLocalJobInfo.job.reset();
+        threadInfo.currentJob.reset();
 
-        currLock.lock();
+        mSpamLogger.debug() << "Job " << get_basic_handle_index(launch.entry->mainHandle) << " finished";
     }
 
-    for (auto job : launch.entry->dependents) {
-        std::lock_guard<std::mutex> depLock(job->mutex);
-        if (launch.entry->destructionPended) {
-            job->destructionPended = true;
-            mSpamLogger.debug() << "Pended destruction of job " << get_basic_handle_index(job->mainHandle);
+    {
+        std::lock_guard<std::mutex> launchJobLock(launch.entry->mutex);
+
+        launch.entry->usage += launch.entry->dependents.size();
+        mSpamLogger.debug() << "Incrementing (++) Job " << get_basic_handle_index(launch.entry->mainHandle)
+            << "'s usage to " << launch.entry->usage << " because of dependent jobs";
+
+        for (auto dependent : launch.entry->dependents) {
+            std::lock_guard<std::mutex> dendentLock(dependent->mutex);
+            if (launch.entry->destructionPended.load()) {
+                dependent->destructionPended.store_true();
+                mSpamLogger.debug() << "Pended destruction of job " << get_basic_handle_index(dependent->mainHandle);
+            }
+            dependent->countdown--;
+            if (dependent->countdown == 0) {
+                mSpamLogger.debug() << "Job " << get_basic_handle_index(dependent->mainHandle) << "'s countdown is 0";
+                dependent->countdown = dependent->dependencies.size();
+                plannedLaunches.push_back({dependent, std::chrono::steady_clock::now()});
+            }
         }
-        job->countdown--;
-        if (job->countdown == 0) {
-            job->countdown = job->dependencies.size();
-            launch.entry->usage++;
-            mQueue.push({job, launch.timepoint});
-        }
+
+        // decrementing here to cancel incrementation in JobQueue::pull
+        launch.entry->usage--;
+    }
+
+    for (const auto& launch : plannedLaunches) {
+        mSpamLogger.debug() << "Pushing Job " << get_basic_handle_index(launch.entry->mainHandle) << " to queue at "
+            << std::chrono::duration_cast<std::chrono::nanoseconds>(launch.timepoint - mTimeBegin).count() << " ns";
+        mQueue.push(launch);
     }
 
     for (auto weak : launch.entry->dependencies) {
-        auto job = weak.lock();
-        if (job) {
-            std::lock_guard<std::mutex> depLock(job->mutex);
-            job->usage--;
-            if (job->usage == 0 && job->nextLaunchTimepoint.has_value()) {
-                auto timepoint = job->nextLaunchTimepoint.value();
-                job->nextLaunchTimepoint.reset();
-                mQueue.push({job, timepoint});
-            }
-            if (launch.entry->destructionPended) {
-                auto it = std::ranges::find(job->dependents, launch.entry);
-                if (it != job->dependents.end()) job->dependents.erase(it);
+        auto dependency = weak.lock();
+        if (dependency) {
+            std::lock_guard<std::mutex> dependencyLock(dependency->mutex);
+            dependency->usage--;
+            mSpamLogger.debug() << "Decrementing (--) Job " << get_basic_handle_index(dependency->mainHandle)
+                << "'s usage to " << dependency->usage << " because of dependent job " << get_basic_handle_index(launch.entry->mainHandle);
+            if (launch.entry->destructionPended.load()) {
+                auto it = std::ranges::find(dependency->dependents, launch.entry);
+                if (it != dependency->dependents.end()) dependency->dependents.erase(it);
             }
         }
     }
+
+    // Some jobs' usages might have changed
+    mQueue.notify();
 }
 
 
@@ -338,14 +362,9 @@ TprResult Scheduler::scheduleJob(TprJob job, uint64_t timepoint) noexcept {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return TPR_ERROR_INVALID_VALUE;
         auto entry = handleIt->second.entry;
-        std::lock_guard<std::mutex> lock(entry->mutex);
         if (!entry->dependencies.empty()) return TPR_ERROR_INVALID_OPERATION;
-        if (!entry->dependents.empty() && entry->usage != 0) {
-            entry->nextLaunchTimepoint.emplace(mTimeBegin + std::chrono::nanoseconds(timepoint));
-        } else {
-            entry->nextLaunchTimepoint.reset();
-            mQueue.push({entry, mTimeBegin + std::chrono::nanoseconds(timepoint)});
-        }
+        mQueue.push({entry, mTimeBegin + std::chrono::nanoseconds(timepoint)});
+        mSpamLogger.debug() << "Scheduled Job " << get_basic_handle_index(entry->mainHandle) << " to queue at " << timepoint << " ns";
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
@@ -366,7 +385,7 @@ void Scheduler::pendJobDestruction(TprJob job) noexcept {
         if (handleIt == mJobs.end()) return;
         auto entry = handleIt->second.entry;
         std::lock_guard<std::mutex> entryLock(entry->mutex);
-        entry->destructionPended = true;
+        entry->destructionPended.store_true();
         mQueue.push(JobLaunch{entry, {}});
         mSpamLogger.debug() << "Pended destruction of job " << get_basic_handle_index(job);
 
@@ -379,7 +398,12 @@ void Scheduler::pendJobDestruction(TprJob job) noexcept {
     }
 }
 
+
 uint64_t Scheduler::now() noexcept {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - mTimeBegin).count();
+}
+
+std::chrono::steady_clock::time_point Scheduler::timeBegin() {
+    return mTimeBegin;
 }
 

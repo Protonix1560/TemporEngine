@@ -1,7 +1,7 @@
 
 #include "asset_store/asset_store_common.hpp"
 #include "core.hpp"
-#include "hardware_layer.hpp"
+#include "backend.hpp"
 #include "interval_union.hpp"
 #include "plugin_core.h"
 
@@ -11,7 +11,7 @@
 #include <cstring>
 
 
-TprResult HardwareLayerVulkan::loadMesh(const AssetMesh& mesh) noexcept {
+TprResult VulkanBackend::loadMesh(const AssetMesh& mesh) noexcept {
 
     TprResult tprResult;
 
@@ -114,7 +114,7 @@ TprResult HardwareLayerVulkan::loadMesh(const AssetMesh& mesh) noexcept {
 }
 
 
-void HardwareLayerVulkan::unloadMesh(TprMesh handle) noexcept {
+void VulkanBackend::unloadMesh(TprMesh handle) noexcept {
     try {
         auto it = mMeshes.find(handle._d);
         if (it == mMeshes.end()) return;

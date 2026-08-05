@@ -1,4 +1,4 @@
-leak:libSDL2*
+leak:libSDL3*
 leak:libdbus-1*
 leak:libgtk-3*
 leak:libfontconfig*

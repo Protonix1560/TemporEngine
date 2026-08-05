@@ -16,4 +16,6 @@ rm -rf build/plugins
 echo removing test directory
 rm -rf test
 
-./build-and-run.sh
+echo
+
+./build-run.sh

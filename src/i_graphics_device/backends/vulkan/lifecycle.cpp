@@ -1,11 +1,12 @@
 
-#include "hardware_layer.hpp"
+#include "backend.hpp"
 #include "core.hpp"
+#include "i_graphics_device.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
 #include "file_registry.hpp"
 #include "settings.hpp"
-#include "window_manager.hpp"
+#include "windowing.hpp"
 #include "plugin_core.h"
 #include "scene_graph.hpp"
 
@@ -26,24 +27,22 @@
 
 
 // registring renderer
-expected<PHardwareLayer, TprResult> registerLayerVulkan(
-    Logger logger, FileRegistry& rFileReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
-    uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+expected<PGraphicsDevice, TprResult> registerLayerVulkan(
+    Logger logger, FileRegistry& rFileReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+    TprComponent componentRenderable, uint64_t packedVersion
 ) {
     try {
-        return std::unique_ptr<HardwareLayer>(std::make_unique<HardwareLayerVulkan>(
-            logger, rFileReg, rWinMan, rSettings, rScGr, componentRenderable, engineVersionVariant, engineVersionMajor, engineVersionMinor, engineVersionPatch
-        ));
+        return PGraphicsDevice(std::make_unique<VulkanBackend>(logger, rFileReg, rWinMan, rSettings, rScGr, componentRenderable, packedVersion));
     } catch (TprResult r) {
         return unexpected(r);
     }
 }
-HardwareLayerManifest manifestVulkanHWL {
-    GraphicsBackend::Vulkan,
+GraphicsDeviceBackendInfo infoVulkanBackend {
+    GraphicsAPI::Vulkan,
     registerLayerVulkan,
     "Standard Vulkan HWL"
 };
-static_registry<HardwareLayerManifest, 0>::registrar registrar(manifestVulkanHWL);
+static_registry<GraphicsDeviceBackendInfo, 0>::registrar registrar(infoVulkanBackend);
 
 
 
@@ -65,9 +64,9 @@ inline constexpr T1 loadPFN(T2 context, const char* name) {
 
 
 
-HardwareLayerVulkan::HardwareLayerVulkan(
-    Logger logger, FileRegistry& rResReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
-    uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+VulkanBackend::VulkanBackend(
+    Logger logger, FileRegistry& rResReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+    TprComponent componentRenderable, uint64_t packedVersion
 ) : mLogger(logger), mrFileReg(rResReg), mrWinMan(rWinMan), mrSettings(rSettings), mrScGr(rScGr), mComponentRenderable(componentRenderable)
 {
     
@@ -100,7 +99,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
         VkApplicationInfo appInfo{};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         appInfo.applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
-        appInfo.engineVersion = VK_MAKE_API_VERSION(engineVersionVariant, engineVersionMajor,engineVersionMinor, engineVersionPatch);
+        appInfo.engineVersion = packedVersion;
         appInfo.apiVersion = mApiVer;
         appInfo.pEngineName = "Tempor Engine";
         appInfo.pApplicationName = "Standart Vulkan HWL";
@@ -138,31 +137,16 @@ HardwareLayerVulkan::HardwareLayerVulkan(
             }
         }
 
-        TprWindow tmpWindow;
-        TprWindowCreateInfo tmpWindowCreateInfo{};
-        tmpWindowCreateInfo.name = "tmp tempor window";
-        tmpWindowCreateInfo.prefferedWidth = 0;
-        tmpWindowCreateInfo.prefferedHeight = 0;
-        tmpWindowCreateInfo.flags = TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT;
-        mLogger.debug() << "Opening a hidden temporary window\n";
-        auto tmpWindowExp = mrWinMan.openWindow(&tmpWindowCreateInfo);
-        if (!tmpWindowExp.has_value()) {
-            mLogger.error(TPR_LOG_STYLE_ERROR1) << "Failed to open a temporary window\n";
-            throw tmpWindowExp.error();
-        }
-        tmpWindow = tmpWindowExp.value();
-
         mLogger.debug() << "Getting Vulkan Instance extension list\n";
         // extensions
-        auto extExp = mrWinMan.getExtensionsVk(tmpWindow);
+        auto extExp = mrWinMan.getVkInstanceExtensions();
         if (!extExp.has_value()) throw extExp.error();
-        std::vector<const char*> extensions = extExp.value();
+        auto windowingExtensions = extExp.value();
+        std::vector<const char*> extensions(windowingExtensions.begin(), windowingExtensions.end());
         if (mrSettings.createSettingBoolOr(mrSettings.getRoot(), "standartVulkanHWL.enableDebugUtils", false)) {
             createDebugMessenger = true;
             extensions.push_back("VK_EXT_debug_utils");
         }
-        mInstanceExtensions.insert(mInstanceExtensions.end(), extensions.begin(), extensions.end());
-        mrWinMan.closeWindow(tmpWindow);
 
         uint32_t extCount;
         vkResult = mSym.vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
@@ -238,7 +222,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
                 const VkDebugUtilsMessengerCallbackDataEXT* callback, void* userData
             ) -> VkBool32 {
 
-                HardwareLayerVulkan* This = reinterpret_cast<HardwareLayerVulkan*>(userData);
+                VulkanBackend* This = reinterpret_cast<VulkanBackend*>(userData);
 
                 if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
                     This->mLogger.warn(TPR_LOG_STYLE_WARN1) << callback->pMessage << "\n";
@@ -524,7 +508,7 @@ HardwareLayerVulkan::HardwareLayerVulkan(
 
 
 
-TprResult HardwareLayerVulkan::update() {
+TprResult VulkanBackend::update() {
 
     TprResult tprResult;
     VkResult vkResult;
@@ -772,7 +756,7 @@ TprResult HardwareLayerVulkan::update() {
 }
 
 
-HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
+VulkanBackend::~VulkanBackend() noexcept {
 
     mSym.vkDeviceWaitIdle(mDevice);
 
@@ -803,25 +787,11 @@ HardwareLayerVulkan::~HardwareLayerVulkan() noexcept {
 }
 
 
-TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
+TprResult VulkanBackend::registerWindow(TprWindow handle) noexcept {
 
     TprResult result;
 
     try {
-
-        // checking if instance has all required extensions
-        auto extExp = mrWinMan.getExtensionsVk(handle);
-        if (!extExp.has_value()) return extExp.error();
-        std::vector<const char*> requiredExtensions = extExp.value();
-        for (const auto& reqExt : requiredExtensions) {
-            for (const auto& preExt : mInstanceExtensions) {
-                if (std::strcmp(reqExt, preExt) == 0) goto found_match;
-            }
-            // loop ended, didn't find a matching name
-            return TPR_INSUFFICIENT_INIT;
-            found_match: ;
-        }
-
         auto exp = createWindowContext(0, handle);
         if (!exp.has_value()) return exp.error();
 
@@ -839,7 +809,7 @@ TprResult HardwareLayerVulkan::registerWindow(TprWindow handle) noexcept {
 }
 
 
-void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
+void VulkanBackend::unregisterWindow(TprWindow handle) noexcept {
     try {
         auto it = mWindowContexts.find(handle._d);
         if (it == mWindowContexts.end()) return;
@@ -860,7 +830,7 @@ void HardwareLayerVulkan::unregisterWindow(TprWindow handle) noexcept {
 }
 
 
-TprResult HardwareLayerVulkan::render() {
+TprResult VulkanBackend::render() {
 
     mFrameCounter = (mFrameCounter + 1) % mMaxFramesInFlight;
     VkResult result;
@@ -895,21 +865,21 @@ TprResult HardwareLayerVulkan::render() {
 
             // auto resizing the swapchain if size changed
             // Wayland sometimes doesn't invalidate the VkSurface even if it's size has changed so a manual recreation is nessesary
-            TprBool8 resized;
-            auto exp = mrWinMan.hasWindowResized(ctx.handle());
-            if (!exp.has_value()) {
-                return exp.error();
-            }
-            resized = exp.value();
-            if (resized) {
-                result = mSym.vkDeviceWaitIdle(mDevice);
-                if (result != VK_SUCCESS) {
-                    mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
-                    return TPR_UNKNOWN_ERROR;
-                }
-                ctx.recreate();
-                return TPR_SUCCESS;
-            }
+            // TprBool8 resized;
+            // auto exp = mrWinMan.hasWindowResized(ctx.handle());
+            // if (!exp.has_value()) {
+            //     return exp.error();
+            // }
+            // resized = exp.value();
+            // if (resized) {
+            //     result = mSym.vkDeviceWaitIdle(mDevice);
+            //     if (result != VK_SUCCESS) {
+            //         mLogger.error(TPR_LOG_STYLE_ERROR1) << "render: vkDeviceWaitIdle failed [" << result << "]\n";
+            //         return TPR_UNKNOWN_ERROR;
+            //     }
+            //     ctx.recreate();
+            //     return TPR_SUCCESS;
+            // }
 
             // acquiring swapchain image
             result = mSym.vkAcquireNextImageKHR(mDevice, ctx.swapchain(), UINT64_MAX, frame.imageAvailableSemaphore, VK_NULL_HANDLE, &swapchainImageIndex);

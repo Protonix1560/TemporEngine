@@ -2,7 +2,6 @@
 
 #include "asset_store.hpp"
 #include "core.hpp"
-#include "hardware_layer_interface.hpp"
 #include "plugin_core.h"
 #include "logger.hpp"
 #include "file_registry.hpp"
@@ -15,7 +14,7 @@
 
 
 
-AssetStore::AssetStore(Logger logger, FileRegistry& rFileReg, HardwareLayer& rHWLI) : mLogger(logger), mrFileReg(rFileReg), mrHWLI(rHWLI) {}
+AssetStore::AssetStore(Logger logger, FileRegistry& rFileReg, IGraphicsDevice& rHWLI) : mLogger(logger), mrFileReg(rFileReg), mrHWLI(rHWLI) {}
 
 
 AssetStore::~AssetStore() noexcept {}

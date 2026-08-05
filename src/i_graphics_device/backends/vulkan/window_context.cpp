@@ -1,10 +1,10 @@
 
 #include "core.hpp"
 #include "plugin_core.h"
-#include "hardware_layer.hpp"
+#include "backend.hpp"
 #include "logger.hpp"
 #include "file_registry.hpp"
-#include "window_manager.hpp"
+#include "windowing.hpp"
 
 #include <algorithm>
 
@@ -13,7 +13,7 @@
 
 
 WindowContext::WindowContext(
-    Logger logger, Allocator& rAlloc, WindowManager& rWinMan, FileRegistry& rFileReg, 
+    Logger logger, Allocator& rAlloc, Windowing& rWinMan, FileRegistry& rFileReg, 
     VulkanSymbols& rSym, VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
     uint32_t queueFamilyIndex, uint32_t maxFramesInFlight, TprWindow window, VkPipelineLayout layout,
     VkDescriptorSetLayout objectSetLayout
@@ -36,7 +36,7 @@ WindowContext::WindowContext(
 TprResult WindowContext::constructPersistent() {
     VkResult vkResult;
 
-    auto surfaceExp = mrWinMan.createSurfaceVk(mWindowHandle, mInstance);
+    auto surfaceExp = mrWinMan.createVkSurfaceKHR(mWindowHandle, mInstance, nullptr);
     if (!surfaceExp.has_value()) throw surfaceExp.error();
     mSurface = surfaceExp.value();
 
@@ -124,9 +124,9 @@ TprResult WindowContext::constructInvalidatable() {
     }
 
     if (surfaceCaps.currentExtent.width == UINT32_MAX && surfaceCaps.currentExtent.height == UINT32_MAX) {
-        int32_t width = mrWinMan.getWindowWidth(mWindowHandle).value();
-        int32_t height = mrWinMan.getWindowHeight(mWindowHandle).value();
-        mExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+        uint32_t width = mrWinMan.windowPixelWidth(mWindowHandle).value();
+        uint32_t height = mrWinMan.windowPixelHeight(mWindowHandle).value();
+        mExtent = {width, height};
         mExtent.width = std::clamp(
             mExtent.width,
             surfaceCaps.minImageExtent.width,

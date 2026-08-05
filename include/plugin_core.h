@@ -57,30 +57,29 @@ typedef enum TprResult {
     TPR_SUCCESS = 0,
     TPR_PANIC = -1,
 
-    TPR_MODULE_NOT_LOADED = 1,
+    TPR_ERROR_MODULE_NOT_LOADED = -2,
+    TPR_ERROR_INVALID_VALUE = -3,
+    TPR_ERROR_INVALID_OPERATION = -4,
+    TPR_ERROR_DOESNT_EXIST = -5,
+    TPR_ERROR_NOT_PERMITTED = -6,
+    TPR_ERROR_WRONG_TYPE = -7,
+    TPR_ERROR_OUT_OF_RANGE = -8,
+    TPR_ERROR_OUT_OF_MEMORY = -9,
 
-    TPR_ERROR_INVALID_VALUE = -2,
-    TPR_ERROR_INVALID_OPERATION = -3,
-    TPR_ERROR_DOESNT_EXIST = -4,
-    TPR_ERROR_NOT_PERMITTED = -5,
-    TPR_ERROR_WRONG_TYPE = -6,
-    TPR_ERROR_OUT_OF_RANGE = -7,
-    TPR_ERROR_OUT_OF_MEMORY = -8,
-
-    TPR_COUNT_OVERFLOW = -8,
-    TPR_UNKNOWN_ERROR = -9,
-    TPR_INSUFFICIENT_INIT = -10,
-    TPR_BAD_ALLOC = -11,
-    TPR_PARSE_ERROR = -12,
-    TPR_USER_CODE_ERROR = -13,
-    TPR_NOT_SUPPORTED = -14,
+    TPR_COUNT_OVERFLOW = -10,
+    TPR_UNKNOWN_ERROR = -11,
+    TPR_INSUFFICIENT_INIT = -12,
+    TPR_BAD_ALLOC = -13,
+    TPR_PARSE_ERROR = -14,
+    TPR_USER_CODE_ERROR = -15,
+    TPR_NOT_SUPPORTED = -16,
     TPR_ALREADY_EXISTS = -17,
     TPR_VERSION_MISMATCH = -18,
 
     _TPR_RESULT_MAX_ENUM = _TPR_MAX_ENUM
 } TprResult;
 
-typedef enum TprInputElement {
+typedef enum TprInputDevice {
     TPR_KEY_A = 1,
     TPR_KEY_B = 2,
     TPR_KEY_C = 3,
@@ -192,13 +191,14 @@ typedef enum TprInputElement {
     TPR_MOUSE_BUTTON4 = 1004,
     TPR_MOUSE_BUTTON5 = 1005,
 
-    TPR_MOUSE_WHEEL_UP = 10001,
-    TPR_MOUSE_WHEEL_DOWN = 10002,
+    TPR_MOUSE_WHEEL = 2001,
 
-    TPR_MOUSE_MOTION = 100000,
+    TPR_MOUSE_MOTION = 3001,
 
-    _TPR_KEY_MAX_ENUM = _TPR_MAX_ENUM
-} TprInputElement;
+    TPR_WINDOW_SIZE = 4001,
+
+    _TPR_INPUT_DEVICE_MAX_ENUM = _TPR_MAX_ENUM
+} TprInputDevice;
 
 typedef enum TprSettingType {
     TPR_SETTING_TYPE_UNSET = 0,
@@ -209,7 +209,7 @@ typedef enum TprSettingType {
     TPR_SETTING_TYPE_NULL = 5,
     TPR_SETTING_TYPE_ARRAY = 6,
     TPR_SETTING_TYPE_STRUCT = 7,
-    _TPR_SETTING_MAX_ENUM = _TPR_MAX_ENUM
+    _TPR_SETTING_TYPE_MAX_ENUM = _TPR_MAX_ENUM
 } TprSettingType;
 
 typedef enum TprSeekWhence {
@@ -237,6 +237,13 @@ typedef enum TprJobTriggerType {
     _TPR_JOB_TRIGGER_TYPE_MAX_ENUM = _TPR_MAX_ENUM
 } TprJobTriggerType;
 
+typedef enum TprActionMeasureType {
+    TPR_MEASURE_TYPE_ABSOLUTE = 0,
+    TPR_MEASURE_TYPE_DIFFERENCE = 1,
+    TPR_MEASURE_TYPE_DERIVATIVE = 2,
+    _TPR_MEASURE_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+} TprActionMeasureType;
+
 
 // flags
 
@@ -247,10 +254,20 @@ typedef enum TprCreateWindowFlagBits {
 } TprCreateWindowFlagBits;
 typedef _TprFlag_T TprCreateWindowFlags;
 
+typedef enum TprWindowCapabilityFlagBits {
+    _TPR_WINDOW_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprWindowCapabilityFlagBits;
+typedef _TprFlag_T TprWindowCapabilityFlags;
+
 typedef enum TprCreateActionFlagBits {
     _TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateActionFlagBits;
 typedef _TprFlag_T TprCreateActionFlags;
+
+typedef enum TprActionCapabilityFlagBits {
+    _TPR_ACTION_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprActionCapabilityFlagBits;
+typedef _TprFlag_T TprActionCapabilityFlags;
 
 typedef enum TprCreateDepthDomainFlagBits {
     TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_FLAG_BIT = 0x1,
@@ -338,21 +355,33 @@ typedef struct TprJob { uint64_t _d; } TprJob;
 
 // data structs
 
+typedef struct TprVec4 {
+    float x;
+    float y;
+    float z;
+    float w;
+} TprVec4;
+
+typedef struct TprMat4x4 {
+    float x0, y0, z0, w0;
+    float x1, y1, z1, w1;
+    float x2, y2, z2, w2;
+    float x3, y3, z3, w3;
+} TprMat4x4;
+
 typedef struct TprEntity {
     uint32_t id; 
 } TprEntity;
 
-typedef struct TprInputElementVector {
-    float x;
-    float y;
-    float z;
-} TprInputElementVector;
-
 typedef struct TprActionState {
-    TprInputElementVector vector;
-    TprBool8 state;
-    uint32_t framesActive;
+    TprVec4 vector;
+    uint64_t timepoint;
 } TprActionState;
+
+typedef struct TprActionHistoryEntry {
+    TprAction action;
+    TprActionState state;
+} TprActionHistoryEntry;
 
 typedef struct TprScissor {
     uint32_t x;
@@ -370,13 +399,6 @@ typedef struct TprViewport {
     float maxDepth;
 } TprViewport;
 
-typedef struct TprMat4x4 {
-    float x0, y0, z0, w0;
-    float x1, y1, z1, w1;
-    float x2, y2, z2, w2;
-    float x3, y3, z3, w3;
-} TprMat4x4;
-
 typedef struct TprComponentRenderable {
     TprObjectImage image;
     TprMat4x4 transform;
@@ -388,15 +410,15 @@ typedef struct TprComponentRenderable {
 typedef struct TprWindowCreateInfo {
     TprCreateWindowFlags flags;
     const char* name;
-    int32_t prefferedWidth;
-    int32_t prefferedHeight;
+    uint32_t width;
+    uint32_t height;
 } TprWindowCreateInfo;
 
 typedef struct TprActionCreateInfo {
     TprCreateActionFlags flags;
-    TprInputElement element;
-    float highThreshold;
-    float lowThreshold;
+    TprInputDevice device;
+    TprActionMeasureType measureType;
+    TprWindow window;
 } TprActionCreateInfo;
 
 typedef struct TprMeshCreateInfo {

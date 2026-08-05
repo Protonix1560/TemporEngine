@@ -1,14 +1,14 @@
 
 #include "core.hpp"
-#include "hardware_layer.hpp"
+#include "backend.hpp"
 #include "plugin_core.h"
 
 
-Allocator HardwareLayerVulkan::createAllocator() {
+Allocator VulkanBackend::createAllocator() {
     return Allocator(mLogger.derive("Allocator: "), mSym, mPhysicalDevice, mDevice);
 }
 
-expected<Buffer, TprResult> HardwareLayerVulkan::createBuffer(
+expected<Buffer, TprResult> VulkanBackend::createBuffer(
     uint32_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
     VkSharingMode sharingMode, std::span<uint32_t> queueFamilyIndices
 ) {
@@ -23,14 +23,13 @@ expected<Buffer, TprResult> HardwareLayerVulkan::createBuffer(
     }
 }
 
-expected<WindowContext, TprResult> HardwareLayerVulkan::createWindowContext(uint32_t queueFamilyIndex, TprWindow window) {
+expected<WindowContext, TprResult> VulkanBackend::createWindowContext(uint32_t queueFamilyIndex, TprWindow window) {
     if (!mAlloc.has_value()) return unexpected(TPR_UNKNOWN_ERROR);
     try {
         return WindowContext(
-            mLogger.derive("WindowContext: "), mAlloc.value(), mrWinMan, mrFileReg, mSym,
-            mInstance, mPhysicalDevice, mDevice, queueFamilyIndex,
-            mMaxFramesInFlight, window, mBasicPipelinelayout,
-            mObjectDataSetLayout
+            mLogger.derive("WindowContext: "), mAlloc.value(), mrWinMan,
+            mrFileReg, mSym, mInstance, mPhysicalDevice, mDevice, queueFamilyIndex,
+            mMaxFramesInFlight, window, mBasicPipelinelayout, mObjectDataSetLayout
         );
     } catch (TprResult r) {
         return unexpected(r);

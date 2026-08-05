@@ -6,6 +6,8 @@
 #include "plugin_core.h"
 #include "logger.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <compare>
 #include <condition_variable>
@@ -20,14 +22,72 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
-#include <queue>
+
+
+template <typename T>
+class atomic_counter {
+    public:
+        atomic_counter() : value() {}
+        atomic_counter(T v) : value(v) {}
+
+        T load(std::memory_order order = std::memory_order_seq_cst) const noexcept {
+            return value.load(order);
+        }
+        T exchange_increment(std::memory_order order = std::memory_order_seq_cst) noexcept {
+            T v = value.load(order);
+            while (true) {
+                if (v == std::numeric_limits<T>::max()) return v;
+                bool ok = value.compare_exchange_weak(v, v + 1, order);
+                if (ok) return v;
+            }
+        }
+        void wait(T v, std::memory_order order = std::memory_order_seq_cst) const noexcept {
+            value.wait(v, order);
+        }
+        void notify_all() noexcept {
+            value.notify_all();
+        }
+        void notify_one() noexcept {
+            value.notify_one();
+        }
+    private:
+        std::atomic<T> value;
+};
+
+template <>
+class atomic_counter<bool> {
+    public:
+        atomic_counter() : value() {}
+        atomic_counter(bool value) : value(value) {}
+
+        bool load(std::memory_order order = std::memory_order_seq_cst) const noexcept {
+            return value.load(order);
+        }
+        void store_true(std::memory_order order = std::memory_order_seq_cst) noexcept {
+            value.store(true, order);
+        }
+        bool exchange_true(std::memory_order order = std::memory_order_seq_cst) noexcept {
+            return value.exchange(true, order);
+        }
+        void wait(bool v, std::memory_order order = std::memory_order_seq_cst) const noexcept {
+            value.wait(v, order);
+        }
+        void notify_all() noexcept {
+            value.notify_all();
+        }
+        void notify_one() noexcept {
+            value.notify_one();
+        }
+    private:
+        std::atomic<bool> value;
+};
 
 
 struct JobEntry {
+    atomic_counter<bool> destroyed;
+    atomic_counter<bool> destructionPended;
+
     std::mutex mutex;
-    bool destroyed = false;
-    bool destructionPended = false;
-    std::optional<std::chrono::steady_clock::time_point> nextLaunchTimepoint;
 
     const std::vector<std::weak_ptr<JobEntry>> dependencies;
     size_t countdown;
@@ -59,6 +119,7 @@ struct JobHandle {
 
 struct Thread {
     const uint32_t id;
+    atomic_counter<bool> ready{false};
     std::jthread thread;
     Thread(uint32_t id) : id(id) {}
 };
@@ -74,10 +135,11 @@ struct JobLaunch {
 
 struct JobQueue {
     public:
-        void push(JobLaunch&& entry) {
+        void push(const JobLaunch& launch) {
             {
                 std::lock_guard<std::mutex> lock(mMutex);
-                mJobs.push(std::forward<JobLaunch>(entry));
+                auto it = std::ranges::lower_bound(mLaunches, launch, std::greater<JobLaunch>{});
+                mLaunches.emplace(it, launch);
             }
             mCv.notify_all();
         }
@@ -86,16 +148,22 @@ struct JobQueue {
             std::stop_callback callback(stop, [&]() { mCv.notify_all(); });
             std::unique_lock<std::mutex> lock(mMutex);
             while (!stop.stop_requested()) {
-                if (mJobs.empty()) {
+                if (mLaunches.empty()) {
                     mCv.wait(lock);
                 } else {
-                    mCv.wait_until(lock, mJobs.top().timepoint);
+                    mCv.wait_until(lock, mLaunches.back().timepoint);
                 }
-                if (!mJobs.empty()) {
-                    auto now = std::chrono::steady_clock::now();
-                    if (mJobs.top().timepoint <= now) {
-                        auto launch = mJobs.top();
-                        mJobs.pop();
+                auto now = std::chrono::steady_clock::now();
+                for (auto it = mLaunches.begin(); it != mLaunches.end(); it++) {
+                    auto launch = *it;
+                    if (launch.timepoint > now) break;
+                    std::lock_guard<std::mutex> lock(launch.entry->mutex);
+                    if (launch.entry->usage == 0) {
+                        // incrementing it here so another thread wouldn't pull a launch
+                        // of this job before working thread locks it
+                        launch.entry->usage++;
+                        mLaunches.erase(it);
+                        mCv.notify_all();
                         return launch;
                     }
                 }
@@ -103,9 +171,13 @@ struct JobQueue {
             return std::nullopt;
         }
 
+        void notify() {
+            mCv.notify_all();
+        }
+
     private:
         std::mutex mMutex;
-        std::priority_queue<JobLaunch, std::vector<JobLaunch>, std::greater<JobLaunch>> mJobs;
+        std::vector<JobLaunch> mLaunches;
         std::condition_variable mCv;
 };
 
@@ -126,6 +198,8 @@ class Scheduler {
         TprResult scheduleJob(TprJob job, uint64_t timepoint) noexcept;
         void pendJobDestruction(TprJob job) noexcept;
         uint64_t now() noexcept;
+
+        std::chrono::steady_clock::time_point timeBegin();
 
     private:
 

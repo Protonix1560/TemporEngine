@@ -12,9 +12,9 @@
 #include "plugin_loader.hpp"
 #include "scene_graph.hpp"
 #include "logger.hpp"
-#include "window_manager.hpp"
+#include "windowing.hpp"
 #include "file_registry.hpp"
-#include "hardware_layer_interface.hpp"
+#include "i_graphics_device.hpp"
 #include "asset_store.hpp"
 #include "settings.hpp"
 #include "scheduler.hpp"
@@ -222,13 +222,16 @@ class TemporEngine {
             TprResult fs_remove(const char* path) noexcept;
             TprResult fs_move(const char* path, const char* newPath) noexcept;
             // win
-            TprResult win_openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept;
-            void win_closeWindow(TprWindow windo) noexcept;
-            // input
-            TprResult input_createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept;
-            void input_destroyAction(TprAction action) noexcept;
-            TprResult input_getActionState(TprAction action, TprActionState* pState) noexcept;
-            TprResult input_getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept;
+            TprResult win_openWindow(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) noexcept;
+            TprResult win_createWindowCapability(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) noexcept;
+            void win_closeWindow(TprWindow window) noexcept;
+            TprResult win_createAction(const TprActionCreateInfo* pInfo, TprAction* pAction) noexcept;
+            TprResult win_createActionCapability(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) noexcept;
+            void win_destroyAction(TprAction action) noexcept;
+            TprResult win_getActionsHistorySize(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) noexcept;
+            TprResult win_copyActionsHistory(TprActionHistoryEntry* pEntries, uint32_t filterCount, const TprAction* pFilters) noexcept;
+            TprResult win_getActionState(TprAction action, TprActionState* pState) noexcept;
+            TprJob win_getInputUpdateJob() noexcept;
             // geo
             TprResult geo_createMesh(const TprMeshCreateInfo* pCreateInfo, TprMesh* pMesh) noexcept;
             TprResult geo_loadMesh(TprMesh mesh, const TprMeshLoadInfo* pLoadInfo) noexcept;
@@ -285,15 +288,14 @@ class TemporEngine {
         std::mutex mMainThreadMutex;
         std::optional<TprResult> mRunResult;
 
-        TprEngineAPI::Out mOutAPI{};
-        TprEngineAPI::FS mFSAPI{};
+        TprEngineAPI::Output mOutAPI{};
+        TprEngineAPI::FileSystem mFSAPI{};
         TprEngineAPI::Scene mSceneAPI{};
-        TprEngineAPI::Geo mGeoAPI{};
-        TprEngineAPI::Win mWinAPI{};
-        TprEngineAPI::Input mInputAPI{};
-        TprEngineAPI::Conf mConfAPI{};
+        TprEngineAPI::Geometry mGeoAPI{};
+        TprEngineAPI::Windowing mWinAPI{};
+        TprEngineAPI::Configuration mConfAPI{};
         TprEngineAPI::Render mRenderAPI{};
-        TprEngineAPI::Sched mSchedAPI{};
+        TprEngineAPI::Scheduling mSchedAPI{};
         TprEngineAPI mAPI{};
 
         void registerAPI();
@@ -301,7 +303,7 @@ class TemporEngine {
         expected<PluginInfo, TprResult> activePluginInfo();
 
         service_singleton_holder<
-            WindowManager, PHardwareLayer, AssetStore, SceneGraph, PluginLoader,
+            Windowing, PGraphicsDevice, AssetStore, SceneGraph, PluginLoader,
             FileRegistry, Settings, Scheduler, OutputSinkVariant
         > mServHolder;
 
@@ -311,8 +313,8 @@ class TemporEngine {
         bool mColourEnabled;
 
         FileRegistry* mpFileReg = nullptr;
-        WindowManager* mpWinMan = nullptr;
-        HardwareLayer* mpHWLI = nullptr;
+        Windowing* mpWindowing = nullptr;
+        IGraphicsDevice* mpGDev = nullptr;
         AssetStore* mpAssetStore = nullptr;
         PluginLoader* mpPlugLd = nullptr;
         SceneGraph* mpSceneGraph = nullptr;

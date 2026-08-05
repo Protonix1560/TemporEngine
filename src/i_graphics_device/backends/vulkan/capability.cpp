@@ -1,10 +1,10 @@
 
 #include "core.hpp"
-#include "hardware_layer.hpp"
+#include "backend.hpp"
 #include "plugin_core.h"
 
 
-expected<TprDepthDomain, TprResult> HardwareLayerVulkan::createDepthDomain(const TprDepthDomainCreateInfo* pInfo) noexcept {
+expected<TprDepthDomain, TprResult> VulkanBackend::createDepthDomain(const TprDepthDomainCreateInfo* pInfo) noexcept {
     if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     TprDepthDomain handle;
@@ -40,7 +40,7 @@ expected<TprDepthDomain, TprResult> HardwareLayerVulkan::createDepthDomain(const
 }
 
 
-void HardwareLayerVulkan::destroyDepthDomain(TprDepthDomain domain) noexcept {
+void VulkanBackend::destroyDepthDomain(TprDepthDomain domain) noexcept {
     try {
         auto storageIt = mDepthDomains.find(get_basic_handle_index(domain));
         if (storageIt == mDepthDomains.end()) return;
@@ -59,7 +59,7 @@ void HardwareLayerVulkan::destroyDepthDomain(TprDepthDomain domain) noexcept {
 }
 
 
-expected<TprRenderTarget, TprResult> HardwareLayerVulkan::createRenderTarget(const TprRenderTargetCreateInfo* pInfo) noexcept {
+expected<TprRenderTarget, TprResult> VulkanBackend::createRenderTarget(const TprRenderTargetCreateInfo* pInfo) noexcept {
     if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
 
     TprRenderTarget handle;
@@ -81,7 +81,7 @@ expected<TprRenderTarget, TprResult> HardwareLayerVulkan::createRenderTarget(con
 }
 
 
-void HardwareLayerVulkan::destroyRenderTarget(TprRenderTarget target) noexcept {
+void VulkanBackend::destroyRenderTarget(TprRenderTarget target) noexcept {
     try {
         auto it = mRenderTargets.find(get_basic_handle_index(target));
         if (it == mRenderTargets.end()) return;
@@ -95,7 +95,7 @@ void HardwareLayerVulkan::destroyRenderTarget(TprRenderTarget target) noexcept {
 }
 
 
-expected<TprObjectImage, TprResult> HardwareLayerVulkan::createObjectImage(const TprObjectImageCreateInfo* pInfo) noexcept {
+expected<TprObjectImage, TprResult> VulkanBackend::createObjectImage(const TprObjectImageCreateInfo* pInfo) noexcept {
     if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (pInfo->renderTargetCount > 0 && !pInfo->pRenderTargets) return unexpected(TPR_ERROR_INVALID_VALUE);
 
@@ -128,7 +128,7 @@ expected<TprObjectImage, TprResult> HardwareLayerVulkan::createObjectImage(const
 }
 
 
-void HardwareLayerVulkan::destroyObjectImage(TprObjectImage image) noexcept {
+void VulkanBackend::destroyObjectImage(TprObjectImage image) noexcept {
     try {
         auto it = mObjectImages.find(get_basic_handle_index(image));
         if (it == mObjectImages.end()) return;

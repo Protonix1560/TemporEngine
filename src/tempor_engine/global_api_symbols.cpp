@@ -123,26 +123,35 @@ namespace api {
     }
 
     namespace win {
-        TprResult openWindow(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) noexcept {
-            assert(gEngine); return gEngine->win_openWindow(pCreateInfo, pWindow);
+        TprResult openWindow(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) noexcept {
+            assert(gEngine); return gEngine->win_openWindow(pInfo, pWindow);
+        }
+        TprResult createWindowCapability(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) noexcept {
+            assert(gEngine); return gEngine->win_createWindowCapability(window, mask, pWindow);
         }
         void closeWindow(TprWindow window) noexcept {
             assert(gEngine); gEngine->win_closeWindow(window);
         }
-    }
-
-    namespace input {
-        TprResult createAction(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) noexcept {
-            assert(gEngine); return gEngine->input_createAction(window, pCreateInfo, pAction);
+        TprResult createAction(const TprActionCreateInfo* pInfo, TprAction* pAction) noexcept {
+            assert(gEngine); return gEngine->win_createAction(pInfo, pAction);
+        }
+        TprResult createActionCapability(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) noexcept {
+            assert(gEngine); return gEngine->win_createActionCapability(action, mask, pAction);
         }
         void destroyAction(TprAction action) noexcept {
-            assert(gEngine); gEngine->input_destroyAction(action);
+            assert(gEngine); gEngine->win_destroyAction(action);
+        }
+        TprResult getActionsHistorySize(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) noexcept {
+            assert(gEngine); return gEngine->win_getActionsHistorySize(filterCount, pFilters, pSize);
+        }
+        TprResult copyActionsHistory(TprActionHistoryEntry* pEntries, uint32_t filterCount, const TprAction* pFilters) noexcept {
+            assert(gEngine); return gEngine->win_copyActionsHistory(pEntries, filterCount, pFilters);
         }
         TprResult getActionState(TprAction action, TprActionState* pState) noexcept {
-            assert(gEngine); return gEngine->input_getActionState(action, pState);
+            assert(gEngine); return gEngine->win_getActionState(action, pState);
         }
-        TprResult getInputElementVector(TprWindow window, TprInputElement element, TprInputElementVector* pVector) noexcept {
-            assert(gEngine); return gEngine->input_getInputElementVector(window, element, pVector);
+        TprJob getInputUpdateJob() noexcept {
+            assert(gEngine); return gEngine->win_getInputUpdateJob();
         }
     }
 
@@ -339,12 +348,15 @@ void TemporEngine::registerAPI() {
     mGeoAPI.destroyMesh = api::geo::destroyMesh;
     // win
     mWinAPI.openWindow = api::win::openWindow;
+    mWinAPI.createWindowCapability = api::win::createWindowCapability;
     mWinAPI.closeWindow = api::win::closeWindow;
-    // input
-    mInputAPI.getInputElementVector = api::input::getInputElementVector;
-    mInputAPI.createAction = api::input::createAction;
-    mInputAPI.destroyAction = api::input::destroyAction;
-    mInputAPI.getActionState = api::input::getActionState;
+    mWinAPI.createAction = api::win::createAction;
+    mWinAPI.createActionCapability = api::win::createActionCapability;
+    mWinAPI.destroyAction = api::win::destroyAction;
+    mWinAPI.getActionsHistorySize = api::win::getActionsHistorySize;
+    mWinAPI.copyActionsHistory = api::win::copyActionsHistory;
+    mWinAPI.getActionState = api::win::getActionState;
+    mWinAPI.getInputUpdateJob = api::win::getInputUpdateJob;
     // conf
     mConfAPI.getRootSetting = api::conf::getRootSetting;
     mConfAPI.createSetting = api::conf::createSetting;
@@ -379,7 +391,7 @@ void TemporEngine::registerAPI() {
     mRenderAPI.getRenderJob = api::render::getRenderJob;
     mRenderAPI.createObjectImage = api::render::createObjectImage;
     mRenderAPI.destroyObjectImage = api::render::destroyObjectImage;
-    // thread
+    // sched
     mSchedAPI.createJob = api::sched::createJob;
     mSchedAPI.createJobCapability = api::sched::createJobCapability;
     mSchedAPI.scheduleJob = api::sched::scheduleJob;
@@ -392,7 +404,6 @@ void TemporEngine::registerAPI() {
     mAPI.fs = &mFSAPI;
     mAPI.scene = &mSceneAPI;
     mAPI.geo = &mGeoAPI;
-    mAPI.input = &mInputAPI;
     mAPI.conf = &mConfAPI;
     mAPI.render = &mRenderAPI;
     mAPI.sched = &mSchedAPI;

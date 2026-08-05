@@ -5,6 +5,7 @@
 #include <string>
 #include <format>
 #include <thread>  // IWYU pragma: keep
+#include <mutex>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -30,14 +31,26 @@ using namespace std::chrono_literals;
 
 class PluginWrapper {
     public:
+        std::mutex mutex;
+
         const TprEngineAPI* api;
         TprWindow window;
+
         TprJob frameJob;
+        TprJob updateJob;
         TprJob shutdownJob;
 
         TprAction quitAction;
         TprAction cameraAction;
         TprAction mouseAction;
+
+        bool mousePressed = false;
+        bool walkForwardState = false;
+        bool walkBackwardState = false;
+        bool strafeRightState = false;
+        bool strafeLeftState = false;
+        bool flyUpwardState = false;
+        bool flyDownwardState = false;
 
         TprAction walkForwardAction;
         TprAction walkBackwardAction;
@@ -112,42 +125,78 @@ int32_t testScheduler(PluginWrapper* plugin) {
 }
 
 
-void frame(void* ctx, TprJob job) noexcept {
-
+void update(void* ctx, TprJob job) noexcept {
     PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
 
-    TprActionState quitActionState;
-    LOF(plugin->api->input->getActionState(plugin->quitAction, &quitActionState));
-    if (quitActionState.state) {
-        plugin->api->win->closeWindow(plugin->window);
+    std::lock_guard<std::mutex> lock(plugin->mutex);
+
+    // quit action
+    {
+        uint32_t size;
+        LOF(plugin->api->win->getActionsHistorySize(1, &plugin->quitAction, &size));
+        std::vector<TprActionHistoryEntry> history(size);
+        LOF(plugin->api->win->copyActionsHistory(history.data(), 1, &plugin->quitAction));
+        for (const auto& entry : history) {
+            if (entry.state.vector.x > 0.0f) {
+                plugin->api->win->closeWindow(plugin->window);
+            }
+        }
     }
 
-    TprActionState cameraActionState;
-    TprActionState mouseActionState;
-    LOF(plugin->api->input->getActionState(plugin->cameraAction, &cameraActionState));
-    LOF(plugin->api->input->getActionState(plugin->mouseAction, &mouseActionState));
+    // camera movement actions
+    {
+        TprAction actions[] = {
+            plugin->cameraAction,
+            plugin->mouseAction,
+            plugin->walkForwardAction,
+            plugin->walkBackwardAction,
+            plugin->strafeLeftAction,
+            plugin->strafeRightAction,
+            plugin->flyUpwardAction,
+            plugin->flyDownwardAction
+        };
 
-    TprActionState walkForwardState;
-    TprActionState walkBackwardState;
-    TprActionState strafeRightState;
-    TprActionState strafeLeftState;
-    TprActionState flyUpwardState;
-    TprActionState flyDownwardState;
-    LOF(plugin->api->input->getActionState(plugin->walkForwardAction, &walkForwardState));
-    LOF(plugin->api->input->getActionState(plugin->walkBackwardAction, &walkBackwardState));
-    LOF(plugin->api->input->getActionState(plugin->strafeRightAction, &strafeRightState));
-    LOF(plugin->api->input->getActionState(plugin->strafeLeftAction, &strafeLeftState));
-    LOF(plugin->api->input->getActionState(plugin->flyUpwardAction, &flyUpwardState));
-    LOF(plugin->api->input->getActionState(plugin->flyDownwardAction, &flyDownwardState));
-
-    bool update = false;
-
-    if (mouseActionState.state) {
-        plugin->camYaw += cameraActionState.vector.x * 0.01f;
-        plugin->camPitch += cameraActionState.vector.y * 0.01f;
-        plugin->camPitch = std::clamp(plugin->camPitch, -1.55f, 1.55f);
-        update = true;
+        uint32_t size;
+        LOF(plugin->api->win->getActionsHistorySize(std::size(actions), actions, &size));
+        std::vector<TprActionHistoryEntry> history(size);
+        LOF(plugin->api->win->copyActionsHistory(history.data(), std::size(actions), actions));
+        for (const auto& entry : history) {
+            if (entry.action._d == plugin->mouseAction._d) {
+                if (entry.state.vector.x > 0.0f) {
+                    plugin->mousePressed = true;
+                } else {
+                    plugin->mousePressed = false;
+                }
+            } else if (entry.action._d == plugin->cameraAction._d) {
+                if (plugin->mousePressed) {
+                    plugin->camYaw += entry.state.vector.x * 0.01f;
+                    plugin->camPitch += entry.state.vector.y * 0.01f;
+                    plugin->camPitch = std::clamp(plugin->camPitch, -1.55f, 1.55f);
+                }
+            } else {
+                if (entry.action._d == plugin->walkForwardAction._d) {
+                    plugin->walkForwardState = (entry.state.vector.x != 0.0f);
+                } else if (entry.action._d == plugin->walkBackwardAction._d) {
+                    plugin->walkBackwardState = (entry.state.vector.x != 0.0f);
+                } else if (entry.action._d == plugin->strafeRightAction._d) {
+                    plugin->strafeRightState = (entry.state.vector.x != 0.0f);
+                } else if (entry.action._d == plugin->strafeLeftAction._d) {
+                    plugin->strafeLeftState = (entry.state.vector.x != 0.0f);
+                } else if (entry.action._d == plugin->flyUpwardAction._d) {
+                    plugin->flyUpwardState = (entry.state.vector.x != 0.0f);
+                } else if (entry.action._d == plugin->flyDownwardAction._d) {
+                    plugin->flyDownwardState = (entry.state.vector.x != 0.0f);
+                }
+            }
+        }
     }
+}
+
+
+void frame(void* ctx, TprJob job) noexcept {
+    PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
+
+    std::lock_guard<std::mutex> lock(plugin->mutex);
 
     glm::vec3 front;
     front.x = std::cos(plugin->camYaw) * std::cos(plugin->camPitch);
@@ -157,29 +206,23 @@ void frame(void* ctx, TprJob job) noexcept {
     glm::vec3 up(0.0f, 1.0f, 0.0f);
     glm::vec3 right = glm::cross(front, up);
 
-    if (walkForwardState.state) {
+    if (plugin->walkForwardState) {
         plugin->camPos += front * 0.03f;
-        update = true;
     }
-    if (walkBackwardState.state) {
+    if (plugin->walkBackwardState) {
         plugin->camPos -= front * 0.03f;
-        update = true;
     }
-    if (strafeRightState.state) {
+    if (plugin->strafeRightState) {
         plugin->camPos += right * 0.03f;
-        update = true;
     }
-    if (strafeLeftState.state) {
+    if (plugin->strafeLeftState) {
         plugin->camPos -= right * 0.03f;
-        update = true;
     }
-    if (flyUpwardState.state) {
-        plugin->camPos -= up * 0.03f;
-        update = true;
-    }
-    if (flyDownwardState.state) {
+    if (plugin->flyDownwardState) {
         plugin->camPos += up * 0.03f;
-        update = true;
+    }
+    if (plugin->flyUpwardState) {
+        plugin->camPos -= up * 0.03f;
     }
 
     glm::mat4 modelMat = glm::mat4(1.0f);
@@ -188,30 +231,28 @@ void frame(void* ctx, TprJob job) noexcept {
     glm::mat4 projMat = glm::perspective(1.7f, 1300.0f / 800.0f, 0.01f, 1000.0f);
     glm::mat4 mvpMat = projMat * viewMat * modelMat;
 
-    if (update) {
-        TprComponentRenderable renderable{};
-        renderable.image = plugin->image;
-        renderable.transform.x0 = mvpMat[0][0];
-        renderable.transform.x1 = mvpMat[1][0];
-        renderable.transform.x2 = mvpMat[2][0];
-        renderable.transform.x3 = mvpMat[3][0];
-        renderable.transform.y0 = mvpMat[0][1];
-        renderable.transform.y1 = mvpMat[1][1];
-        renderable.transform.y2 = mvpMat[2][1];
-        renderable.transform.y3 = mvpMat[3][1];
-        renderable.transform.z0 = mvpMat[0][2];
-        renderable.transform.z1 = mvpMat[1][2];
-        renderable.transform.z2 = mvpMat[2][2];
-        renderable.transform.z3 = mvpMat[3][2];
-        renderable.transform.w0 = mvpMat[0][3];
-        renderable.transform.w1 = mvpMat[1][3];
-        renderable.transform.w2 = mvpMat[2][3];
-        renderable.transform.w3 = mvpMat[3][3];
-        LOF(plugin->api->scene->writeEntityComponentData(
-            plugin->object, plugin->api->render->getComponentRenderable(),
-            reinterpret_cast<const char*>(&renderable), 0, 0
-        ));
-    }
+    TprComponentRenderable renderable{};
+    renderable.image = plugin->image;
+    renderable.transform.x0 = mvpMat[0][0];
+    renderable.transform.x1 = mvpMat[1][0];
+    renderable.transform.x2 = mvpMat[2][0];
+    renderable.transform.x3 = mvpMat[3][0];
+    renderable.transform.y0 = mvpMat[0][1];
+    renderable.transform.y1 = mvpMat[1][1];
+    renderable.transform.y2 = mvpMat[2][1];
+    renderable.transform.y3 = mvpMat[3][1];
+    renderable.transform.z0 = mvpMat[0][2];
+    renderable.transform.z1 = mvpMat[1][2];
+    renderable.transform.z2 = mvpMat[2][2];
+    renderable.transform.z3 = mvpMat[3][2];
+    renderable.transform.w0 = mvpMat[0][3];
+    renderable.transform.w1 = mvpMat[1][3];
+    renderable.transform.w2 = mvpMat[2][3];
+    renderable.transform.w3 = mvpMat[3][3];
+    LOF(plugin->api->scene->writeEntityComponentData(
+        plugin->object, plugin->api->render->getComponentRenderable(),
+        reinterpret_cast<const char*>(&renderable), 0, 0
+    ));
 }
 
 
@@ -219,10 +260,8 @@ extern "C" {
 
     int32_t pluginInit(const TprEngineAPI* api) noexcept {
 
-        // return -1;
-
-        PluginWrapper* plugin = new PluginWrapper;
-        if (!plugin) return -1;
+        static PluginWrapper pluginStorage{};
+        auto* plugin = &pluginStorage;
 
         plugin->api = api;
 
@@ -230,63 +269,61 @@ extern "C" {
 
         TprWindowCreateInfo windowCreateInfo{};
         windowCreateInfo.name = "Tempor Testing Initiative";
-        windowCreateInfo.prefferedWidth = 1300;
-        windowCreateInfo.prefferedHeight = 800;
+        windowCreateInfo.width = 1300;
+        windowCreateInfo.height = 800;
         ROF(plugin->api->win->openWindow(&windowCreateInfo, &plugin->window));
 
         TprActionCreateInfo quitActionInfo{};
-        quitActionInfo.element = TPR_KEY_ESCAPE;
-        quitActionInfo.lowThreshold = 0.3f;
-        quitActionInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &quitActionInfo, &plugin->quitAction));
+        quitActionInfo.device = TPR_KEY_ESCAPE;
+        quitActionInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&quitActionInfo, &plugin->quitAction));
 
         TprActionCreateInfo cameraActionInfo{};
-        cameraActionInfo.element = TPR_MOUSE_MOTION;
-        cameraActionInfo.lowThreshold = 0.0f;
-        cameraActionInfo.highThreshold = 0.0f;
-        ROF(plugin->api->input->createAction(plugin->window, &cameraActionInfo, &plugin->cameraAction));
+        cameraActionInfo.device = TPR_MOUSE_MOTION;
+        cameraActionInfo.measureType = TPR_MEASURE_TYPE_DIFFERENCE;
+        cameraActionInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&cameraActionInfo, &plugin->cameraAction));
 
         TprActionCreateInfo mouseActionInfo{};
-        mouseActionInfo.element = TPR_MOUSE_BUTTON1;
-        mouseActionInfo.lowThreshold = 0.3f;
-        mouseActionInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &mouseActionInfo, &plugin->mouseAction));
+        mouseActionInfo.device = TPR_MOUSE_BUTTON1;
+        mouseActionInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&mouseActionInfo, &plugin->mouseAction));
 
         TprActionCreateInfo walkForwardInfo{};
-        walkForwardInfo.element = TPR_KEY_W;
-        walkForwardInfo.lowThreshold = 0.3f;
-        walkForwardInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &walkForwardInfo, &plugin->walkForwardAction));
+        walkForwardInfo.device = TPR_KEY_W;
+        walkForwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
+        walkForwardInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&walkForwardInfo, &plugin->walkForwardAction));
 
         TprActionCreateInfo walkBackwardInfo{};
-        walkBackwardInfo.element = TPR_KEY_S;
-        walkBackwardInfo.lowThreshold = 0.3f;
-        walkBackwardInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &walkBackwardInfo, &plugin->walkBackwardAction));
+        walkBackwardInfo.device = TPR_KEY_S;
+        walkBackwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
+        walkBackwardInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&walkBackwardInfo, &plugin->walkBackwardAction));
 
         TprActionCreateInfo strafeRightInfo{};
-        strafeRightInfo.element = TPR_KEY_D;
-        strafeRightInfo.lowThreshold = 0.3f;
-        strafeRightInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &strafeRightInfo, &plugin->strafeRightAction));
+        strafeRightInfo.device = TPR_KEY_D;
+        strafeRightInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
+        strafeRightInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&strafeRightInfo, &plugin->strafeRightAction));
         
         TprActionCreateInfo strafeLeftInfo{};
-        strafeLeftInfo.element = TPR_KEY_A;
-        strafeLeftInfo.lowThreshold = 0.3f;
-        strafeLeftInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &strafeLeftInfo, &plugin->strafeLeftAction));
+        strafeLeftInfo.device = TPR_KEY_A;
+        strafeLeftInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
+        strafeLeftInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&strafeLeftInfo, &plugin->strafeLeftAction));
 
         TprActionCreateInfo flyUpwardInfo{};
-        flyUpwardInfo.element = TPR_KEY_E;
-        flyUpwardInfo.lowThreshold = 0.3f;
-        flyUpwardInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &flyUpwardInfo, &plugin->flyUpwardAction));
+        flyUpwardInfo.device = TPR_KEY_E;
+        flyUpwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
+        flyUpwardInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&flyUpwardInfo, &plugin->flyUpwardAction));
         
         TprActionCreateInfo flyDownwardInfo{};
-        flyDownwardInfo.element = TPR_KEY_Q;
-        flyDownwardInfo.lowThreshold = 0.3f;
-        flyDownwardInfo.highThreshold = 0.7f;
-        ROF(plugin->api->input->createAction(plugin->window, &flyDownwardInfo, &plugin->flyDownwardAction));
+        flyDownwardInfo.device = TPR_KEY_Q;
+        flyDownwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
+        flyDownwardInfo.window = plugin->window;
+        ROF(plugin->api->win->createAction(&flyDownwardInfo, &plugin->flyDownwardAction));
 
         TprFile modelFile;
         ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
@@ -343,6 +380,17 @@ extern "C" {
         frameInfo.function = frame;
         ROF(plugin->api->sched->createJob(&frameInfo, &plugin->frameJob));
 
+        TprJob updateJob = plugin->api->win->getInputUpdateJob();
+
+        TprJobCreateInfo updateInfo{};
+        updateInfo.context = plugin;
+        updateInfo.triggerType = TPR_JOB_TRIGGER_TYPE_DEPENDENCIES;
+        updateInfo.dependencyCount = 1;
+        updateInfo.pDependencies = &updateJob;
+        updateInfo.duration = TPR_JOB_DURATION_SHORT;
+        updateInfo.function = update;
+        ROF(plugin->api->sched->createJob(&updateInfo, &plugin->updateJob));
+
         TprJob shutdownJob = plugin->api->sched->getShutdownJob();
 
         TprJobCreateInfo shutdownInfo{};
@@ -353,8 +401,7 @@ extern "C" {
         shutdownInfo.duration = TPR_JOB_DURATION_SHORT;
         shutdownInfo.function = [](void* ctx, TprJob job) noexcept {
             auto plugin = reinterpret_cast<PluginWrapper*>(ctx);
-            plugin->api->out->info("Deleting test plugin");
-            delete plugin;
+            plugin->api->out->info("Test plugin shutdown");
         };
         ROF(plugin->api->sched->createJob(&shutdownInfo, &plugin->shutdownJob));
 

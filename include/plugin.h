@@ -8,7 +8,7 @@
 
 typedef struct TprEngineAPI {
 
-    struct Out {
+    struct Output {
 
         void(*log)(TprLogLevel logLevel, const char* message) _TPR_NOEXCEPT_ATTR;
         void(*info)(const char* message) _TPR_NOEXCEPT_ATTR;
@@ -50,7 +50,7 @@ typedef struct TprEngineAPI {
 
     } *scene;
 
-    struct FS {
+    struct FileSystem {
 
         TprResult(*openFile)(const char* path, TprOpenFileFlags flags, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
         TprResult(*createMemoryFile)(TprFile* pFile) _TPR_NOEXCEPT_ATTR;
@@ -74,23 +74,24 @@ typedef struct TprEngineAPI {
 
     } *fs;
 
-    struct Win {
+    struct Windowing {
 
-        TprResult(*openWindow)(const TprWindowCreateInfo* pCreateInfo, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
+        TprResult(*openWindow)(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createWindowCapability)(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
         void(*closeWindow)(TprWindow window) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createAction)(const TprActionCreateInfo* pInfo, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createActionCapability)(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
+        void(*destroyAction)(TprAction action) _TPR_NOEXCEPT_ATTR;
+
+        TprResult(*getActionsHistorySize)(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
+        TprResult(*copyActionsHistory)(TprActionHistoryEntry* pEntries, uint32_t filterCount, const TprAction* pFilters) _TPR_NOEXCEPT_ATTR;
+        TprResult(*getActionState)(TprAction action, TprActionState* pState) _TPR_NOEXCEPT_ATTR;
+
+        TprJob(*getInputUpdateJob)() _TPR_NOEXCEPT_ATTR;
 
     } *win;
 
-    struct Input {
-
-        TprResult(*createAction)(TprWindow window, const TprActionCreateInfo* pCreateInfo, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
-        void(*destroyAction)(TprAction action) _TPR_NOEXCEPT_ATTR;
-        TprResult(*getActionState)(TprAction action, TprActionState* pState) _TPR_NOEXCEPT_ATTR;
-        TprResult(*getInputElementVector)(TprWindow window, TprInputElement element, TprInputElementVector* pVector) _TPR_NOEXCEPT_ATTR;
-
-    } *input;
-
-    struct Geo {
+    struct Geometry {
 
         TprResult(*createMesh)(const TprMeshCreateInfo* pCreateInfo, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
         TprResult(*loadMesh)(TprMesh mesh, const TprMeshLoadInfo* pLoadInfo) _TPR_NOEXCEPT_ATTR;
@@ -99,7 +100,7 @@ typedef struct TprEngineAPI {
 
     } *geo;
 
-    struct Conf {
+    struct Configuration {
 
         TprResult(*getRootSetting)(TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
 
@@ -150,7 +151,7 @@ typedef struct TprEngineAPI {
 
     } *render;
 
-    struct Sched {
+    struct Scheduling {
 
         TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
         TprResult(*createJobCapability)(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) _TPR_NOEXCEPT_ATTR;

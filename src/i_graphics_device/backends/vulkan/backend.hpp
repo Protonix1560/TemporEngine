@@ -6,11 +6,9 @@
 
 #include "core.hpp"
 #include "plugin_core.h"
-#include "hardware_layer_interface.hpp"
+#include "i_graphics_device.hpp"
 #include "logger.hpp"
 #include "interval_union.hpp"
-
-#include <SDL2/SDL_vulkan.h>
 
 #include <array>
 #include <glm/fwd.hpp>
@@ -26,7 +24,7 @@
 class FileRegistry;
 
 // from "window_manager.hpp"
-class WindowManager;
+class Windowing;
 
 // from "settings.hpp"
 class Settings;
@@ -279,7 +277,7 @@ struct Buffer : private BufferResources {
 struct WindowContextResources {
     Logger mLogger;
     Allocator& mrAlloc;
-    WindowManager& mrWinMan;
+    Windowing& mrWinMan;
     FileRegistry& mrFileReg;
     VulkanSymbols& mrSym;
 
@@ -326,7 +324,7 @@ struct WindowContext : private WindowContextResources {
 
     public:
         WindowContext(
-            Logger logger, Allocator& rAlloc, WindowManager& rWinMan, FileRegistry& rFileReg,
+            Logger logger, Allocator& rAlloc, Windowing& rWinMan, FileRegistry& rFileReg,
             VulkanSymbols& rSym, VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
             uint32_t queueFamilyIndex, uint32_t maxFramesInFlight, TprWindow window, VkPipelineLayout layout,
             VkDescriptorSetLayout objectSetLayout
@@ -404,13 +402,13 @@ struct ChunkEntry {
 };
 
 
-class HardwareLayerVulkan : public HardwareLayer {
+class VulkanBackend : public IGraphicsDevice {
     public:
-        HardwareLayerVulkan(
-            Logger logger, FileRegistry& rFileReg, WindowManager& rWinMan, Settings& rSettings, SceneGraph& rScGr, TprComponent componentRenderable,
-            uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+        VulkanBackend(
+            Logger logger, FileRegistry& rFileReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+            TprComponent componentRenderable, uint64_t packedVersion
         );
-        ~HardwareLayerVulkan() noexcept;
+        ~VulkanBackend() noexcept;
         TprResult update() override;
         
         uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).extent().width; }
@@ -440,7 +438,7 @@ class HardwareLayerVulkan : public HardwareLayer {
 
         Logger mLogger;
         FileRegistry& mrFileReg;
-        WindowManager& mrWinMan;
+        Windowing& mrWinMan;
         Settings& mrSettings;
         SceneGraph& mrScGr;
 
@@ -455,7 +453,6 @@ class HardwareLayerVulkan : public HardwareLayer {
         uint32_t mApiVer;
         VkDevice mDevice = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT mDebugMessenger = VK_NULL_HANDLE;
-        std::vector<const char*> mInstanceExtensions;
         VkPhysicalDevice mPhysicalDevice = VK_NULL_HANDLE;
         VkQueue mRenderQueue = VK_NULL_HANDLE;
         VkCommandPool mCommandPool = VK_NULL_HANDLE;

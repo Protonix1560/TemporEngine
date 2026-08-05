@@ -5,7 +5,7 @@
 
 
 #include "core.hpp"
-#include "hardware_layer_common.hpp"
+#include "graphics_common.hpp"
 #include "plugin_core.h"
 #include "asset_store/asset_store_common.hpp"
 
@@ -16,7 +16,7 @@
 
 
 // from "window_manager.hpp"
-class WindowManager;
+class Windowing;
 
 // from "file_registry.hpp"
 class FileRegistry;
@@ -31,12 +31,12 @@ class Settings;
 class SceneGraph;
 
 
-class HardwareLayer {
+class IGraphicsDevice {
 
     public:
 
-        HardwareLayer() = default;
-        virtual ~HardwareLayer() noexcept = default;
+        IGraphicsDevice() = default;
+        virtual ~IGraphicsDevice() noexcept = default;
 
         virtual TprResult update() = 0;
 
@@ -62,19 +62,20 @@ class HardwareLayer {
 
 };
 
-using PHardwareLayer = std::unique_ptr<HardwareLayer>;
+using PGraphicsDevice = std::unique_ptr<IGraphicsDevice>;
 
-REGISTER_TYPE_NAME_S(HardwareLayer, "HWLI");
-REGISTER_TYPE_NAME_S(PHardwareLayer, "PHWL");
+REGISTER_TYPE_NAME_S(PGraphicsDevice, "GDev");
 
 
-struct HardwareLayerManifest {
+struct GraphicsDeviceBackendInfo {
 
-    GraphicsBackend graphicsBackend;
-    std::function<expected<PHardwareLayer, TprResult>(
-        Logger logger, FileRegistry& rResReg, WindowManager& rWinMan, Settings& rSet, SceneGraph& rScGr, TprComponent componentRenderable,
-        uint8_t engineVersionVariant, uint8_t engineVersionMajor, uint8_t engineVersionMinor, uint8_t engineVersionPatch
+    GraphicsAPI graphicsAPI;
+
+    std::function<expected<PGraphicsDevice, TprResult>(
+        Logger logger, FileRegistry& rResReg, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
+        TprComponent componentRenderable, uint64_t packedVersion
     )> factory;
+
     std::string name;
 
 };

@@ -7,12 +7,12 @@
 #include <optional>
 
 
-struct ThreadLocalJobInfo {
+struct ThreadInfo {
     bool mainThread = false;
-    std::optional<TprJob> job;
+    std::optional<TprJob> currentJob;
 };
 
-inline thread_local ThreadLocalJobInfo threadLocalJobInfo{};
+inline thread_local ThreadInfo threadInfo{};
 
 
 #endif  // THREAD_JOB_INFO_HPP_

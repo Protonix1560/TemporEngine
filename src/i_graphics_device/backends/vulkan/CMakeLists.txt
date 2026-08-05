@@ -22,22 +22,22 @@ add_custom_target(vulkan_shaders ALL DEPENDS ${SPV_OUTPUTS})
 
 # layer
 add_library(
-    hardware_layer_vulkan SHARED
+    vulkan_backend SHARED
     lifecycle.cpp buffer.cpp utility.cpp window_context.cpp asset.cpp allocator.cpp capability.cpp
 )
-add_dependencies(hardware_layer_vulkan vulkan_shaders)
+add_dependencies(vulkan_backend vulkan_shaders)
 target_link_libraries(
-    hardware_layer_vulkan PRIVATE
-    Vulkan::Vulkan logger window_manager scheduler scene_graph common file_registry settings
+    vulkan_backend PRIVATE
+    Vulkan::Vulkan logger windowing scheduler scene_graph common file_registry settings
 )
-target_include_directories(hardware_layer_vulkan PRIVATE ${HARDWARE_LAYER_INTERFACE_SOURCE_DIR})
+target_include_directories(vulkan_backend PRIVATE ${I_GRAPHICS_DEVICE_SOURCE_DIR})
 
-# linking to hardware_layer_interface
-target_link_libraries(hardware_layer_interface INTERFACE hardware_layer_vulkan)
+# linking to i_graphics_device
+target_link_libraries(i_graphics_device INTERFACE vulkan_backend)
 
 # installment
 # shaders
 install(FILES ${SPV_OUTPUTS} DESTINATION shaders/vulkan)
 # library
-install(TARGETS hardware_layer_vulkan LIBRARY DESTINATION lib)
+install(TARGETS vulkan_backend LIBRARY DESTINATION lib)
 

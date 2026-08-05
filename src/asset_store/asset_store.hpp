@@ -3,7 +3,7 @@
 #define ASSET_STORE_ASSET_STORE_HPP_
 
 
-#include "hardware_layer_interface.hpp"
+#include "i_graphics_device.hpp"
 #include "plugin_core.h"
 #include "core.hpp"
 #include "asset_store_common.hpp"
@@ -19,13 +19,13 @@ class Logger;
 class FileRegistry;
 
 // from "hardware_layer_interface.hpp"
-class HardwareLayer;
+class IGraphicsDevice;
 
 
 class AssetStore {
 
     public:
-        AssetStore(Logger logger, FileRegistry& rRegReg, HardwareLayer& rHWLI);
+        AssetStore(Logger logger, FileRegistry& rRegReg, IGraphicsDevice& rHWLI);
         ~AssetStore() noexcept;
 
         expected<TprMesh, TprResult> createMesh(const TprMeshCreateInfo* info) noexcept;
@@ -39,7 +39,7 @@ class AssetStore {
 
         Logger mLogger;
         FileRegistry& mrFileReg;
-        HardwareLayer& mrHWLI;
+        IGraphicsDevice& mrHWLI;
 
         std::unordered_map<uint32_t, AssetMesh> mMeshes;
         uint32_t mMeshCounter = 0;

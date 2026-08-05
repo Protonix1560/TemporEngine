@@ -7,7 +7,7 @@
 #include <glm/glm.hpp>
 
 
-enum class GraphicsBackend {
+enum class GraphicsAPI {
     None = 0,
     Unknown = 1,
     Vulkan = 2

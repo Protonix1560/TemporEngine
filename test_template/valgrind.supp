@@ -1,6 +1,6 @@
 
 {
-   SDL2_Leaks
+   SDL_Leaks
    Memcheck:Leak
    match-leak-kinds: all
    ...

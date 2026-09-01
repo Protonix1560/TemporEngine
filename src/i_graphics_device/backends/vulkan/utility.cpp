@@ -5,7 +5,7 @@
 
 
 Allocator VulkanBackend::createAllocator() {
-    return Allocator(mLogger.derive("Allocator: "), mSym, mPhysicalDevice, mDevice);
+    return Allocator(mLogger.derive("Allocator: "), mLoader, mPhysicalDevice, mDevice);
 }
 
 expected<Buffer, TprResult> VulkanBackend::createBuffer(
@@ -15,7 +15,7 @@ expected<Buffer, TprResult> VulkanBackend::createBuffer(
     if (!mAlloc.has_value()) return unexpected(TPR_UNKNOWN_ERROR);
     try {
         return Buffer(
-            mLogger.derive("Buffer: "), mSym, mAlloc.value(), mPhysicalDevice,
+            mLogger.derive("Buffer: "), mLoader, mAlloc.value(), mPhysicalDevice,
             mDevice, size, usage, property, sharingMode, queueFamilyIndices
         );
     } catch (TprResult r) {
@@ -28,7 +28,7 @@ expected<WindowContext, TprResult> VulkanBackend::createWindowContext(uint32_t q
     try {
         return WindowContext(
             mLogger.derive("WindowContext: "), mAlloc.value(), mrWinMan,
-            mrFileReg, mSym, mInstance, mPhysicalDevice, mDevice, queueFamilyIndex,
+            mrFileReg, mLoader, mInstance, mPhysicalDevice, mDevice, queueFamilyIndex,
             mMaxFramesInFlight, window, mBasicPipelinelayout, mObjectDataSetLayout
         );
     } catch (TprResult r) {

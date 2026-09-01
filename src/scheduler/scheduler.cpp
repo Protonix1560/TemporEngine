@@ -4,6 +4,7 @@
 #include "logger.hpp"
 #include "plugin_core.h"
 #include "settings.hpp"
+#include "log_entry.hpp"
 
 #include "thread_job_info.hpp"
 
@@ -21,7 +22,15 @@
 #include <string_view>
 #include <thread>
 #include <cmath>
-#include <type_traits>
+
+
+#ifdef POSIX
+    #include "pthread.h"
+#endif
+
+#ifdef WINDOWS
+    #include "windows.h"
+#endif
 
 
 using namespace std::chrono_literals;
@@ -48,17 +57,6 @@ bool same_weak_object(const std::weak_ptr<T>& a, const std::weak_ptr<U>& b) {
     } else {
         return false;
     }
-}
-
-template <std::integral T, std::integral Min, std::integral Max, std::integral Def>
-T bounded_or(T value, Min min, Max max, Def def) {
-    using common = std::common_type_t<T, Min, Max, Def>;
-    static_assert(std::is_same_v<common, T> || std::is_same_v<T, std::common_type_t<T, common>>, "bounded_or: type conversion would lose information");
-    if (static_cast<common>(value) > static_cast<common>(max) || 
-        static_cast<common>(value) < static_cast<common>(min)) {
-        return static_cast<T>(def);
-    }
-    return value;
 }
 
 expected<std::chrono::steady_clock::duration, int> parse_duration(std::string_view input) {
@@ -91,7 +89,7 @@ expected<std::chrono::steady_clock::duration, int> parse_duration(std::string_vi
     return unexpected(-2);  // Unknown duration suffix
 }
 
-expected<std::chrono::steady_clock::duration, TprResult> parseDuration(std::string_view input) {
+expected<std::chrono::steady_clock::duration, TprResult> parseDuration(std::string_view input, std::atomic<TprResult>& rRunResult) {
     auto exp = parse_duration(input);
     if (exp) return exp.value();
     switch (exp.error()) {
@@ -99,17 +97,16 @@ expected<std::chrono::steady_clock::duration, TprResult> parseDuration(std::stri
         case -2:
             return unexpected(TPR_ERROR_INVALID_VALUE);
         default:
+            rRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
     }
 }
 
 
-Scheduler::Scheduler(Logger logger, Settings& rSett) : mLogger(logger), mrSett(rSett), mTimeBegin(std::chrono::steady_clock::now()) {
-//     if (logger.sink()->colourEnabled()) {
-//         mSpamLogger = mLogger.derive("\e[44mspam:\e[0m ");
-//     } else {
-//         mSpamLogger = mLogger.derive("spam: ");
-//     }
+Scheduler::Scheduler(Logger logger, Settings& rSett, std::atomic<TprResult>& rRunResult)
+    : mLogger(logger), mrSett(rSett), mTimeBegin(std::chrono::steady_clock::now()), mrRunResult(rRunResult) {
+    // mSpamLogger = mLogger;
+    // mSpamLogger.prefix() << marker_background4_dark << "spam:" << marker_no_background << " ";
 }
 
 
@@ -150,9 +147,15 @@ TprResult Scheduler::init() {
 
     auto shortThreadMigrationTimeoutExp = mrSett.createSetting(mrSett.getRoot(), "shortThreadMigrationTimeout")
         .and_then([&](auto s) { return mrSett.getSettingString(s); })
-        .and_then([&](const auto& s) { return parseDuration(s); });
+        .and_then([&](const auto& s) { return parseDuration(s, mrRunResult); });
     if (!shortThreadMigrationTimeoutExp && shortThreadMigrationTimeoutExp.error() == TPR_PANIC) return TPR_PANIC;
     mShortThreadMigrationTimeout = shortThreadMigrationTimeoutExp.value_or(50ms);
+
+    auto threadPullWaitTimeoutExp = mrSett.createSetting(mrSett.getRoot(), "threadPullWaitTimeout")
+        .and_then([&](auto s) { return mrSett.getSettingString(s); })
+        .and_then([&](const auto& s) { return parseDuration(s, mrRunResult); });
+    if (!threadPullWaitTimeoutExp && threadPullWaitTimeoutExp.error() == TPR_PANIC) return TPR_PANIC;
+    mThreadPullWaitTimeout = threadPullWaitTimeoutExp.value_or(50ms);
 
     for (uint32_t i = 0; i < mShortPoolSize; i++) {
         auto thread = mThreads.insert_or_assign(mThreadCounter, std::make_shared<Thread>(mThreadCounter)).first->second;
@@ -166,16 +169,23 @@ TprResult Scheduler::init() {
         mThreadCounter++;
     }
 
+    mInitialised = true;
+
     return TPR_SUCCESS;
 }
 
 void Scheduler::shutdown() {
-    std::lock_guard<std::mutex> lock(mMutex);
-    mInitialized = false;
-    for (auto [id, thread] : mThreads) {
-        thread->thread.request_stop();
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        mInitialised = false;
     }
     for (auto [id, thread] : mThreads) {
+        thread->thread.request_stop();
+        mLogger.trace() << "Requiested thread " << thread->id << " to stop";
+    }
+    mQueue.notify();
+    for (auto [id, thread] : mThreads) {
+        mLogger.trace() << "Joining thread " << thread->id;
         thread->thread.join();
     }
 }
@@ -184,11 +194,23 @@ Scheduler::~Scheduler() {}
 
 
 void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept {
+    std::string name = std::format("short{}", thread->id);
+    #ifdef POSIX
+        pthread_setname_np(pthread_self(), name.c_str());
+    #endif
+    #ifdef WINDOWS
+        SetThreadDescription(GetCurrentThread(), name.c_str());
+    #endif
     while (!stop.stop_requested()) {
-        auto launch = mQueue.pull(stop);
-        if (!launch.has_value()) break;
-        mSpamLogger.debug() << "Processing Job " << get_basic_handle_index(launch->entry->mainHandle)
-            << " in thread " << thread->id;
+        mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " calls queue pull";
+        auto launch = mQueue.pull(stop, mThreadPullWaitTimeout);
+        if (!launch.has_value()) {
+            mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " returns from queue pull with std::nullopt";
+            break;
+        }
+        mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " returns from queue pull with a launch";
+        mSpamLogger.debug() << "Processing Job " << marker_underline << get_basic_handle_index(launch->entry->mainHandle) << marker_no_underline
+            << " in thread " << marker_italic << thread->id;
         processLaunch(launch.value());
     }
 }
@@ -211,34 +233,36 @@ void Scheduler::processLaunch(JobLaunch launch) {
         mLogger.trace() << "Destroyed job " << get_basic_handle_index(launch.entry->mainHandle);
 
     } else if (launch.entry->function) {
-        mSpamLogger.debug() << "Launching Job " << get_basic_handle_index(launch.entry->mainHandle);
+        mSpamLogger.debug() << "Launching Job " << marker_underline << get_basic_handle_index(launch.entry->mainHandle);
 
         threadInfo.currentJob = launch.entry->mainHandle;
         launch.entry->function(launch.entry->context, launch.entry->mainHandle);
         // Great job!
         threadInfo.currentJob.reset();
 
-        mSpamLogger.debug() << "Job " << get_basic_handle_index(launch.entry->mainHandle) << " finished";
+        mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.entry->mainHandle) << marker_no_underline << " finished";
     }
 
     {
         std::lock_guard<std::mutex> launchJobLock(launch.entry->mutex);
 
         launch.entry->usage += launch.entry->dependents.size();
-        mSpamLogger.debug() << "Incrementing (++) Job " << get_basic_handle_index(launch.entry->mainHandle)
-            << "'s usage to " << launch.entry->usage << " because of dependent jobs";
+        if (!launch.entry->dependents.empty()) {
+            mSpamLogger.debug() << "Incrementing (++) Job " << marker_underline << get_basic_handle_index(launch.entry->mainHandle)
+                << marker_no_underline << "'s usage to " << launch.entry->usage << " because of dependent jobs";
 
-        for (auto dependent : launch.entry->dependents) {
-            std::lock_guard<std::mutex> dendentLock(dependent->mutex);
-            if (launch.entry->destructionPended.load()) {
-                dependent->destructionPended.store_true();
-                mSpamLogger.debug() << "Pended destruction of job " << get_basic_handle_index(dependent->mainHandle);
-            }
-            dependent->countdown--;
-            if (dependent->countdown == 0) {
-                mSpamLogger.debug() << "Job " << get_basic_handle_index(dependent->mainHandle) << "'s countdown is 0";
-                dependent->countdown = dependent->dependencies.size();
-                plannedLaunches.push_back({dependent, std::chrono::steady_clock::now()});
+            for (auto dependent : launch.entry->dependents) {
+                std::lock_guard<std::mutex> dendentLock(dependent->mutex);
+                if (launch.entry->destructionPended.load()) {
+                    dependent->destructionPended.store_true();
+                    mSpamLogger.debug() << "Pended destruction of job " << marker_underline << get_basic_handle_index(dependent->mainHandle);
+                }
+                dependent->countdown--;
+                if (dependent->countdown == 0) {
+                    mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(dependent->mainHandle) << marker_no_underline << "'s countdown is 0";
+                    dependent->countdown = dependent->dependencies.size();
+                    plannedLaunches.push_back({dependent, std::chrono::steady_clock::now()});
+                }
             }
         }
 
@@ -247,7 +271,7 @@ void Scheduler::processLaunch(JobLaunch launch) {
     }
 
     for (const auto& launch : plannedLaunches) {
-        mSpamLogger.debug() << "Pushing Job " << get_basic_handle_index(launch.entry->mainHandle) << " to queue at "
+        mSpamLogger.debug() << "Pushing Job " << marker_underline << get_basic_handle_index(launch.entry->mainHandle) << marker_no_underline << " to queue at "
             << std::chrono::duration_cast<std::chrono::nanoseconds>(launch.timepoint - mTimeBegin).count() << " ns";
         mQueue.push(launch);
     }
@@ -257,8 +281,8 @@ void Scheduler::processLaunch(JobLaunch launch) {
         if (dependency) {
             std::lock_guard<std::mutex> dependencyLock(dependency->mutex);
             dependency->usage--;
-            mSpamLogger.debug() << "Decrementing (--) Job " << get_basic_handle_index(dependency->mainHandle)
-                << "'s usage to " << dependency->usage << " because of dependent job " << get_basic_handle_index(launch.entry->mainHandle);
+            mSpamLogger.debug() << "Decrementing (--) Job " << marker_underline << get_basic_handle_index(dependency->mainHandle) << marker_no_underline
+                << "'s usage to " << dependency->usage << " because of dependent job " << marker_underline << get_basic_handle_index(launch.entry->mainHandle);
             if (launch.entry->destructionPended.load()) {
                 auto it = std::ranges::find(dependency->dependents, launch.entry);
                 if (it != dependency->dependents.end()) dependency->dependents.erase(it);
@@ -271,26 +295,25 @@ void Scheduler::processLaunch(JobLaunch launch) {
 }
 
 
-expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo* pInfo) noexcept {
-    if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
-    switch (pInfo->duration) {
+expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) noexcept {
+    switch (info.duration) {
         case TPR_JOB_DURATION_SHORT: case TPR_JOB_DURATION_LONG: break;
         default: return unexpected(TPR_ERROR_INVALID_VALUE);
     }
     std::lock_guard<std::mutex> lock(mMutex);
-    assert(mInitialized);
+    if (!mInitialised) return unexpected(TPR_ERROR_INVALID_OPERATION);
     try {
         std::shared_ptr<JobEntry> entry;
         TprJob h = construct_basic_handle<TprJob>(mJobCounter, 0, handle_type::job);
 
-        switch (pInfo->triggerType) {
+        switch (info.triggerType) {
             case TPR_JOB_TRIGGER_TYPE_DEPENDENCIES: {
-                if (!pInfo->pDependencies) return unexpected(TPR_ERROR_INVALID_VALUE);
-                if (pInfo->dependencyCount == 0) return unexpected(TPR_ERROR_INVALID_VALUE);
+                if (!info.pDependencies) return unexpected(TPR_ERROR_INVALID_VALUE);
+                if (info.dependencyCount == 0) return unexpected(TPR_ERROR_INVALID_VALUE);
 
                 std::vector<std::shared_ptr<JobEntry>> deps;
-                deps.reserve(pInfo->dependencyCount);
-                for (auto it = pInfo->pDependencies; it != pInfo->pDependencies + pInfo->dependencyCount; it++) {
+                deps.reserve(info.dependencyCount);
+                for (auto it = info.pDependencies; it != info.pDependencies + info.dependencyCount; it++) {
                     TprJob h = *it;
                     if (get_basic_handle_type(h) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
                     auto handleIt = mJobs.find(get_basic_handle_index(h));
@@ -299,7 +322,8 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo* pInfo) 
                     deps.push_back(handleIt->second.entry);
                 }
 
-                entry = std::make_shared<JobEntry>(*pInfo, h, deps.begin(), deps.end());
+                entry = std::make_shared<JobEntry>(info, h, deps.begin(), deps.end());
+                entry->countdown = entry->dependencies.size();
 
                 for (auto dep : deps) {
                     std::lock_guard<std::mutex> lock(dep->mutex);
@@ -309,7 +333,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo* pInfo) 
             }
 
             case TPR_JOB_TRIGGER_TYPE_SCHEDULE: {
-                entry = std::make_shared<JobEntry>(*pInfo, h);
+                entry = std::make_shared<JobEntry>(info, h);
                 break;
             }
 
@@ -322,9 +346,11 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo* pInfo) 
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -332,7 +358,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo* pInfo) 
 expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCapabilityFlags mask) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
-    assert(mInitialized);
+    if (!mInitialised) return unexpected(TPR_ERROR_INVALID_OPERATION);
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
@@ -347,9 +373,11 @@ expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCap
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -357,21 +385,24 @@ expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCap
 TprResult Scheduler::scheduleJob(TprJob job, uint64_t timepoint) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
-    assert(mInitialized);
+    if (!mInitialised) return TPR_ERROR_INVALID_OPERATION;
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return TPR_ERROR_INVALID_VALUE;
         auto entry = handleIt->second.entry;
         if (!entry->dependencies.empty()) return TPR_ERROR_INVALID_OPERATION;
         mQueue.push({entry, mTimeBegin + std::chrono::nanoseconds(timepoint)});
-        mSpamLogger.debug() << "Scheduled Job " << get_basic_handle_index(entry->mainHandle) << " to queue at " << timepoint << " ns";
+        mSpamLogger.debug() << "Scheduled Job " << marker_underline << get_basic_handle_index(entry->mainHandle) << marker_no_underline
+            << " to queue at " << timepoint << " ns";
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -379,21 +410,22 @@ TprResult Scheduler::scheduleJob(TprJob job, uint64_t timepoint) noexcept {
 void Scheduler::pendJobDestruction(TprJob job) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return;
     std::lock_guard<std::mutex> lock(mMutex);
-    assert(mInitialized);
+    if (!mInitialised) return;
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return;
         auto entry = handleIt->second.entry;
-        std::lock_guard<std::mutex> entryLock(entry->mutex);
         entry->destructionPended.store_true();
         mQueue.push(JobLaunch{entry, {}});
-        mSpamLogger.debug() << "Pended destruction of job " << get_basic_handle_index(job);
+        mSpamLogger.debug() << "Pended destruction of job " << marker_underline << get_basic_handle_index(job);
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return;
     }
 }

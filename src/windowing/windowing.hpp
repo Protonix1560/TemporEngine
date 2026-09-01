@@ -5,7 +5,7 @@
 #include "core.hpp"
 #include "logger.hpp"
 #include "plugin_core.h"
-#include "i_graphics_device/graphics_common.hpp"
+#include "graphics_common.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -18,72 +18,28 @@
 #include <vulkan/vulkan.h>
 
 
-// from "hardware_layer_interface.hpp"
+// from "i_graphics_Device.hpp"
 class IGraphicsDevice;
 
 // from "scheduler.hpp"
 class Scheduler;
 
 
-struct WindowEntry;
-
-struct ActionEntry {
-    TprInputDevice device;
-    TprActionMeasureType measureType;
-    WindowEntry& window;
-    TprActionState currState{{0.0f, 0.0f, 0.0f, 0.0f}, 0};
-    TprActionState currAbsState{{0.0f, 0.0f, 0.0f, 0.0f}, 0};
-    std::vector<TprActionState> history;
-    std::vector<uint32_t> handles;
-
-    ActionEntry(WindowEntry& window, TprInputDevice device, TprActionMeasureType measure)
-        : window(window), device(device), measureType(measure) {}
-};
-
-struct ActionHandle {
-    std::shared_ptr<ActionEntry> entry;
-    TprActionCapabilityFlags capability = std::numeric_limits<TprActionCapabilityFlags>::max();
-};
-
-struct WindowEntry {
-    SDL_Window* window;
-    std::vector<std::shared_ptr<ActionEntry>> actions;
-};
-
-struct WindowHandle {
-    std::shared_ptr<WindowEntry> entry;
-    TprWindowCapabilityFlags capability = std::numeric_limits<TprWindowCapabilityFlags>::max();
-};
-
-
-struct CreateWindowQuery {
-    std::optional<SDL_Window*>& window;
-    const char* title;
-    int w;
-    int h;
-    Uint32 flags;
-};
-
-struct DestroyWindowQuery {
-    SDL_Window* window;
-};
-
-using Query = std::variant<CreateWindowQuery, DestroyWindowQuery>;
-
-
 class Windowing {
 
     public:
-        Windowing(Logger logger, Scheduler& rSched, GraphicsAPI graphics);
-        TprResult init();
+        Windowing(Logger logger, Scheduler& rSched, std::atomic<TprResult>& rRunResult);
+        TprResult init(IGraphicsDevice* pIGD, GraphicsAPI graphics);
         ~Windowing() noexcept;
 
         TprResult update();
 
-        expected<TprWindow, TprResult> openWindow(const TprWindowCreateInfo* pInfo) noexcept;
+        void eventLoopEnded();
+
+        expected<TprWindow, TprResult> openWindow(const TprWindowCreateInfo& info) noexcept;
         expected<TprWindow, TprResult> createWindowCapability(TprWindow window, TprWindowCapabilityFlags mask) noexcept;
         void closeWindow(TprWindow window) noexcept;
-        expected<TprAction, TprResult> createAction(const TprActionCreateInfo* pInfo) noexcept;
+        expected<TprAction, TprResult> createAction(const TprActionCreateInfo& info) noexcept;
         expected<TprAction, TprResult> createActionCapability(TprAction action, TprActionCapabilityFlags mask) noexcept;
         void destroyAction(TprAction action) noexcept;
 
@@ -94,25 +50,81 @@ class Windowing {
         TprJob getInputUpdateJob() noexcept;
 
         // ========== Graphics Device-specific API ===========
-        expected<uint32_t, TprResult> windowPixelWidth(TprWindow window);
-        expected<uint32_t, TprResult> windowPixelHeight(TprWindow window);
+        expected<WindowIdentity, TprResult> getWindowIdentity(TprWindow window);
+        expected<uint32_t, TprResult> windowPixelWidth(WindowIdentity id);
+        expected<uint32_t, TprResult> windowPixelHeight(WindowIdentity id);
 
         // ======= Vulkan Graphics Device-specific API =======
         expected<PFN_vkGetInstanceProcAddr, TprResult> getVkGetInstanceProcAddr();
         expected<std::span<const char* const>, TprResult> getVkInstanceExtensions();
-        expected<VkSurfaceKHR, TprResult> createVkSurfaceKHR(TprWindow window, VkInstance instance, const VkAllocationCallbacks* pAlloc);
-        void destroyVkSurfaceKHR(TprWindow window, VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks* pAlloc);
+        expected<VkSurfaceKHR, TprResult> createVkSurfaceKHR(WindowIdentity id, VkInstance instance, const VkAllocationCallbacks* pAlloc);
+        void destroyVkSurfaceKHR(WindowIdentity id, VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks* pAlloc);
 
     private:
+        struct WindowEntry;
 
+        struct ActionEntry {
+            TprInputDevice device;
+            TprActionMeasureType measureType;
+            WindowEntry& window;
+            TprActionState currState{{0.0f, 0.0f, 0.0f, 0.0f}, 0};
+            TprActionState currAbsState{{0.0f, 0.0f, 0.0f, 0.0f}, 0};
+            std::vector<TprActionState> history;
+            std::vector<uint32_t> handles;
+
+            ActionEntry(WindowEntry& window, TprInputDevice device, TprActionMeasureType measure)
+                : window(window), device(device), measureType(measure) {}
+        };
+
+        struct ActionHandle {
+            std::shared_ptr<ActionEntry> entry;
+            TprActionCapabilityFlags capability = std::numeric_limits<TprActionCapabilityFlags>::max();
+        };
+
+        struct WindowEntry {
+            SDL_Window* window;
+            std::vector<std::shared_ptr<ActionEntry>> actions;
+        };
+
+        struct WindowHandle {
+            std::shared_ptr<WindowEntry> entry;
+            TprWindowCapabilityFlags capability = std::numeric_limits<TprWindowCapabilityFlags>::max();
+        };
+
+
+        struct CreateWindowQuery {
+            std::optional<SDL_Window*>& window;
+            const char* title;
+            int w;
+            int h;
+            Uint32 flags;
+        };
+        struct DestroyWindowQuery {
+            SDL_Window* window;
+        };
+        struct GetWindowWidthQuery {
+            SDL_Window* window;
+            std::optional<uint32_t>& w;
+        };
+        struct GetWindowHeightQuery {
+            SDL_Window* window;
+            std::optional<uint32_t>& h;
+        };
+        using Query = std::variant<CreateWindowQuery, DestroyWindowQuery, GetWindowWidthQuery, GetWindowHeightQuery>;
+
+        
         void processEvents();
 
         Logger mLogger;
         Scheduler& mrSched;
+        IGraphicsDevice* mpGDev;
+        std::atomic<TprResult>& mrRunResult;
+
         std::mutex mMutex;
         std::condition_variable mCv;
         GraphicsAPI mGraphics;
-        bool mInitialized = false;
+        bool mInitialised = false;
+        bool mEventLoopInOrder = true;
 
         TprJob mProcessEventsJob;
         uint64_t mTimeBeginOffset;

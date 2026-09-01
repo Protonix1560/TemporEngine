@@ -40,8 +40,8 @@ TprResult WindowContext::constructPersistent() {
     if (!surfaceExp.has_value()) throw surfaceExp.error();
     mSurface = surfaceExp.value();
 
-    mFrames.resize(mMaxFramesInFlight);
-    for (auto& frame : mFrames) {
+    frames.resize(mMaxFramesInFlight);
+    for (auto& frame : frames) {
         VkSemaphoreCreateInfo imageAvailableSemaphoreCreateInfo{};
         imageAvailableSemaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         vkResult = mrSym.vkCreateSemaphore(mDevice, &imageAvailableSemaphoreCreateInfo, nullptr, &frame.imageAvailableSemaphore);
@@ -61,7 +61,7 @@ TprResult WindowContext::constructPersistent() {
 
         VkCommandPoolCreateInfo poolCreateInfo{};
         poolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolCreateInfo.queueFamilyIndex = mPoolQueueFamily;
+        poolCreateInfo.queueFamilyIndex = poolQueueFamily;
         vkResult = mrSym.vkCreateCommandPool(mDevice, &poolCreateInfo, nullptr, &frame.commandPool);
         if (vkResult != VK_SUCCESS) {
             mLogger.error(TPR_LOG_STYLE_ERROR1) << "vkCreateCommandPool failed [" << vkResult << "]\n";
@@ -126,23 +126,23 @@ TprResult WindowContext::constructInvalidatable() {
     if (surfaceCaps.currentExtent.width == UINT32_MAX && surfaceCaps.currentExtent.height == UINT32_MAX) {
         uint32_t width = mrWinMan.windowPixelWidth(mWindowHandle).value();
         uint32_t height = mrWinMan.windowPixelHeight(mWindowHandle).value();
-        mExtent = {width, height};
-        mExtent.width = std::clamp(
-            mExtent.width,
+        extent = {width, height};
+        extent.width = std::clamp(
+            extent.width,
             surfaceCaps.minImageExtent.width,
             surfaceCaps.maxImageExtent.width
         );
-        mExtent.height = std::clamp(
-            mExtent.height,
+        extent.height = std::clamp(
+            extent.height,
             surfaceCaps.minImageExtent.height,
             surfaceCaps.maxImageExtent.height
         );
     } else {
-        mExtent.width = surfaceCaps.currentExtent.width;
-        mExtent.height = surfaceCaps.currentExtent.height;
+        extent.width = surfaceCaps.currentExtent.width;
+        extent.height = surfaceCaps.currentExtent.height;
     }
 
-    if (mExtent.width != 0 && mExtent.height != 0) {
+    if (extent.width != 0 && extent.height != 0) {
 
         uint32_t formatCount;
         vkResult = mrSym.vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice, mSurface, &formatCount, nullptr);
@@ -240,7 +240,7 @@ TprResult WindowContext::constructInvalidatable() {
         createInfo.imageArrayLayers = 1;
         createInfo.imageColorSpace = surfaceFormat.colorSpace;
         createInfo.imageFormat = surfaceFormat.format;
-        createInfo.imageExtent = mExtent;
+        createInfo.imageExtent = extent;
         createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         createInfo.minImageCount = imageCount;
@@ -256,7 +256,7 @@ TprResult WindowContext::constructInvalidatable() {
         }
 
         auto l = mLogger.debug();
-        l << "Created swapchain " << mExtent.width << "x" << mExtent.height << " with format: ";
+        l << "Created swapchain " << extent.width << "x" << extent.height << " with format: ";
         switch (mChainImageFormat) {
             case VK_FORMAT_B8G8R8A8_UNORM: l << "VK_FORMAT_B8G8R8A8_UNORM"; break;
                 case VK_FORMAT_R8G8B8A8_UNORM: l << "VK_FORMAT_R8G8B8A8_UNORM"; break;
@@ -332,8 +332,8 @@ TprResult WindowContext::constructInvalidatable() {
                 imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
                 imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
                 imageCreateInfo.arrayLayers = 1;
-                imageCreateInfo.extent.width = mExtent.width;
-                imageCreateInfo.extent.height = mExtent.height;
+                imageCreateInfo.extent.width = extent.width;
+                imageCreateInfo.extent.height = extent.height;
                 imageCreateInfo.extent.depth = 1;
                 imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                 imageCreateInfo.mipLevels = 1;
@@ -585,7 +585,7 @@ TprResult WindowContext::constructInvalidatable() {
             pipelineCreateInfo.pMultisampleState = &multisampling;
             pipelineCreateInfo.pDynamicState = &dynamicState;
             pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
-            pipelineCreateInfo.renderPass = mRenderPass.renderPass;
+            pipelineCreateInfo.renderPass = renderPass.renderPass;
             pipelineCreateInfo.subpass = 0;
             pipelineCreateInfo.pStages = stages;
             pipelineCreateInfo.stageCount = std::size(stages);
@@ -616,12 +616,12 @@ TprResult WindowContext::constructInvalidatable() {
 
                 VkFramebufferCreateInfo createInfo{};
                 createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-                createInfo.width = mExtent.width;
-                createInfo.height = mExtent.height;
+                createInfo.width = extent.width;
+                createInfo.height = extent.height;
                 createInfo.attachmentCount = std::size(attachments);
                 createInfo.pAttachments = attachments;
                 createInfo.layers = 1;
-                createInfo.renderPass = mRenderPass.renderPass;
+                createInfo.renderPass = renderPass.renderPass;
 
                 vkResult = mrSym.vkCreateFramebuffer(mDevice, &createInfo, nullptr, &mFramebuffers[i]);
                 if (vkResult != VK_SUCCESS) {
@@ -644,13 +644,13 @@ TprResult WindowContext::recreate() {
         }
     }
 
-    if (mRenderPass.basicPipeline) {
+    if (renderPass.basicPipeline) {
         if (mFreeResources) mrSym.vkDestroyPipeline(mDevice, mRenderPass.basicPipeline, nullptr);
-        mRenderPass.basicPipeline = VK_NULL_HANDLE;
+        renderPass.basicPipeline = VK_NULL_HANDLE;
     }
-    if (mRenderPass.renderPass) {
+    if (renderPass.renderPass) {
         if (mFreeResources) mrSym.vkDestroyRenderPass(mDevice, mRenderPass.renderPass, nullptr);
-        mRenderPass.renderPass = VK_NULL_HANDLE;
+        renderPass.renderPass = VK_NULL_HANDLE;
     }
 
     for (uint32_t i = 0; i < mChainImages.size(); i++) {
@@ -683,13 +683,13 @@ WindowContext::~WindowContext() {
         }
     }
 
-    if (mRenderPass.basicPipeline) {
+    if (renderPass.basicPipeline) {
         mrSym.vkDestroyPipeline(mDevice, mRenderPass.basicPipeline, nullptr);
-        mRenderPass.basicPipeline = VK_NULL_HANDLE;
+        renderPass.basicPipeline = VK_NULL_HANDLE;
     }
-    if (mRenderPass.renderPass) {
+    if (renderPass.renderPass) {
         mrSym.vkDestroyRenderPass(mDevice, mRenderPass.renderPass, nullptr);
-        mRenderPass.renderPass = VK_NULL_HANDLE;
+        renderPass.renderPass = VK_NULL_HANDLE;
     }
 
     for (uint32_t i = 0; i < mChainImages.size(); i++) {

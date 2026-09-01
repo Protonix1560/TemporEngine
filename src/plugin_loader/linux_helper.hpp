@@ -25,13 +25,10 @@ struct Lib {
         Lib(const Lib& other) = delete;
 
         ~Lib() noexcept {
-            if (mpFile) {
-                dlclose(mpFile);
-                mpFile = nullptr;
-            }
+            close();
         }
 
-        expected<void, const char*> open(std::filesystem::path path, uint32_t mode = 0) {
+        expected<void, const char*> open(std::filesystem::path path, uint32_t mode = 0) noexcept {
             assert(mpFile == nullptr);
             int m = 0;
             if (mode & OPEN_MODE_LAZY) m |= RTLD_LAZY;
@@ -45,8 +42,9 @@ struct Lib {
             return expected_void();
         }
 
-        template <typename T, typename = std::enable_if_t<std::is_pointer_v<T>>>
-        expected<T, const char*> sym(std::string_view sym) {
+        template <typename T>
+        requires (std::is_pointer_v<T>)
+        expected<T, const char*> sym(std::string_view sym) noexcept {
             assert(mpFile != nullptr);
             void* p = dlsym(mpFile, sym.data());
             if (!p) {

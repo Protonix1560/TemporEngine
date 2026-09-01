@@ -4,7 +4,7 @@
 
 
 #include "core.hpp"
-#include "plugin_loader_common.hpp"
+#include "plugin.h"
 #include "plugin_core.h"
 #include "plugin_wrapper.hpp"
 #include "logger.hpp"
@@ -17,6 +17,9 @@
 // from "settings.hpp"
 class Settings;
 
+// from "scheduler.hpp"
+class Scheduler;
+
 
 struct PluginInfo {
     std::string name;
@@ -26,10 +29,14 @@ struct PluginInfo {
 class PluginLoader {
 
     public:
-        PluginLoader(Logger logger, Settings& rSettings, std::atomic<int32_t>& rAliveTokens);
+        PluginLoader(Logger logger, Settings& rSettings, Scheduler& rSched, TprEngineAPI* pAPI, std::atomic<TprResult>& rRunResult);
         ~PluginLoader() noexcept;
 
-        TprResult loadPlugin(const PluginLoadInfo* pLoadInfo);
+        TprResult init();
+        TprResult loadPlugins();
+        void shutdown();
+
+        TprJob getShutdownJob() noexcept;
 
         std::optional<uint32_t> getActivePluginID();
         expected<PluginInfo, TprResult> getPluginInfo(uint32_t id);
@@ -37,7 +44,11 @@ class PluginLoader {
     private:
         Logger mLogger;
         Settings& mrSettings;
-        std::atomic<int32_t>& mrAliveTokens;
+        Scheduler& mrSched;
+        std::atomic<TprResult>& mrRunResult;
+        TprEngineAPI* mpAPI;
+
+        TprJob mShutdownJob;
 
         std::unordered_map<uint32_t, std::unique_ptr<PluginWrapper>> mPlugins;
         uint32_t mPluginCounter = 0;

@@ -4,6 +4,7 @@
 #include "plugin_core.h"
 #include "file_registry.hpp"
 #include "logger.hpp"
+#include "log_entry.hpp"
 
 #include <exception>
 #include <mutex>
@@ -17,7 +18,7 @@
 namespace sj = simdjson;
 
 
-Settings::Settings(Logger logger, FileRegistry& rFileReg) : mLogger(logger), mrFileReg(rFileReg) {}
+Settings::Settings(Logger logger, FileRegistry& rFileReg, std::atomic<TprResult>& rRunResult) : mLogger(logger), mrFileReg(rFileReg), mrRunResult(rRunResult) {}
 
 TprResult Settings::init(std::filesystem::path confPath, bool flushConfig, bool configEnabled) {
 
@@ -204,6 +205,7 @@ expected<TprSetting, TprResult> Settings::createSetting(TprSetting baseSetting, 
         if (baseIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: setting " << handle.setting
                 << " from handle " << handleIt->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         if (!std::holds_alternative<SettingStruct>(baseIt->second.data)) return unexpected(TPR_ERROR_WRONG_TYPE);
@@ -221,6 +223,7 @@ expected<TprSetting, TprResult> Settings::createSetting(TprSetting baseSetting, 
             });
         } catch (const std::exception& e) {
             mLogger.panic() << "Exception: " << e.what() << "\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         Setting* psett = nullptr;
@@ -229,6 +232,7 @@ expected<TprSetting, TprResult> Settings::createSetting(TprSetting baseSetting, 
             auto it = mSettings.find(*settingIt);
             if (it == mSettings.end()) {
                 mLogger.panic() << "Corrupted internal structures: search result " << *settingIt << " does not appear in mSettings\n";
+                mrRunResult.store(TPR_PANIC);
                 return unexpected(TPR_PANIC);
             }
             auto& setting = it->second;
@@ -280,9 +284,11 @@ expected<TprSetting, TprResult> Settings::createSetting(TprSetting baseSetting, 
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -305,6 +311,7 @@ expected<TprSetting, TprResult> Settings::readSetting(TprSetting baseSetting, st
         if (baseIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: setting " << handle.setting
                 << " from handle " << handleIt->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         if (!std::holds_alternative<SettingStruct>(baseIt->second.data)) return unexpected(TPR_ERROR_WRONG_TYPE);
@@ -322,6 +329,7 @@ expected<TprSetting, TprResult> Settings::readSetting(TprSetting baseSetting, st
             });
         } catch (const std::exception& e) {
             mLogger.panic() << "Exception: " << e.what() << "\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         Setting* psett = nullptr;
@@ -330,6 +338,7 @@ expected<TprSetting, TprResult> Settings::readSetting(TprSetting baseSetting, st
             auto it = mSettings.find(*settingIt);
             if (it == mSettings.end()) {
                 mLogger.panic() << "Corrupted internal structures: search result " << *settingIt << " does not appear in mSettings\n";
+                mrRunResult.store(TPR_PANIC);
                 return unexpected(TPR_PANIC);
             }
             auto& setting = it->second;
@@ -378,9 +387,11 @@ expected<TprSetting, TprResult> Settings::readSetting(TprSetting baseSetting, st
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -465,6 +476,7 @@ expected<TprSettingType, TprResult> Settings::getSettingType(TprSetting setting)
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -480,9 +492,11 @@ expected<TprSettingType, TprResult> Settings::getSettingType(TprSetting setting)
         }, setting.data);
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -498,6 +512,7 @@ expected<double, TprResult> Settings::getSettingDouble(TprSetting setting) noexc
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -505,9 +520,11 @@ expected<double, TprResult> Settings::getSettingDouble(TprSetting setting) noexc
         return std::get<SettingDouble>(setting.data).value;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -523,6 +540,7 @@ expected<int64_t, TprResult> Settings::getSettingInteger(TprSetting setting) noe
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -530,9 +548,11 @@ expected<int64_t, TprResult> Settings::getSettingInteger(TprSetting setting) noe
         return std::get<SettingInt>(setting.data).value;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -548,6 +568,7 @@ expected<TprBool8, TprResult> Settings::getSettingBool(TprSetting setting) noexc
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -555,9 +576,11 @@ expected<TprBool8, TprResult> Settings::getSettingBool(TprSetting setting) noexc
         return std::get<SettingBool>(setting.data).value;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -573,6 +596,7 @@ expected<uint32_t, TprResult> Settings::getSettingStringSize(TprSetting setting)
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -580,9 +604,11 @@ expected<uint32_t, TprResult> Settings::getSettingStringSize(TprSetting setting)
         return std::get<SettingString>(setting.data).value.size();
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -598,6 +624,7 @@ TprResult Settings::copySettingString(TprSetting setting, char* pData) noexcept 
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -607,9 +634,11 @@ TprResult Settings::copySettingString(TprSetting setting, char* pData) noexcept 
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -626,6 +655,7 @@ TprResult Settings::setSettingDouble(TprSetting setting, double data) noexcept {
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -642,9 +672,11 @@ TprResult Settings::setSettingDouble(TprSetting setting, double data) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -660,6 +692,7 @@ TprResult Settings::setSettingInteger(TprSetting setting, int64_t data) noexcept
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -676,9 +709,11 @@ TprResult Settings::setSettingInteger(TprSetting setting, int64_t data) noexcept
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -694,6 +729,7 @@ expected<std::string, TprResult> Settings::getSettingString(TprSetting setting) 
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -701,9 +737,11 @@ expected<std::string, TprResult> Settings::getSettingString(TprSetting setting) 
         return std::get<SettingString>(setting.data).value;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -720,6 +758,7 @@ TprResult Settings::setSettingBool(TprSetting setting, TprBool8 data) noexcept {
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -736,9 +775,11 @@ TprResult Settings::setSettingBool(TprSetting setting, TprBool8 data) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -754,6 +795,7 @@ TprResult Settings::setSettingString(TprSetting setting, const char* pData) noex
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -770,9 +812,11 @@ TprResult Settings::setSettingString(TprSetting setting, const char* pData) noex
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -788,6 +832,7 @@ TprResult Settings::setSettingNull(TprSetting setting) noexcept {
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -804,9 +849,11 @@ TprResult Settings::setSettingNull(TprSetting setting) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -822,6 +869,7 @@ TprResult Settings::unsetSetting(TprSetting setting) noexcept {
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -838,9 +886,11 @@ TprResult Settings::unsetSetting(TprSetting setting) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -856,6 +906,7 @@ TprResult Settings::setSettingStruct(TprSetting setting) noexcept {
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -872,9 +923,11 @@ TprResult Settings::setSettingStruct(TprSetting setting) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -891,6 +944,7 @@ TprResult Settings::setSettingArray(TprSetting setting) noexcept {
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -907,9 +961,11 @@ TprResult Settings::setSettingArray(TprSetting setting) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -926,6 +982,7 @@ double Settings::getSettingDoubleOr(TprSetting setting, double fallback) noexcep
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return fallback;
         }
         auto& setting = settIt->second;
@@ -951,6 +1008,7 @@ int64_t Settings::getSettingIntegerOr(TprSetting setting, int64_t fallback) noex
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return fallback;
         }
         auto& setting = settIt->second;
@@ -976,6 +1034,7 @@ TprBool8 Settings::getSettingBoolOr(TprSetting setting, TprBool8 fallback) noexc
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return fallback;
         }
         auto& setting = settIt->second;
@@ -1064,6 +1123,7 @@ TprResult Settings::flush() {
     auto rootIt = mSettings.find(get_basic_handle_index(mRootSetting));
     if (rootIt == mSettings.end()) {
         mLogger.panic() << "Corrupted internal structures: mRootSetting doesn't appear in mSettings";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
     writeSetting(data, 0, rootIt->second);
@@ -1150,6 +1210,7 @@ expected<uint32_t, TprResult> Settings::getSettingArraySize(TprSetting setting) 
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -1157,9 +1218,11 @@ expected<uint32_t, TprResult> Settings::getSettingArraySize(TprSetting setting) 
         return std::get<SettingArray>(setting.data).elements.size();
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -1176,6 +1239,7 @@ expected<TprSetting, TprResult> Settings::getSettingArrayElement(TprSetting sett
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         auto& setting = settIt->second;
@@ -1185,9 +1249,11 @@ expected<TprSetting, TprResult> Settings::getSettingArrayElement(TprSetting sett
         return construct_basic_handle<TprSetting>(array.elements[index], 0, handle_type::setting);
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -1205,6 +1271,7 @@ TprResult Settings::resizeSettingArray(TprSetting setting, uint32_t size) noexce
         if (settIt == mSettings.end()) {
             mLogger.panic() << "Corrupted internal structures: Setting " << it->second.setting
                 << "from handle " << it->first << " does not appear in mSettings\n";
+            mrRunResult.store(TPR_PANIC);
             return TPR_PANIC;
         }
         auto& setting = settIt->second;
@@ -1232,9 +1299,11 @@ TprResult Settings::resizeSettingArray(TprSetting setting, uint32_t size) noexce
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what() << "\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception\n";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }

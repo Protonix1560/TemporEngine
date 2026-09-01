@@ -93,10 +93,12 @@ typedef struct TprEngineAPI {
 
     struct Geometry {
 
-        TprResult(*createMesh)(const TprMeshCreateInfo* pCreateInfo, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
-        TprResult(*loadMesh)(TprMesh mesh, const TprMeshLoadInfo* pLoadInfo) _TPR_NOEXCEPT_ATTR;
-        void(*unloadMesh)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createMesh)(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createMeshCapability)(TprMesh mesh, TprMeshCapabilityFlags mask, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
         void(*destroyMesh)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+
+        TprResult(*requireMeshLoaded)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+        TprResult(*unrequireMeshLoaded)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
 
     } *geo;
 
@@ -138,16 +140,24 @@ typedef struct TprEngineAPI {
     struct Render {
 
         TprResult(*createDepthDomain)(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createDepthDomainCapability)(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask, TprDepthDomain* pDomain) _TPR_NOEXCEPT_ATTR;
         void(*destroyDepthDomain)(TprDepthDomain domain) _TPR_NOEXCEPT_ATTR;
 
         TprResult(*createRenderTarget)(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createRenderTargetCapability)(TprRenderTarget target, TprRenderTargetCapabilityFlags mask, TprRenderTarget* pTarget) _TPR_NOEXCEPT_ATTR;
         void(*destroyRenderTarget)(TprRenderTarget target) _TPR_NOEXCEPT_ATTR;
 
-        TprComponent(*getComponentRenderable)() _TPR_NOEXCEPT_ATTR;
-        TprJob(*getRenderJob)() _TPR_NOEXCEPT_ATTR;
+        TprResult(*createRenderTargetSet)(const TprRenderTargetSetCreateInfo* pInfo, TprRenderTargetSet* pSet) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createRenderTargetSetCapability)(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask, TprRenderTargetSet* pSet) _TPR_NOEXCEPT_ATTR;
+        void(*destroyRenderTargetSet)(TprRenderTargetSet set) _TPR_NOEXCEPT_ATTR;
 
-        TprResult(*createObjectImage)(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) _TPR_NOEXCEPT_ATTR;
-        void(*destroyObjectImage)(TprObjectImage image) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createEntityImage)(const TprEntityImageCreateInfo* pInfo, TprEntityImage* pImage) _TPR_NOEXCEPT_ATTR;
+        TprResult(*createEntityImageCapability)(TprEntityImage image, TprEntityImageCapabilityFlags mask, TprEntityImage* pImage) _TPR_NOEXCEPT_ATTR;
+        void(*destroyEntityImage)(TprEntityImage image) _TPR_NOEXCEPT_ATTR;
+
+        TprJob(*getRenderJob)() _TPR_NOEXCEPT_ATTR;
+        TprJob(*getRenderSignalJob)() _TPR_NOEXCEPT_ATTR;
+        TprComponent(*getComponentRenderable)() _TPR_NOEXCEPT_ATTR;
 
     } *render;
 

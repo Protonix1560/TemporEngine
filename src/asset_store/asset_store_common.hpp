@@ -3,13 +3,12 @@
 #define ASSET_STORE_COMMON_HPP_
 
 
-#include "plugin_core.h"
-
 #include <cstdint>
+#include <ostream>
 #include <vector>
 
 
-struct AssetMesh {
+struct MeshData {
 
     struct Primitive {
         uint32_t offset = 0;
@@ -33,9 +32,38 @@ struct AssetMesh {
         uint32_t vertexOffset = 0;
     } header;
     std::vector<std::byte> data;
+};
 
-    bool loaded = false;
-    TprMesh handle;
+
+class AssetStore;
+
+struct MeshIdentity {
+    private:
+        uint32_t id;
+        MeshIdentity(uint32_t id) noexcept : id(id) {}
+        friend class AssetStore;
+        friend class std::hash<MeshIdentity>;
+
+    public:
+        MeshIdentity() noexcept : id(0) {}
+
+        std::strong_ordering operator<=>(const MeshIdentity& other) const noexcept {
+            return id <=> other.id;
+        }
+        bool operator==(const MeshIdentity& other) const noexcept = default;
+
+        friend std::ostream& operator<<(std::ostream& stream, const MeshIdentity& id) {
+            stream << id.id;
+            return stream;
+        }
+};
+
+template <>
+class std::hash<MeshIdentity> {
+    public:
+        size_t operator()(const MeshIdentity& id) const noexcept {
+            return id.id;
+        }
 };
 
 

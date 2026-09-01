@@ -120,7 +120,7 @@ void VulkanBackend::unloadMesh(TprMesh handle) noexcept {
         if (it == mMeshes.end()) return;
         auto& mesh = it->second;
         for (auto image : mesh.images) {
-            destroyObjectImage(construct_basic_handle<TprObjectImage>(image, 0, handle_type::object_image));
+            destroyObjectImage(construct_basic_handle<TprEntityImage>(image, 0, handle_type::object_image));
         }
         auto& indexBuffer = mIndexBuffers.at(mesh.indexBuffer);
         indexBuffer.free += mesh.indicesInterval;

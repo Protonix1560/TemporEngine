@@ -2,6 +2,7 @@
 #include "file_registry.hpp"
 #include "core.hpp"
 #include "plugin_core.h"
+#include "log_entry.hpp"
 
 #include <cerrno>
 #include <cstring>
@@ -12,7 +13,8 @@
 #include <variant>
 
 
-FileRegistry::FileRegistry(Logger logger) : mLogger(logger) {}
+FileRegistry::FileRegistry(Logger logger, std::atomic<TprResult>& rRunResult) : mLogger(logger), mrRunResult(rRunResult) {}
+
 FileRegistry::~FileRegistry() {}
 
 
@@ -35,11 +37,11 @@ expected<TprFile, TprResult> FileRegistry::openFile(std::filesystem::path path, 
         errno = 0;
         #ifdef POSIX
             file = std::fopen(normPath.c_str(), modes);
-            if (!file) mLogger.error(TPR_LOG_STYLE_ERROR1) << "fopen failed: " << std::strerror(errno);
+            if (!file) mLogger.error() << "fopen failed: " << std::strerror(errno);
         #endif
         #ifdef WINDOWS
             file = _wfopen(normPath.c_str(), modes);
-            if (!file) mLogger.error(TPR_LOG_STYLE_ERROR1) << "_wfopen failed: " << std::strerror(errno);
+            if (!file) mLogger.error() << "_wfopen failed: " << std::strerror(errno);
         #endif
         if (!file) {
             switch (errno) {
@@ -55,58 +57,44 @@ expected<TprFile, TprResult> FileRegistry::openFile(std::filesystem::path path, 
                 case ENOTDIR:
                     return unexpected(TPR_ERROR_DOESNT_EXIST);
                 default:
+                    mLogger.panic() << "Unexpected errno: " << errno;
+                    mrRunResult.store(TPR_PANIC);
                     return unexpected(TPR_PANIC);
             }
         }
         file_identity id(file);
-        auto idIt = mFileMap.find(id);
-        if (idIt != mFileMap.end()) {
-            auto entryIt = mEntries.find(idIt->second);
-            if (entryIt == mEntries.end()) {
-                mLogger.panic() << "Corrupted internal structures: for file " << path << " " << idIt->second
-                    << " doesn't appear in mEntries";
-                return unexpected(TPR_PANIC);
-            }
-            auto& entry = entryIt->second;
-            if (std::holds_alternative<MemorySource>(entry.source)) {
-                mLogger.panic() << "Corrupted internal structures: entry " << entryIt->first
-                    << " is a memory file but it appears in mFileMap for file " << path;
-                return unexpected(TPR_PANIC);
-            }
-            auto& source = std::get<FileSource>(entry.source);
-            if (!(source.flags & TPR_OPEN_FILE_SYNC_FLAG_BIT) && (flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) {
-                std::fclose(source.file);
-                source.file = file;
+        auto idIt = mFileSources.find(id);
+        if (idIt != mFileSources.end()) {
+            auto source = idIt->second;
+            if (!(source->flags & TPR_OPEN_FILE_SYNC_FLAG_BIT) && (flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) {
+                std::fclose(source->file);
+                source->file = file;
             } else {
                 std::fclose(file);
             }
             FileHandle handle{};
             if (!(flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) handle.mask &= ~TPR_FILE_CAPABILITY_WRITE_FLAG_BIT;
-            handle.entry = entryIt->first;
-            mHandles.insert_or_assign(mHandleCounter, handle);
-            entry.refcount++;
-            auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
-            mHandleCounter++;
-            return h;
+            handle.source = source;
+            mFiles.insert_or_assign(mFileCounter, handle);
 
         } else {
-            FileEntry entry{};
-            entry.source = FileSource{file, flags};
             FileHandle handle{};
             if (!(flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) handle.mask &= ~TPR_FILE_CAPABILITY_WRITE_FLAG_BIT;
-            handle.entry = mEntryCounter;
-            mEntries.insert_or_assign(mEntryCounter, entry);
-            mHandles.insert_or_assign(mHandleCounter, handle);
-            auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
-            mEntryCounter++;
-            mHandleCounter++;
-            return h;
+            handle.source = std::make_shared<FileSource>(file, flags);
+            mFiles.insert_or_assign(mFileCounter, handle);
         }
+        mLogger.debug() << "Created File " << mFileCounter << " for file " << path;
+        auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
+        mFileCounter++;
+        return h;
+
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -114,75 +102,69 @@ expected<TprFile, TprResult> FileRegistry::openFile(std::filesystem::path path, 
 expected<TprFile, TprResult> FileRegistry::createMemoryFile() noexcept {
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        FileEntry entry{};
-        entry.source = MemorySource{};
         FileHandle handle{};
-        handle.entry = mEntryCounter;
-        mEntries.insert_or_assign(mEntryCounter, entry);
-        mHandles.insert_or_assign(mHandleCounter, handle);
-        auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
-        mEntryCounter++;
-        mHandleCounter++;
+        handle.source = std::make_shared<MemorySource>();
+        mFiles.insert_or_assign(mFileCounter, handle);
+        mLogger.debug() << "Created memory File " << mFileCounter;
+        auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
+        mFileCounter++;
         return h;
+
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
 
 expected<TprFile, TprResult> FileRegistry::forkFile(TprFile file) noexcept {
+    if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-        auto entryIt = mEntries.find(handleIt->second.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handleIt->second.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return unexpected(TPR_PANIC);
-        }
-        auto& srcEntry = entryIt->second;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+        auto& srcSource = handleIt->second.source;
 
-        MemorySource mem{};
+        auto mem = std::make_shared<MemorySource>();
         std::visit(overload{
-            [&mem](FileSource& src) {
+            [&mem](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long len = ftell(src.file);
+                long len = ftell(src->file);
                 if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
-                mem.data.resize(len);
-                rewind(src.file);
+                mem->data.resize(len);
+                rewind(src->file);
                 errno = 0;
-                auto n = fread(mem.data.data(), 1, len, src.file);
+                auto n = fread(mem->data.data(), 1, len, src->file);
                 if (n != len) throw std::system_error(errno, std::generic_category(), "fread failed");
             },
-            [&mem](MemorySource& src) {
+            [&mem](std::shared_ptr<MemorySource> src) {
                 // TODO: add COW
-                mem.data.resize(src.data.size());
-                std::memcpy(mem.data.data(), src.data.data(), mem.data.size());
+                mem->data.resize(src->data.size());
+                std::memcpy(mem->data.data(), src->data.data(), mem->data.size());
             }
-        }, srcEntry.source);
+        }, srcSource);
 
-        FileEntry dstEntry{};
-        dstEntry.source = mem;
         FileHandle handle{};
-        handle.entry = mEntryCounter;
-        mEntries.insert_or_assign(mEntryCounter, dstEntry);
-        mHandles.insert_or_assign(mHandleCounter, handle);
-        auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
-        mEntryCounter++;
-        mHandleCounter++;
+        handle.source = mem;
+        mFiles.insert_or_assign(mFileCounter, handle);
+        mLogger.debug() << "Forked to File " << mFileCounter << " from File " << get_basic_handle_index(file);
+        auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
+        mFileCounter++;
         return h;
+
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -191,29 +173,24 @@ expected<TprFile, TprResult> FileRegistry::createFileCapability(TprFile file, Tp
     if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-        auto entryIt = mEntries.find(handleIt->second.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handleIt->second.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return unexpected(TPR_PANIC);
-        }
-        auto& entry = entryIt->second;
-
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         FileHandle handle{};
         handle.mask = mask & handleIt->second.mask;
-        handle.entry = entryIt->first;
-        mHandles.insert_or_assign(mHandleCounter, handle);
-        auto h = construct_basic_handle<TprFile>(mHandleCounter, 0, handle_type::file);
-        mEntryCounter++;
-        mHandleCounter++;
+        handle.source = handleIt->second.source;
+        mFiles.insert_or_assign(mFileCounter, handle);
+        mLogger.debug() << "Created File capability " << mFileCounter << " for File " << get_basic_handle_index(file);
+        auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
+        mFileCounter++;
         return h;
+
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -222,65 +199,46 @@ void FileRegistry::closeFile(TprFile file) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return;
-        auto entryIt = mEntries.find(handleIt->second.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handleIt->second.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return;
-        }
-        auto& entry = entryIt->second;
-        mHandles.erase(handleIt);
-        entry.refcount--;
-        if (entry.refcount == 0) {
-            std::visit(overload{
-                [](FileSource& src) {
-                    std::fclose(src.file);
-                },
-                [](auto& src) {}
-            }, entry.source);
-            mEntries.erase(entryIt);
-        }
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return;
+        auto source = handleIt->second.source;
+        mFiles.erase(handleIt);
+        mLogger.debug() << "Destroyed File " << get_basic_handle_index(file);
+
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return;
     }
 }
 
 
-TprResult FileRegistry::seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept {
+TprResult FileRegistry::seek(TprFile file, int64_t offset, TprSeekWhence whence) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
-        uint32_t size;
+        uint64_t size;
         std::visit(overload{
-            [&size](FileSource& src) {
+            [&size](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long len = ftell(src.file);
+                long len = ftell(src->file);
                 if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
                 size = len;
             },
-            [&size](MemorySource& src) {
-                size = src.data.size();
+            [&size](std::shared_ptr<MemorySource> src) {
+                size = src->data.size();
             }
-        }, entry.source);
+        }, handle.source);
 
         switch (whence) {
             case TPR_SEEK_WHENCE_BEGIN:
@@ -303,354 +261,329 @@ TprResult FileRegistry::seek(TprFile file, int32_t offset, TprSeekWhence whence)
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-expected<uint32_t, TprResult> FileRegistry::tell(TprFile file) noexcept {
+expected<uint64_t, TprResult> FileRegistry::tell(TprFile file) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
         return handle.pos;
+
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-TprResult FileRegistry::read(TprFile file, uint32_t n, std::byte* pData) noexcept {
+TprResult FileRegistry::read(TprFile file, uint64_t n, std::byte* pData) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
-        uint32_t size;
+        uint64_t size;
         std::visit(overload{
-            [&size](FileSource& src) {
+            [&size](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long len = ftell(src.file);
+                long len = ftell(src->file);
                 if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
                 size = len;
             },
-            [&size](MemorySource& src) {
-                size = src.data.size();
+            [&size](std::shared_ptr<MemorySource> src) {
+                size = src->data.size();
             }
-        }, entry.source);
+        }, handle.source);
         if (handle.pos + n > size) {
             return TPR_ERROR_OUT_OF_RANGE;
         }
 
         std::visit(overload{
-            [pData, n, pos = handle.pos](FileSource& src) {
+            [pData, n, pos = handle.pos](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                auto s = fread(pData, 1, n, src.file);
+                auto s = fread(pData, 1, n, src->file);
                 if (s != n) throw std::system_error(errno, std::generic_category(), "fread failed");
             },
-            [pData, n, pos = handle.pos](MemorySource& src) {
-                std::memcpy(pData, src.data.data() + pos, n);
+            [pData, n, pos = handle.pos](std::shared_ptr<MemorySource> src) {
+                std::memcpy(pData, src->data.data() + pos, n);
             }
-        }, entry.source);
+        }, handle.source);
 
         handle.pos += n;
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-TprResult FileRegistry::readAt(TprFile file, uint32_t pos, uint32_t n, std::byte* pData) noexcept {
+TprResult FileRegistry::readAt(TprFile file, uint64_t pos, uint64_t n, std::byte* pData) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
-        uint32_t size;
+        uint64_t size;
         std::visit(overload{
-            [&size](FileSource& src) {
+            [&size](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long len = ftell(src.file);
+                long len = ftell(src->file);
                 if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
                 size = len;
             },
-            [&size](MemorySource& src) {
-                size = src.data.size();
+            [&size](std::shared_ptr<MemorySource> src) {
+                size = src->data.size();
             }
-        }, entry.source);
+        }, handle.source);
         if (pos + n > size) {
             return TPR_ERROR_OUT_OF_RANGE;
         }
 
         std::visit(overload{
-            [pData, n, pos](FileSource& src) {
+            [pData, n, pos](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                auto s = fread(pData, 1, n, src.file);
+                auto s = fread(pData, 1, n, src->file);
                 if (s != n) throw std::system_error(errno, std::generic_category(), "fread failed");
             },
-            [pData, n, pos](MemorySource& src) {
-                std::memcpy(pData, src.data.data() + pos, n);
+            [pData, n, pos](std::shared_ptr<MemorySource> src) {
+                std::memcpy(pData, src->data.data() + pos, n);
             }
-        }, entry.source);
+        }, handle.source);
 
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-TprResult FileRegistry::resize(TprFile file, uint32_t newSize) noexcept {
+TprResult FileRegistry::resize(TprFile file, uint64_t newSize) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
         std::visit(overload{
-            [newSize](FileSource& src) {
+            [newSize](std::shared_ptr<FileSource> src) {
                 #ifdef POSIX
-                    int fd = fileno(src.file);
+                    int fd = fileno(src->file);
                     errno = 0;
                     if (ftruncate(fd, newSize) == -1) throw std::system_error(errno, std::generic_category(), "ftruncate failed");
                 #endif
                 #ifdef WINDOWS
-                    int fd = _fileno(src.file);
+                    int fd = _fileno(src->file);
                     errno = 0;
                     if (_chsize(fd, newSize) == -1) throw std::system_error(errno, std::generic_category(), "_chsize failed");
                 #endif
             },
-            [newSize](MemorySource& src) {
-                src.data.resize(newSize);
+            [newSize](std::shared_ptr<MemorySource> src) {
+                src->data.resize(newSize);
             }
-        }, entry.source);
+        }, handle.source);
 
         handle.pos = 0;
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-TprResult FileRegistry::write(TprFile file, uint32_t n, const std::byte* pData) noexcept {
+TprResult FileRegistry::write(TprFile file, uint64_t n, const std::byte* pData) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
-        uint32_t size;
+        uint64_t size;
         std::visit(overload{
-            [&size](FileSource& src) {
+            [&size](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long len = ftell(src.file);
+                long len = ftell(src->file);
                 if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
                 size = len;
             },
-            [&size](MemorySource& src) {
-                size = src.data.size();
+            [&size](std::shared_ptr<MemorySource> src) {
+                size = src->data.size();
             }
-        }, entry.source);
+        }, handle.source);
         if (handle.pos + n > size) {
             return TPR_ERROR_OUT_OF_RANGE;
         }
 
         std::visit(overload{
-            [pData, n, pos = handle.pos](FileSource& src) {
+            [pData, n, pos = handle.pos](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                auto s = fwrite(pData, 1, n, src.file);
+                auto s = fwrite(pData, 1, n, src->file);
                 if (s != n) throw std::system_error(errno, std::generic_category(), "fwrite failed");
             },
-            [pData, n, pos = handle.pos](MemorySource& src) {
-                std::memcpy(src.data.data() + pos, pData, n);
+            [pData, n, pos = handle.pos](std::shared_ptr<MemorySource> src) {
+                std::memcpy(src->data.data() + pos, pData, n);
             }
-        }, entry.source);
+        }, handle.source);
 
         handle.pos += n;
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-TprResult FileRegistry::writeAt(TprFile file, uint32_t pos, uint32_t n, const std::byte* pData) noexcept {
+TprResult FileRegistry::writeAt(TprFile file, uint64_t pos, uint64_t n, const std::byte* pData) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
-        uint32_t size;
+        uint64_t size;
         std::visit(overload{
-            [&size](FileSource& src) {
+            [&size](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long len = ftell(src.file);
+                long len = ftell(src->file);
                 if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
                 size = len;
             },
-            [&size](MemorySource& src) {
-                size = src.data.size();
+            [&size](std::shared_ptr<MemorySource> src) {
+                size = src->data.size();
             }
-        }, entry.source);
+        }, handle.source);
         if (pos + n > size) {
             return TPR_ERROR_OUT_OF_RANGE;
         }
 
         std::visit(overload{
-            [pData, n, pos](FileSource& src) {
+            [pData, n, pos](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                auto s = fwrite(pData, 1, n, src.file);
+                auto s = fwrite(pData, 1, n, src->file);
                 if (s != n) throw std::system_error(errno, std::generic_category(), "fwrite failed");
             },
-            [pData, n, pos](MemorySource& src) {
-                std::memcpy(src.data.data() + pos, pData, n);
+            [pData, n, pos](std::shared_ptr<MemorySource> src) {
+                std::memcpy(src->data.data() + pos, pData, n);
             }
-        }, entry.source);
+        }, handle.source);
 
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
 
-TprResult FileRegistry::append(TprFile file, uint32_t n, const std::byte* pData) noexcept {
+TprResult FileRegistry::append(TprFile file, uint64_t n, const std::byte* pData) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        auto handleIt = mHandles.find(get_basic_handle_index(file));
-        if (handleIt == mHandles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
         auto& handle = handleIt->second;
-        auto entryIt = mEntries.find(handle.entry);
-        if (entryIt == mEntries.end()) {
-            mLogger.panic() << "Corrupted internal structures: entry " << handle.entry
-                << " from handle " << handleIt->first << " doesn't appear in mEntries";
-            return TPR_PANIC;
-        }
-        auto& entry = entryIt->second;
 
         std::visit(overload{
-            [n, pData](FileSource& src) {
+            [n, pData](std::shared_ptr<FileSource> src) {
                 errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                long size = ftell(src.file);
+                long size = ftell(src->file);
                 if (size < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
                 #ifdef POSIX
-                    int fd = fileno(src.file);
+                    int fd = fileno(src->file);
                     errno = 0;
                     if (ftruncate(fd, size + n) == -1) throw std::system_error(errno, std::generic_category(), "ftruncate failed");
                 #endif
                 #ifdef WINDOWS
-                    int fd = _fileno(src.file);
+                    int fd = _fileno(src->file);
                     if (_chsize(fd, size + n) == -1) throw std::system_error(errno, std::generic_category(), "_chsize failed");
                 #endif
                 errno = 0;
-                if (fseek(src.file, size, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
+                if (fseek(src->file, size, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
                 errno = 0;
-                auto s = fwrite(pData, 1, n, src.file);
+                auto s = fwrite(pData, 1, n, src->file);
                 if (s != n) throw std::system_error(errno, std::generic_category(), "fwrite failed");
             },
-            [n, pData](MemorySource& src) {
-                src.data.insert(src.data.end(), pData, pData + n);
+            [n, pData](std::shared_ptr<MemorySource> src) {
+                src->data.insert(src->data.end(), pData, pData + n);
             }
-        }, entry.source);
+        }, handle.source);
 
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -666,9 +599,11 @@ expected<TprPathType, TprResult> FileRegistry::pathType(std::filesystem::path pa
         return unexpected(TPR_ERROR_DOESNT_EXIST);
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
 }
@@ -679,9 +614,11 @@ TprResult FileRegistry::createDirectory(std::filesystem::path path, TprCreateDir
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -695,9 +632,11 @@ TprResult FileRegistry::touchFile(std::filesystem::path path, TprTouchFileFlags 
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -708,9 +647,11 @@ TprResult FileRegistry::remove(std::filesystem::path path) noexcept {
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }
@@ -723,9 +664,11 @@ TprResult FileRegistry::move(std::filesystem::path path, std::filesystem::path n
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     } catch (...) {
         mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
     }
 }

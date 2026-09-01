@@ -30,7 +30,7 @@ typedef uint8_t TprBool8;
 // enums
 
 typedef enum TprLogStyle {
-    TPR_LOG_STYLE_STANDART = 0,
+    TPR_LOG_STYLE_NORMAL = 0,
     TPR_LOG_STYLE_TIMESTAMP1 = 1,
     TPR_LOG_STYLE_ERROR1 = 2,
     TPR_LOG_STYLE_WARN1 = 3,
@@ -57,7 +57,7 @@ typedef enum TprResult {
     TPR_SUCCESS = 0,
     TPR_PANIC = -1,
 
-    TPR_ERROR_MODULE_NOT_LOADED = -2,
+    TPR_ERROR_NOT_LOADED = -2,
     TPR_ERROR_INVALID_VALUE = -3,
     TPR_ERROR_INVALID_OPERATION = -4,
     TPR_ERROR_DOESNT_EXIST = -5,
@@ -259,6 +259,7 @@ typedef enum TprWindowCapabilityFlagBits {
 } TprWindowCapabilityFlagBits;
 typedef _TprFlag_T TprWindowCapabilityFlags;
 
+
 typedef enum TprCreateActionFlagBits {
     _TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateActionFlagBits;
@@ -269,37 +270,74 @@ typedef enum TprActionCapabilityFlagBits {
 } TprActionCapabilityFlagBits;
 typedef _TprFlag_T TprActionCapabilityFlags;
 
+
 typedef enum TprCreateDepthDomainFlagBits {
     TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_FLAG_BIT = 0x1,
     _TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateDepthDomainFlagBits;
 typedef _TprFlag_T TprCreateDepthDomainFlags;
 
+typedef enum TprDepthDomainCapabilityFlagBits {
+    _TPR_DEPTH_DOMAIN_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprDepthDomainCapabilityFlagBits;
+typedef _TprFlag_T TprDepthDomainCapabilityFlags;
+
+
 typedef enum TprCreateMeshFlagBits {
     _TPR_CREATE_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateMeshFlagBits;
 typedef _TprFlag_T TprCreateMeshFlags;
 
-typedef enum TprLoadMeshFlagBits {
-    _TPR_LOAD_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
-} TprLoadMeshFlagBits;
-typedef _TprFlag_T TprLoadMeshFlags;
+typedef enum TprMeshCapabilityFlagBits {
+    _TPR_MESH_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprMeshCapabilityFlagBits;
+typedef _TprFlag_T TprMeshCapabilityFlags;
+
 
 typedef enum TprCreateRenderTargetFlagBits {
     _TPR_CREATE_RENDER_TARGET_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprCreateRenderTargetFlagBits;
 typedef _TprFlag_T TprCreateRenderTargetFlags;
 
-typedef enum TprCreateObjectImageFlagBits {
+typedef enum TprRenderTargetCapabilityFlagBits {
+    _TPR_RENDER_TARGET_CAPAIBILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprRenderTargetCapabilityFlagBits;
+typedef _TprFlag_T TprRenderTargetCapabilityFlags;
+
+
+typedef enum TprCreateRenderTargetSetFlagBits {
+    _TPR_CREATE_RENDER_TARGET_SET_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprCreateRenderTargetSetFlagBits;
+typedef _TprFlag_T TprCreateRenderTargetSetFlags;
+
+typedef enum TprRenderTargetSetCapabilityFlagBits {
+    _TPR_RENDER_TARGET_SET_CAPAIBILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprRenderTargetSetCapabilityFlagBits;
+typedef _TprFlag_T TprRenderTargetSetCapabilityFlags;
+
+
+typedef enum TprCreateEntityImageFlagBits {
     _TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
-} TprCreateObjectImageFlagBits;
-typedef _TprFlag_T TprCreateObjectImageFlags;
+} TprCreateEntityImageFlagBits;
+typedef _TprFlag_T TprCreateEntityImageFlags;
+
+typedef enum TprEntityImageCapabilityFlagBits {
+    _TPR_ENTITY_IMAGE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprEntityImageCapabilityFlagBits;
+typedef _TprFlag_T TprEntityImageCapabilityFlags;
+
+
+// typedef enum TprCreateSettingFlagBits {
+//     _TPR_CREATE_SETTING_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+// } TprCreateSettingFlagBits;
+// typedef _TprFlag_T TprCreateSettingFlags;
 
 typedef enum TprSettingCapabilityFlagBits {
     TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT = 0x1,
     _TPR_SETTING_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprSettingCapabilityFlagBits;
 typedef _TprFlag_T TprSettingCapabilityFlags;
+
 
 typedef enum TprOpenFileFlagBits {
     TPR_OPEN_FILE_SYNC_FLAG_BIT = 0x1,
@@ -308,6 +346,12 @@ typedef enum TprOpenFileFlagBits {
     _TPR_OPEN_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
 } TprOpenFileFlagBits;
 typedef _TprFlag_T TprOpenFileFlags;
+
+typedef enum TprFileCapabilityFlagBits {
+    TPR_FILE_CAPABILITY_WRITE_FLAG_BIT = 0x1,
+    _TPR_FILE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprFileCapabilityFlagBits;
+typedef _TprFlag_T TprFileCapabilityFlags;
 
 typedef enum TprTouchFileFlagBits {
     // TPR_CREATE_NEW_FILE_VFS_FLAG_BIT = 0x1,  // TODO: add proper VFS
@@ -321,11 +365,6 @@ typedef enum TprCreateDirectoryFlagBits {
 } TprCreateDirectoryFlagBits;
 typedef _TprFlag_T TprCreateDirectoryFlags;
 
-typedef enum TprFileCapabilityFlagBits {
-    TPR_FILE_CAPABILITY_WRITE_FLAG_BIT = 0x1,
-    _TPR_FILE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
-} TprFileCapabilityFlagBits;
-typedef _TprFlag_T TprFileCapabilityFlags;
 
 typedef enum TprCreateJobFlagBits {
     _TPR_CREATE_JOB_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
@@ -348,7 +387,8 @@ typedef struct TprComponent { uint64_t _d; } TprComponent;
 typedef struct TprSetting { uint64_t _d; } TprSetting;
 typedef struct TprDepthDomain { uint64_t _d; } TprDepthDomain;
 typedef struct TprRenderTarget {  uint64_t _d; } TprRenderTarget;
-typedef struct TprObjectImage { uint64_t _d; } TprObjectImage;
+typedef struct TprRenderTargetSet {  uint64_t _d; } TprRenderTargetSet;
+typedef struct TprEntityImage { uint64_t _d; } TprEntityImage;
 typedef struct TprComponentChunk { uint64_t _d; } TprComponentChunk;
 typedef struct TprJob { uint64_t _d; } TprJob;
 
@@ -400,8 +440,9 @@ typedef struct TprViewport {
 } TprViewport;
 
 typedef struct TprComponentRenderable {
-    TprObjectImage image;
     TprMat4x4 transform;
+    TprEntityImage entityImage;
+    TprRenderTargetSet renderTargetSet;
 } TprComponentRenderable;
 
 
@@ -423,17 +464,13 @@ typedef struct TprActionCreateInfo {
 
 typedef struct TprMeshCreateInfo {
     TprCreateMeshFlags flags;
-    TprFile file;
+    TprFile data;
     uint32_t index;
 } TprMeshCreateInfo;
 
-typedef struct TprMeshLoadInfo {
-    TprLoadMeshFlags flags;
-} TprMeshLoadInfo;
-
 typedef struct TprDepthDomainCreateInfo {
     TprCreateDepthDomainFlags flags;
-    const TprDepthDomain* pAnchor;
+    TprDepthDomain anchor;
 } TprDepthDomainCreateInfo;
 
 typedef struct TprRenderTargetCreateInfo {
@@ -444,12 +481,16 @@ typedef struct TprRenderTargetCreateInfo {
     TprScissor scissor;
 } TprRenderTargetCreateInfo;
 
-typedef struct TprObjectImageCreateInfo {
-    TprCreateObjectImageFlags flags;
+typedef struct TprRenderTargetSetCreateInfo {
+    TprCreateRenderTargetSetFlags flags;
+    uint32_t targetCount;
+    TprRenderTarget* pTargets;
+} TprRenderTargetSetCreateInfo;
+
+typedef struct TprEntityImageCreateInfo {
+    TprCreateEntityImageFlags flags;
     TprMesh mesh;
-    uint32_t renderTargetCount;
-    const TprRenderTarget* pRenderTargets;
-} TprObjectImageCreateInfo;
+} TprEntityImageCreateInfo;
 
 typedef struct TprJobCreateInfo {
     TprCreateJobFlags flags;

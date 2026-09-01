@@ -86,7 +86,7 @@ void VulkanBackend::destroyRenderTarget(TprRenderTarget target) noexcept {
         auto it = mRenderTargets.find(get_basic_handle_index(target));
         if (it == mRenderTargets.end()) return;
         for (uint32_t objectImage : it->second.objectImages) {
-            destroyObjectImage(construct_basic_handle<TprObjectImage>(it->first, 0, handle_type::object_image));
+            destroyObjectImage(construct_basic_handle<TprEntityImage>(it->first, 0, handle_type::object_image));
         }
         mRenderTargets.erase(it);
     } catch (...) {
@@ -95,11 +95,11 @@ void VulkanBackend::destroyRenderTarget(TprRenderTarget target) noexcept {
 }
 
 
-expected<TprObjectImage, TprResult> VulkanBackend::createObjectImage(const TprObjectImageCreateInfo* pInfo) noexcept {
+expected<TprEntityImage, TprResult> VulkanBackend::createObjectImage(const TprObjectImageCreateInfo* pInfo) noexcept {
     if (!pInfo) return unexpected(TPR_ERROR_INVALID_VALUE);
     if (pInfo->renderTargetCount > 0 && !pInfo->pRenderTargets) return unexpected(TPR_ERROR_INVALID_VALUE);
 
-    TprObjectImage handle;
+    TprEntityImage handle;
 
     try {
         for (const TprRenderTarget* ptr = pInfo->pRenderTargets; ptr < pInfo->pRenderTargets + pInfo->renderTargetCount; ptr++) {
@@ -112,7 +112,7 @@ expected<TprObjectImage, TprResult> VulkanBackend::createObjectImage(const TprOb
             rImage.renderTargets.push_back(get_basic_handle_index(*ptr));
         }
         rImage.mesh = pInfo->mesh;
-        handle = construct_basic_handle<TprObjectImage>(mObjectImageCounter, 0, handle_type::object_image);
+        handle = construct_basic_handle<TprEntityImage>(mObjectImageCounter, 0, handle_type::object_image);
         for (const TprRenderTarget* ptr = pInfo->pRenderTargets; ptr < pInfo->pRenderTargets + pInfo->renderTargetCount; ptr++) {
             TprRenderTarget target = *ptr;
             auto& rTarget = mRenderTargets.at(get_basic_handle_index(target));
@@ -128,7 +128,7 @@ expected<TprObjectImage, TprResult> VulkanBackend::createObjectImage(const TprOb
 }
 
 
-void VulkanBackend::destroyObjectImage(TprObjectImage image) noexcept {
+void VulkanBackend::destroyObjectImage(TprEntityImage image) noexcept {
     try {
         auto it = mObjectImages.find(get_basic_handle_index(image));
         if (it == mObjectImages.end()) return;

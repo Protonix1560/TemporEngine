@@ -18,27 +18,20 @@
 #include "asset_store.hpp"
 #include "settings.hpp"
 #include "scheduler.hpp"
+#include "log_entry.hpp"
 #include "output_sink.hpp"
 
 #include <atomic>
-#include <condition_variable>
 #include <csignal>
-#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <cassert>
 #include <unordered_map>
 
 
-
-using OutputSinkVariant = std::variant<std::shared_ptr<TermSink>, std::shared_ptr<TermFileSink>>;
-REGISTER_TYPE_NAME_S(OutputSinkVariant, "Sink")
-
-
 template <typename T>
 struct service_buffer {
     public:
-
         service_buffer() = default;
         service_buffer(const service_buffer&) = delete;
         service_buffer(service_buffer&&) = delete;
@@ -92,9 +85,7 @@ struct are_unique<T, Rest...> : std::bool_constant<(!std::is_same_v<T, Rest> && 
 
 template <typename... Ts>
 class service_singleton_holder : public service_buffer<Ts>... {
-
     public:
-
         service_singleton_holder() {
             static_assert((are_unique<Ts...>::value), "service_singleton_holder: all types must be unique");
             static_assert((std::is_nothrow_destructible_v<Ts> && ...), "service_singleton_holder: all types must have a non-throwing destructor");
@@ -109,34 +100,12 @@ class service_singleton_holder : public service_buffer<Ts>... {
         T& construct(Args&&... args) {
             static_assert(contains_v<T>, "service_singleton_holder: unspecified service");
             T& ref = service_buffer<T>::construct(std::forward<Args>(args)...);
-            if constexpr (contains_v<OutputSinkVariant>) {
-                if (service_buffer<OutputSinkVariant>::alive()) {
-                    auto sink = std::visit(
-                        overload{ [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); } },
-                        service_buffer<OutputSinkVariant>::get()
-                    );
-                    Logger(sink, "").info(TPR_LOG_STYLE_TIMESTAMP1)
-                        << "Constructed service " << type_name<T>::value << " (" << type_name<T>::value_short << ")";
-                }
-            }
             return ref;
         }
 
         template <typename T>
         void destruct() noexcept {
             static_assert(contains_v<T>, "service_singleton_holder: unspecified service");
-            if constexpr (contains_v<OutputSinkVariant>) {
-                if (service_buffer<OutputSinkVariant>::alive()) {
-                    try {
-                        auto sink = std::visit(
-                            overload{ [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); } },
-                            service_buffer<OutputSinkVariant>::get()
-                        );
-                        Logger(sink, "").info(TPR_LOG_STYLE_TIMESTAMP1)
-                            << "Destructing service " << type_name<T>::value;
-                    } catch (...) {}
-                }
-            }
             service_buffer<T>::destruct();
         }
 
@@ -233,10 +202,11 @@ class TemporEngine {
             TprResult win_getActionState(TprAction action, TprActionState* pState) noexcept;
             TprJob win_getInputUpdateJob() noexcept;
             // geo
-            TprResult geo_createMesh(const TprMeshCreateInfo* pCreateInfo, TprMesh* pMesh) noexcept;
-            TprResult geo_loadMesh(TprMesh mesh, const TprMeshLoadInfo* pLoadInfo) noexcept;
-            void geo_unloadMesh(TprMesh mesh) noexcept;
+            TprResult geo_createMesh(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) noexcept;
+            TprResult geo_createMeshCapability(TprMesh mesh, TprMeshCapabilityFlags mask, TprMesh* pMesh) noexcept;
             void geo_destroyMesh(TprMesh mesh) noexcept;
+            TprResult geo_requireMeshLoaded(TprMesh mesh) noexcept;
+            TprResult geo_unrequireMeshLoaded(TprMesh mesh) noexcept;
             // conf
             TprResult conf_getRootSetting(TprSetting* pSetting) noexcept;
             TprResult conf_createSetting(TprSetting baseSetting, const char* name, TprSetting* pSetting) noexcept;
@@ -264,13 +234,20 @@ class TemporEngine {
             TprResult conf_resizeSettingArray(TprSetting setting, uint32_t size) noexcept;
             // render
             TprResult render_createDepthDomain(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) noexcept;
+            TprResult render_createDepthDomainCapability(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask, TprDepthDomain* pDomain) noexcept;
             void render_destroyDepthDomain(TprDepthDomain domain) noexcept;
             TprResult render_createRenderTarget(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) noexcept;
+            TprResult render_createRenderTargetCapability(TprRenderTarget target, TprRenderTargetCapabilityFlags mask, TprRenderTarget* pTarget) noexcept;
             void render_destroyRenderTarget(TprRenderTarget target) noexcept;
-            TprComponent render_getComponentRenderable() noexcept;
+            TprResult render_createRenderTargetSet(const TprRenderTargetSetCreateInfo* pInfo, TprRenderTargetSet* pSet) noexcept;
+            TprResult render_createRenderTargetSetCapability(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask, TprRenderTargetSet* pSet) noexcept;
+            void render_destroyRenderTargetSet(TprRenderTargetSet set) noexcept;
+            TprResult render_createEntityImage(const TprEntityImageCreateInfo* pInfo, TprEntityImage* pImage) noexcept;
+            TprResult render_createEntityImageCapability(TprEntityImage image, TprEntityImageCapabilityFlags mask, TprEntityImage* pImage) noexcept;
+            void render_destroyEntityImage(TprEntityImage image) noexcept;
             TprJob render_getRenderJob() noexcept;
-            TprResult render_createObjectImage(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) noexcept;
-            void render_destroyObjectImage(TprObjectImage image) noexcept;
+            TprJob render_getRenderSignalJob() noexcept;
+            TprComponent render_getComponentRenderable() noexcept;
             // sched
             TprResult sched_createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept;
             TprResult sched_createJobCapability(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) noexcept;
@@ -281,13 +258,6 @@ class TemporEngine {
         #pragma endregion  // api
 
     private:
-
-        void runtimeRender();
-
-        std::condition_variable mMainThreadCv;
-        std::mutex mMainThreadMutex;
-        std::optional<TprResult> mRunResult;
-
         TprEngineAPI::Output mOutAPI{};
         TprEngineAPI::FileSystem mFSAPI{};
         TprEngineAPI::Scene mSceneAPI{};
@@ -298,19 +268,37 @@ class TemporEngine {
         TprEngineAPI::Scheduling mSchedAPI{};
         TprEngineAPI mAPI{};
 
+        template <typename T, typename... Args>
+        T& constructService(Args&&... args) {
+            T& r = mServHolder.construct<T>(std::forward<Args>(args)...);
+            if (mLogger.has_value()) {
+                mLogger->info(TPR_LOG_STYLE_TIMESTAMP1) << "Constructed service " << type_name_v<T> << " (" << type_name_v_s<T> << ")";
+            }
+            return r;
+        }
+
+        template <typename T>
+        void destructService() {
+            mServHolder.destruct<T>();
+            if (mLogger.has_value()) {
+                mLogger->info(TPR_LOG_STYLE_TIMESTAMP1) << "Destructed service " << type_name_v<T> << " (" << type_name_v_s<T> << ")";
+            }
+        }
+
         void registerAPI();
         expected<uint32_t, TprResult> activePluginID();
         expected<PluginInfo, TprResult> activePluginInfo();
 
         service_singleton_holder<
             Windowing, PGraphicsDevice, AssetStore, SceneGraph, PluginLoader,
-            FileRegistry, Settings, Scheduler, OutputSinkVariant
+            FileRegistry, Settings, Scheduler, OutputSink
         > mServHolder;
 
         std::filesystem::path mConfigPath;
         bool mFlushConfig;
         bool mConfigEnabled;
-        bool mColourEnabled;
+        bool mAllowTermColour;
+        TprLogLevel mTermLevel;
 
         FileRegistry* mpFileReg = nullptr;
         Windowing* mpWindowing = nullptr;
@@ -320,18 +308,10 @@ class TemporEngine {
         SceneGraph* mpSceneGraph = nullptr;
         Settings* mpSettings = nullptr;
         Scheduler* mpSched = nullptr;
-
-        std::atomic<std::shared_ptr<LogSinkInterface>> mpOutSink = nullptr;
-        TprLogLevel mVerbosity;
-
-        TprComponent mComponentRenderable;
-        TprJob mRenderJob;
-        TprJob mShutdownJob;
-
-        uint64_t mRenderLastLaunch;
+        OutputSink* mpOutSink = nullptr;
 
         volatile sig_atomic_t mSignal = 0;
-        std::atomic<int32_t> mAliveTokens{0};
+        std::atomic<TprResult> mRunResult = _TPR_RESULT_MAX_ENUM;
 
         std::unordered_map<uint64_t, uint32_t> mJobPluginMap;
 

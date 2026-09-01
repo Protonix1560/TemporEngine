@@ -156,14 +156,21 @@ namespace api {
     }
 
     namespace geo {
-        TprResult createMesh(const TprMeshCreateInfo* pCreateInfo, TprMesh* pMesh) noexcept {
-            assert(gEngine); return gEngine->geo_createMesh(pCreateInfo, pMesh);
+        TprResult createMesh(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) noexcept {
+            assert(gEngine); return gEngine->geo_createMesh(pInfo, pMesh);
         }
-        TprResult loadMesh(TprMesh mesh, const TprMeshLoadInfo* pLoadInfo) noexcept {
-            assert(gEngine); return gEngine->geo_loadMesh(mesh, pLoadInfo);
+        TprResult createMeshCapability(TprMesh mesh, TprMeshCapabilityFlags mask, TprMesh* pMesh) noexcept {
+            assert(gEngine); return gEngine->geo_createMeshCapability(mesh, mask, pMesh);
         }
-        void unloadMesh(TprMesh mesh) noexcept { assert(gEngine); gEngine->geo_unloadMesh(mesh); }
-        void destroyMesh(TprMesh mesh) noexcept { assert(gEngine); gEngine->geo_destroyMesh(mesh); }
+        void destroyMesh(TprMesh mesh) noexcept {
+            assert(gEngine); gEngine->geo_destroyMesh(mesh);
+        }
+        TprResult requireMeshLoaded(TprMesh mesh) noexcept {
+            assert(gEngine); return gEngine->geo_requireMeshLoaded(mesh);
+        }
+        TprResult unrequireMeshLoaded(TprMesh mesh) noexcept {
+            assert(gEngine); return gEngine->geo_unrequireMeshLoaded(mesh);
+        }
     }
 
     namespace conf {
@@ -245,26 +252,47 @@ namespace api {
         TprResult createDepthDomain(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) noexcept {
             assert(gEngine); return gEngine->render_createDepthDomain(pInfo, pDomain);
         }
+        TprResult createDepthDomainCapability(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask, TprDepthDomain* pDomain) noexcept {
+            assert(gEngine); return gEngine->render_createDepthDomainCapability(domain, mask, pDomain);
+        }
         void destroyDepthDomain(TprDepthDomain domain) noexcept {
-            assert(gEngine); return gEngine->render_destroyDepthDomain(domain);
+            assert(gEngine); gEngine->render_destroyDepthDomain(domain);
         }
         TprResult createRenderTarget(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) noexcept {
             assert(gEngine); return gEngine->render_createRenderTarget(pInfo, pTarget);
         }
+        TprResult createRenderTargetCapability(TprRenderTarget target, TprRenderTargetCapabilityFlags mask, TprRenderTarget* pTarget) noexcept {
+            assert(gEngine); return gEngine->render_createRenderTargetCapability(target, mask, pTarget);
+        }
         void destroyRenderTarget(TprRenderTarget target) noexcept {
             assert(gEngine); gEngine->render_destroyRenderTarget(target);
         }
-        TprComponent getComponentRenderable() noexcept {
-            assert(gEngine); return gEngine->render_getComponentRenderable();
+        TprResult createRenderTargetSet(const TprRenderTargetSetCreateInfo* pInfo, TprRenderTargetSet* pSet) noexcept {
+            assert(gEngine); return gEngine->render_createRenderTargetSet(pInfo, pSet);
+        }
+        TprResult createRenderTargetSetCapability(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask, TprRenderTargetSet* pSet) noexcept {
+            assert(gEngine); return gEngine->render_createRenderTargetSetCapability(set, mask, pSet);
+        }
+        void destroyRenderTargetSet(TprRenderTargetSet set) noexcept {
+            assert(gEngine); gEngine->render_destroyRenderTargetSet(set);
+        }
+        TprResult createEntityImage(const TprEntityImageCreateInfo* pInfo, TprEntityImage* pImage) noexcept {
+            assert(gEngine); return gEngine->render_createEntityImage(pInfo, pImage);
+        }
+        TprResult createEntityImageCapability(TprEntityImage image, TprEntityImageCapabilityFlags mask, TprEntityImage* pImage) noexcept {
+            assert(gEngine); return gEngine->render_createEntityImageCapability(image, mask, pImage);
+        }
+        void destroyEntityImage(TprEntityImage image) noexcept {
+            assert(gEngine); gEngine->render_destroyEntityImage(image);
         }
         TprJob getRenderJob() noexcept {
             assert(gEngine); return gEngine->render_getRenderJob();
         }
-        TprResult createObjectImage(const TprObjectImageCreateInfo* pInfo, TprObjectImage* pImage) noexcept {
-            assert(gEngine); return gEngine->render_createObjectImage(pInfo, pImage);
+        TprJob getRenderSignalJob() noexcept {
+            assert(gEngine); return gEngine->render_getRenderSignalJob();
         }
-        void destroyObjectImage(TprObjectImage image) noexcept {
-            assert(gEngine); gEngine->render_destroyObjectImage(image);
+        TprComponent getComponentRenderable() noexcept {
+            assert(gEngine); return gEngine->render_getComponentRenderable();
         }
     }
 
@@ -343,9 +371,10 @@ void TemporEngine::registerAPI() {
     mSceneAPI.writeComponentChunkData = api::scene::writeComponentChunkData;
     // geo
     mGeoAPI.createMesh = api::geo::createMesh;
-    mGeoAPI.loadMesh = api::geo::loadMesh;
-    mGeoAPI.unloadMesh = api::geo::unloadMesh;
+    mGeoAPI.createMeshCapability = api::geo::createMeshCapability;
     mGeoAPI.destroyMesh = api::geo::destroyMesh;
+    mGeoAPI.requireMeshLoaded = api::geo::requireMeshLoaded;
+    mGeoAPI.unrequireMeshLoaded = api::geo::unrequireMeshLoaded;
     // win
     mWinAPI.openWindow = api::win::openWindow;
     mWinAPI.createWindowCapability = api::win::createWindowCapability;
@@ -384,13 +413,20 @@ void TemporEngine::registerAPI() {
     mConfAPI.resizeSettingArray = api::conf::resizeSettingArray;
     // render
     mRenderAPI.createDepthDomain = api::render::createDepthDomain;
+    mRenderAPI.createDepthDomainCapability = api::render::createDepthDomainCapability;
     mRenderAPI.destroyDepthDomain = api::render::destroyDepthDomain;
     mRenderAPI.createRenderTarget = api::render::createRenderTarget;
+    mRenderAPI.createRenderTargetCapability = api::render::createRenderTargetCapability;
     mRenderAPI.destroyRenderTarget = api::render::destroyRenderTarget;
-    mRenderAPI.getComponentRenderable = api::render::getComponentRenderable;
+    mRenderAPI.createRenderTargetSet = api::render::createRenderTargetSet;
+    mRenderAPI.createRenderTargetSetCapability = api::render::createRenderTargetSetCapability;
+    mRenderAPI.destroyRenderTargetSet = api::render::destroyRenderTargetSet;
+    mRenderAPI.createEntityImage = api::render::createEntityImage;
+    mRenderAPI.createEntityImageCapability = api::render::createEntityImageCapability;
+    mRenderAPI.destroyEntityImage = api::render::destroyEntityImage;
     mRenderAPI.getRenderJob = api::render::getRenderJob;
-    mRenderAPI.createObjectImage = api::render::createObjectImage;
-    mRenderAPI.destroyObjectImage = api::render::destroyObjectImage;
+    mRenderAPI.getRenderSignalJob = api::render::getRenderSignalJob;
+    mRenderAPI.getComponentRenderable = api::render::getComponentRenderable;
     // sched
     mSchedAPI.createJob = api::sched::createJob;
     mSchedAPI.createJobCapability = api::sched::createJobCapability;

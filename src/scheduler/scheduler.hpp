@@ -138,31 +138,35 @@ struct JobQueue {
         void push(const JobLaunch& launch) {
             {
                 std::lock_guard<std::mutex> lock(mMutex);
-                auto it = std::ranges::lower_bound(mLaunches, launch, std::greater<JobLaunch>{});
+                auto it = std::ranges::lower_bound(mLaunches, launch, std::less<JobLaunch>{});
                 mLaunches.emplace(it, launch);
             }
             mCv.notify_all();
         }
 
-        std::optional<JobLaunch> pull(std::stop_token stop) {
+        std::optional<JobLaunch> pull(std::stop_token stop, std::chrono::steady_clock::duration waitTimeout) {
             std::stop_callback callback(stop, [&]() { mCv.notify_all(); });
             std::unique_lock<std::mutex> lock(mMutex);
             while (!stop.stop_requested()) {
                 if (mLaunches.empty()) {
-                    mCv.wait(lock);
+                    mCv.wait_for(lock, waitTimeout);
                 } else {
-                    mCv.wait_until(lock, mLaunches.back().timepoint);
+                    // `deadline` must be in a local variable because std::min returns a reference to the min element
+                    // and `atime` in wait_until for some reason is a reference too
+                    auto deadline = std::min(std::chrono::steady_clock::now() + waitTimeout, mLaunches.front().timepoint);
+                    mCv.wait_until(lock, deadline);
                 }
                 auto now = std::chrono::steady_clock::now();
-                for (auto it = mLaunches.begin(); it != mLaunches.end(); it++) {
+                for (auto it = mLaunches.begin(); it < mLaunches.end(); it++) {
                     auto launch = *it;
                     if (launch.timepoint > now) break;
-                    std::lock_guard<std::mutex> lock(launch.entry->mutex);
+                    std::lock_guard<std::mutex> entryLock(launch.entry->mutex);
                     if (launch.entry->usage == 0) {
                         // incrementing it here so another thread wouldn't pull a launch
                         // of this job before working thread locks it
                         launch.entry->usage++;
                         mLaunches.erase(it);
+                        lock.unlock();
                         mCv.notify_all();
                         return launch;
                     }
@@ -188,12 +192,12 @@ class Settings;
 
 class Scheduler {
     public:
-        Scheduler(Logger logger, Settings& rSetting);
+        Scheduler(Logger logger, Settings& rSetting, std::atomic<TprResult>& rRunResult);
         TprResult init();
         void shutdown();
         ~Scheduler();
 
-        expected<TprJob, TprResult> createJob(const TprJobCreateInfo* pInfo) noexcept;
+        expected<TprJob, TprResult> createJob(const TprJobCreateInfo& info) noexcept;
         expected<TprJob, TprResult> createJobCapability(TprJob job, TprJobCapabilityFlags mask) noexcept;
         TprResult scheduleJob(TprJob job, uint64_t timepoint) noexcept;
         void pendJobDestruction(TprJob job) noexcept;
@@ -209,12 +213,14 @@ class Scheduler {
         Logger mLogger;
         Logger mSpamLogger;
         Settings& mrSett;
+        std::atomic<TprResult>& mrRunResult;
 
         std::mutex mMutex;
-        bool mInitialized = false;
+        bool mInitialised = false;
 
         uint32_t mShortPoolSize;
         std::chrono::steady_clock::duration mShortThreadMigrationTimeout;
+        std::chrono::steady_clock::duration mThreadPullWaitTimeout;
         const std::chrono::steady_clock::time_point mTimeBegin;
 
         std::unordered_map<uint32_t, std::shared_ptr<Thread>> mThreads;

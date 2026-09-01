@@ -7,6 +7,7 @@
 #include "plugin_core_extender.hpp"
 #include "settings.hpp"
 #include "file_registry.hpp"
+#include "log_entry.hpp"
 
 #include <cstdint>
 

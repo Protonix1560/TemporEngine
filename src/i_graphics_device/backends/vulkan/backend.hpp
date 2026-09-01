@@ -1,23 +1,30 @@
 
-
-#ifndef HARDWARE_LAYER_INTERFACE_LAYERS_VULKAN_HARDWARE_LAYER_HPP_
-#define HARDWARE_LAYER_INTERFACE_LAYERS_VULKAN_HARDWARE_LAYER_HPP_
-
+#ifndef I_GRAPHICS_DEVICE_BACKENDS_VULKAN_BACKEND_HPP_
+#define I_GRAPHICS_DEVICE_BACKENDS_VULKAN_BACKEND_HPP_
 
 #include "core.hpp"
+#include "graphics_common.hpp"
 #include "plugin_core.h"
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
 #include "interval_union.hpp"
+#include "hash.hpp"
+#include "scope_guard.hpp"
+#include "linalg_packed.hpp"
 
-#include <array>
-#include <glm/fwd.hpp>
+#include <limits>
+#include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
+#include <array>
+#include <source_location>
+
+#include <glm/fwd.hpp>
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
-
 
 
 // from "file_registry.hpp"
@@ -33,163 +40,7 @@ class Settings;
 class SceneGraph;
 
 
-
-struct Vertex {
-
-    struct Push {
-        glm::mat4 mvp;
-    };
-
-    static VkVertexInputBindingDescription bindDesc() {
-        VkVertexInputBindingDescription bindingDesc{};
-        bindingDesc.binding = 0;
-        bindingDesc.stride = sizeof(Vertex);
-        bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        return bindingDesc;
-    }
-
-    static std::array<VkVertexInputAttributeDescription, 2> attributeDesc() {
-        std::array<VkVertexInputAttributeDescription, 2> attribs{};
-
-        attribs[0].binding = 0;
-        attribs[0].location = 0;
-        attribs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attribs[0].offset = offsetof(Vertex, pos);
-
-        attribs[1].binding = 0;
-        attribs[1].location = 1;
-        attribs[1].format = VK_FORMAT_R8G8B8A8_UNORM;
-        attribs[1].offset = offsetof(Vertex, colour);
-
-        return attribs;
-    }
-
-    glm::vec3 pos;
-    uint32_t colour;
-};
-
-
-struct BasicVertexPushConst {
-    glm::mat4 mvp;
-};
-
-
-
-struct VertexPosition {
-    static constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
-    glm::vec3 pos;
-};
-
-
-
-struct Frame {
-
-    VkCommandBuffer& renderCommandBuffer() noexcept { return commandBuffers[0]; }
-    VkCommandBuffer& presentCommandBuffer() noexcept { return commandBuffers[1]; }
-    const VkCommandBuffer& renderCommandBuffer() const noexcept { return commandBuffers[0]; }
-    const VkCommandBuffer& presentCommandBuffer() const noexcept { return commandBuffers[1]; }
-
-    VkCommandPool commandPool = VK_NULL_HANDLE;
-    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-    VkFence inFlightFence = VK_NULL_HANDLE;
-    VkCommandBuffer commandBuffers[2] = {};
-};
-
-
-struct RenderPass {
-    VkRenderPass renderPass = VK_NULL_HANDLE;
-    VkPipeline basicPipeline = VK_NULL_HANDLE;
-};
-
-
-#define SYM_FIELD(func) PFN_##func func
-
-struct VulkanSymbols {
-    SYM_FIELD(vkEnumerateInstanceVersion);
-    SYM_FIELD(vkEnumerateInstanceLayerProperties);
-    SYM_FIELD(vkEnumerateInstanceExtensionProperties);
-    SYM_FIELD(vkCreateInstance);
-    SYM_FIELD(vkCreateDebugUtilsMessengerEXT);
-    SYM_FIELD(vkEnumeratePhysicalDevices);
-    SYM_FIELD(vkGetPhysicalDeviceProperties);
-    SYM_FIELD(vkCreateDevice);
-    SYM_FIELD(vkGetDeviceQueue);
-    SYM_FIELD(vkGetPhysicalDeviceMemoryProperties);
-    SYM_FIELD(vkCreateBuffer);
-    SYM_FIELD(vkGetBufferMemoryRequirements);
-    SYM_FIELD(vkAllocateMemory);
-    SYM_FIELD(vkBindBufferMemory);
-    SYM_FIELD(vkMapMemory);
-    SYM_FIELD(vkUnmapMemory);
-    SYM_FIELD(vkFreeMemory);
-    SYM_FIELD(vkDestroyBuffer);
-    SYM_FIELD(vkCreateSemaphore);
-    SYM_FIELD(vkCreateFence);
-    SYM_FIELD(vkCreateCommandPool);
-    SYM_FIELD(vkAllocateCommandBuffers);
-    SYM_FIELD(vkDestroyCommandPool);
-    SYM_FIELD(vkDestroyFence);
-    SYM_FIELD(vkDestroySemaphore);
-    SYM_FIELD(vkDestroySurfaceKHR);
-    SYM_FIELD(vkGetPhysicalDeviceSurfaceFormatsKHR);
-    SYM_FIELD(vkGetPhysicalDeviceSurfacePresentModesKHR);
-    SYM_FIELD(vkDestroySwapchainKHR);
-    SYM_FIELD(vkCreateSwapchainKHR);
-    SYM_FIELD(vkGetSwapchainImagesKHR);
-    SYM_FIELD(vkCreateImageView);
-    SYM_FIELD(vkCreateImage);
-    SYM_FIELD(vkGetImageMemoryRequirements);
-    SYM_FIELD(vkBindImageMemory);
-    SYM_FIELD(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
-    SYM_FIELD(vkDestroyImageView);
-    SYM_FIELD(vkDestroyImage);
-    SYM_FIELD(vkCreateFramebuffer);
-    SYM_FIELD(vkDestroyFramebuffer);
-    SYM_FIELD(vkCreateRenderPass);
-    SYM_FIELD(vkCreatePipelineLayout);
-    SYM_FIELD(vkCreateShaderModule);
-    SYM_FIELD(vkCreateGraphicsPipelines);
-    SYM_FIELD(vkDestroyDebugUtilsMessengerEXT);
-    SYM_FIELD(vkResetCommandBuffer);
-    SYM_FIELD(vkBeginCommandBuffer);
-    SYM_FIELD(vkEndCommandBuffer);
-    SYM_FIELD(vkWaitForFences);
-    SYM_FIELD(vkResetCommandPool);
-    SYM_FIELD(vkAcquireNextImageKHR);
-    SYM_FIELD(vkCmdBeginRenderPass);
-    SYM_FIELD(vkCmdSetScissor);
-    SYM_FIELD(vkCmdSetViewport);
-    SYM_FIELD(vkCmdEndRenderPass);
-    SYM_FIELD(vkResetFences);
-    SYM_FIELD(vkQueueSubmit);
-    SYM_FIELD(vkQueuePresentKHR);
-    SYM_FIELD(vkDeviceWaitIdle);
-    SYM_FIELD(vkCmdCopyBuffer);
-    SYM_FIELD(vkDestroyDevice);
-    SYM_FIELD(vkDestroyInstance);
-    SYM_FIELD(vkCreateDescriptorSetLayout);
-    SYM_FIELD(vkDestroyPipelineLayout);
-    SYM_FIELD(vkDestroyPipeline);
-    SYM_FIELD(vkDestroyRenderPass);
-    SYM_FIELD(vkDestroyDescriptorSetLayout);
-    SYM_FIELD(vkDestroyShaderModule);
-    SYM_FIELD(vkCreateDescriptorPool);
-    SYM_FIELD(vkDestroyDescriptorPool);
-    SYM_FIELD(vkAllocateDescriptorSets);
-    SYM_FIELD(vkUpdateDescriptorSets);
-    SYM_FIELD(vkCmdBindDescriptorSets);
-    SYM_FIELD(vkCmdBindPipeline);
-    SYM_FIELD(vkCmdDrawIndexed);
-    SYM_FIELD(vkCmdBindVertexBuffers);
-    SYM_FIELD(vkCmdBindIndexBuffer);
-};
-
-
-struct Allocation {
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    VkDeviceSize offset = 0;
-};
-
+/*
 struct Allocator {
     private:
         Logger mLogger;
@@ -272,229 +123,526 @@ struct Buffer : private BufferResources {
 
         ~Buffer() noexcept;
 };
-
-
-struct WindowContextResources {
-    Logger mLogger;
-    Allocator& mrAlloc;
-    Windowing& mrWinMan;
-    FileRegistry& mrFileReg;
-    VulkanSymbols& mrSym;
-
-    VkInstance mInstance;
-    VkPhysicalDevice mPhysicalDevice;
-    VkDevice mDevice;
-    VkPipelineLayout mBasicPipelineLayout;
-    VkDescriptorSetLayout mObjectSetLayout;
-
-    TprWindow mWindowHandle;
-    VkSurfaceKHR mSurface = VK_NULL_HANDLE;
-    VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
-
-    std::vector<VkSemaphore> mSemaphores;
-
-    std::vector<VkImage> mChainImages;
-    std::vector<VkImageView> mChainImageViews;
-    VkFormat mChainImageFormat;
-
-    std::vector<VkImage> mDepthImages;
-    std::vector<VkImageView> mDepthImageViews;
-    std::vector<Allocation> mDepthImageMemories;
-    VkFormat mDepthImageFormat;
-
-    VkExtent2D mExtent;
-    uint32_t mImageCount = 0;
-
-    std::vector<VkFramebuffer> mFramebuffers;
-    std::vector<Frame> mFrames;
-    uint32_t mMaxFramesInFlight;
-    uint32_t mPoolQueueFamily;
-    RenderPass mRenderPass;
-
-    std::vector<VkDescriptorSet> mObjectSets;
-    VkDescriptorPool mDescPool;
-};
-
-struct WindowContext : private WindowContextResources {
-    private:
-        bool mFreeResources = true;
-
-        TprResult constructPersistent();
-        TprResult constructInvalidatable();
-
-    public:
-        WindowContext(
-            Logger logger, Allocator& rAlloc, Windowing& rWinMan, FileRegistry& rFileReg,
-            VulkanSymbols& rSym, VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
-            uint32_t queueFamilyIndex, uint32_t maxFramesInFlight, TprWindow window, VkPipelineLayout layout,
-            VkDescriptorSetLayout objectSetLayout
-        );
-
-        WindowContext(const WindowContext& other) = delete;
-
-        WindowContext(WindowContext&& other) noexcept : WindowContextResources(std::move(other)) {
-            other.mFreeResources = false;
-        }
-
-        TprResult recreate();
-
-        ~WindowContext();
-
-        VkExtent2D extent() const { return mExtent; }
-        VkSwapchainKHR swapchain() const { return mSwapchain; }
-        const RenderPass& renderPass() const { return mRenderPass; }
-        TprWindow handle() const { return mWindowHandle; }
-
-        std::span<const Frame> frames() const { return std::span(mFrames.begin(), mFrames.end()); }
-        std::span<const VkFramebuffer> framebuffers() const { return std::span(mFramebuffers.begin(), mFramebuffers.end()); }
-        std::span<const VkImage> chainImages() const { return std::span(mChainImages.begin(), mChainImages.end()); }
-        std::span<const VkSemaphore> semaphores() const { return std::span(mSemaphores.begin(), mSemaphores.end()); }
-        std::span<const VkDescriptorSet> objectSets() const { return std::span(mObjectSets.begin(), mObjectSets.end()); }
-};
-
-
-struct GeometryIndexBuffer {
-    Buffer indices;
-    interval_union<uint32_t> free;
-};
-
-struct GeometryVertexBuffer {
-    Buffer positions;
-    interval_union<uint32_t> free;
-};
-
-
-struct DepthDomain {
-};
-
-struct RenderTarget {
-    TprViewport viewport;
-    TprScissor scissor;
-    TprWindow window;
-    uint32_t domain;
-    std::vector<uint32_t> objectImages;
-};
-
-struct ObjectImage {
-    std::vector<uint32_t> renderTargets;
-    std::vector<uint32_t> objectDataIndices;
-    uint32_t instanceIndicesOffset;
-    TprMesh mesh;
-};
-
-struct Mesh {
-    uint32_t indexBuffer;
-    uint32_t vertexBuffer;
-    interval<uint32_t> indicesInterval;
-    interval<uint32_t> verticesInterval;
-    std::vector<uint32_t> images;
-};
-
-
-struct ObjectData {
-    glm::mat4 matrix;
-};
-
-struct ChunkEntry {
-    uint32_t cachedVersion;
-    uint32_t offset;
-    uint32_t count = 0;
-};
+*/
 
 
 class VulkanBackend : public IGraphicsDevice {
     public:
         VulkanBackend(
-            Logger logger, FileRegistry& rFileReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
-            TprComponent componentRenderable, uint64_t packedVersion
+            Logger logger, FileRegistry& rResReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+            Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
         );
         ~VulkanBackend() noexcept;
-        TprResult update() override;
-        
-        uint32_t getFrameWidth(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).extent().width; }
-        uint32_t getFrameHeight(TprWindow handle) const override { return mWindowContexts.at(get_basic_handle_index(handle)).extent().height; }
-        TprResult registerWindow(TprWindow handle) noexcept override;
-        void unregisterWindow(TprWindow handle) noexcept override;
-        TprResult render() override;
-        TprResult loadMesh(const AssetMesh& mesh) noexcept override;
-        void unloadMesh(TprMesh mesh) noexcept override;
-        expected<TprDepthDomain, TprResult> createDepthDomain(const TprDepthDomainCreateInfo* pInfo) noexcept override;
+
+        TprResult init() override;
+
+        expected<TprDepthDomain, TprResult> createDepthDomain(const TprDepthDomainCreateInfo& info) noexcept override;
+        expected<TprDepthDomain, TprResult> createDepthDomainCapability(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask) noexcept override;
         void destroyDepthDomain(TprDepthDomain domain) noexcept override;
-        expected<TprRenderTarget, TprResult> createRenderTarget(const TprRenderTargetCreateInfo* pInfo) noexcept override;
+        expected<TprRenderTarget, TprResult> createRenderTarget(const TprRenderTargetCreateInfo& info) noexcept override;
+        expected<TprRenderTarget, TprResult> createRenderTargetCapability(TprRenderTarget target, TprRenderTargetCapabilityFlags mask) noexcept override;
         void destroyRenderTarget(TprRenderTarget target) noexcept override;
-        expected<TprObjectImage, TprResult> createObjectImage(const TprObjectImageCreateInfo* pInfo) noexcept override;
-        void destroyObjectImage(TprObjectImage image) noexcept override;
+        expected<TprRenderTargetSet, TprResult> createRenderTargetSet(const TprRenderTargetSetCreateInfo& info) noexcept override;
+        expected<TprRenderTargetSet, TprResult> createRenderTargetSetCapability(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask) noexcept override;
+        void destroyRenderTargetSet(TprRenderTargetSet set) noexcept override;
+        expected<TprEntityImage, TprResult> createEntityImage(const TprEntityImageCreateInfo& info) noexcept override;
+        expected<TprEntityImage, TprResult> createEntityImageCapability(TprEntityImage image, TprEntityImageCapabilityFlags mask) noexcept override;
+        void destroyEntityImage(TprEntityImage image) noexcept override;
+        TprJob getRenderJob() noexcept override;
+        TprJob getRenderSignalJob() noexcept override;
+        TprComponent getComponentRenderable() noexcept override;
+        TprResult registerWindow(WindowIdentity id) override;
+        void unregisterWindow(WindowIdentity id) override;
+        TprResult loadMesh(MeshIdentity id) override;
+        TprResult unloadMesh(MeshIdentity id) override;
 
     private:
+        #pragma region structs
+            struct Vertex {
+                static VkVertexInputBindingDescription bindDesc() {
+                    VkVertexInputBindingDescription bindingDesc{};
+                    bindingDesc.binding = 0;
+                    bindingDesc.stride = sizeof(Vertex);
+                    bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+                    return bindingDesc;
+                }
+                static std::array<VkVertexInputAttributeDescription, 2> attributeDesc() {
+                    std::array<VkVertexInputAttributeDescription, 2> attribs{};
+                    attribs[0].binding = 0;
+                    attribs[0].location = 0;
+                    attribs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+                    attribs[0].offset = 0;
+                    attribs[1].binding = 0;
+                    attribs[1].location = 1;
+                    attribs[1].format = VK_FORMAT_R8G8B8A8_UNORM;
+                    attribs[1].offset = 12;
+                    return attribs;
+                }
+                glm::vec3 pos;
+                uint32_t colour;
+                static constexpr size_t perfectPackSize = 16;
+            };
 
-        Allocator createAllocator();
-        
-        expected<Buffer, TprResult> createBuffer(
-            uint32_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
-            VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE, std::span<uint32_t> queueFamilyIndices = {}
+            #define GEN_FUNC(name, type, loader) \
+                private: std::optional<PFN_##name> m##name; \
+                public: PFN_##name name() { \
+                    assert(loader); \
+                    if (!m##name.has_value()) m##name.emplace(reinterpret_cast<PFN_##name>(type(loader, #name))); \
+                    return m##name.value(); \
+                }
+
+            #define GEN_FUNC_NONE(name) GEN_FUNC(name, mvkGetInstanceProcAddr, nullptr)
+
+            #define GEN_FUNC_INSTANCE(name) GEN_FUNC(name, mvkGetInstanceProcAddr, mInstance)
+
+            #define GEN_FUNC_DEVICE(name) GEN_FUNC(name, vkGetDeviceProcAddr(), mDevice)
+
+            struct SymLoader {
+                private:
+                    PFN_vkGetInstanceProcAddr mvkGetInstanceProcAddr = nullptr;
+                    VkInstance mInstance = VK_NULL_HANDLE;
+                    VkDevice mDevice = VK_NULL_HANDLE;
+
+                    GEN_FUNC_NONE(vkEnumerateInstanceVersion);
+                    GEN_FUNC_NONE(vkEnumerateInstanceLayerProperties);
+                    GEN_FUNC_NONE(vkEnumerateInstanceExtensionProperties);
+                    GEN_FUNC_NONE(vkCreateInstance);
+
+                    GEN_FUNC_INSTANCE(vkCreateDebugUtilsMessengerEXT);
+                    GEN_FUNC_INSTANCE(vkDestroyDebugUtilsMessengerEXT);
+                    GEN_FUNC_INSTANCE(vkEnumeratePhysicalDevices);
+                    GEN_FUNC_INSTANCE(vkGetPhysicalDeviceProperties);
+                    GEN_FUNC_INSTANCE(vkEnumerateDeviceExtensionProperties);
+                    GEN_FUNC_INSTANCE(vkDestroyInstance);
+                    GEN_FUNC_INSTANCE(vkCreateDevice);
+                    GEN_FUNC_INSTANCE(vkDestroyDevice);
+                    GEN_FUNC_INSTANCE(vkGetPhysicalDeviceMemoryProperties);
+                    GEN_FUNC_INSTANCE(vkDestroySurfaceKHR);
+                    GEN_FUNC_INSTANCE(vkGetPhysicalDeviceSurfaceFormatsKHR);
+                    GEN_FUNC_INSTANCE(vkGetPhysicalDeviceSurfacePresentModesKHR);
+                    GEN_FUNC_INSTANCE(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+                    GEN_FUNC_INSTANCE(vkGetPhysicalDeviceQueueFamilyProperties);
+
+                    GEN_FUNC_INSTANCE(vkGetDeviceProcAddr);
+
+                    GEN_FUNC_DEVICE(vkGetDeviceQueue);
+                    GEN_FUNC_DEVICE(vkCreateBuffer);
+                    GEN_FUNC_DEVICE(vkGetBufferMemoryRequirements);
+                    GEN_FUNC_DEVICE(vkAllocateMemory);
+                    GEN_FUNC_DEVICE(vkBindBufferMemory);
+                    GEN_FUNC_DEVICE(vkMapMemory);
+                    GEN_FUNC_DEVICE(vkUnmapMemory);
+                    GEN_FUNC_DEVICE(vkFreeMemory);
+                    GEN_FUNC_DEVICE(vkDestroyBuffer);
+                    GEN_FUNC_DEVICE(vkCreateSemaphore);
+                    GEN_FUNC_DEVICE(vkCreateFence);
+                    GEN_FUNC_DEVICE(vkCreateCommandPool);
+                    GEN_FUNC_DEVICE(vkAllocateCommandBuffers);
+                    GEN_FUNC_DEVICE(vkDestroyCommandPool);
+                    GEN_FUNC_DEVICE(vkDestroyFence);
+                    GEN_FUNC_DEVICE(vkDestroySemaphore);
+                    GEN_FUNC_DEVICE(vkDestroySwapchainKHR);
+                    GEN_FUNC_DEVICE(vkCreateSwapchainKHR);
+                    GEN_FUNC_DEVICE(vkGetSwapchainImagesKHR);
+                    GEN_FUNC_DEVICE(vkCreateImageView);
+                    GEN_FUNC_DEVICE(vkCreateImage);
+                    GEN_FUNC_DEVICE(vkGetImageMemoryRequirements);
+                    GEN_FUNC_DEVICE(vkBindImageMemory);
+                    GEN_FUNC_DEVICE(vkDestroyImageView);
+                    GEN_FUNC_DEVICE(vkDestroyImage);
+                    GEN_FUNC_DEVICE(vkCreateFramebuffer);
+                    GEN_FUNC_DEVICE(vkDestroyFramebuffer);
+                    GEN_FUNC_DEVICE(vkCreateRenderPass);
+                    GEN_FUNC_DEVICE(vkCreatePipelineLayout);
+                    GEN_FUNC_DEVICE(vkCreateShaderModule);
+                    GEN_FUNC_DEVICE(vkCreateGraphicsPipelines);
+                    GEN_FUNC_DEVICE(vkResetCommandBuffer);
+                    GEN_FUNC_DEVICE(vkBeginCommandBuffer);
+                    GEN_FUNC_DEVICE(vkEndCommandBuffer);
+                    GEN_FUNC_DEVICE(vkWaitForFences);
+                    GEN_FUNC_DEVICE(vkResetCommandPool);
+                    GEN_FUNC_DEVICE(vkAcquireNextImageKHR);
+                    GEN_FUNC_DEVICE(vkCmdBeginRenderPass);
+                    GEN_FUNC_DEVICE(vkCmdSetScissor);
+                    GEN_FUNC_DEVICE(vkCmdSetViewport);
+                    GEN_FUNC_DEVICE(vkCmdEndRenderPass);
+                    GEN_FUNC_DEVICE(vkResetFences);
+                    GEN_FUNC_DEVICE(vkQueueSubmit);
+                    GEN_FUNC_DEVICE(vkQueuePresentKHR);
+                    GEN_FUNC_DEVICE(vkDeviceWaitIdle);
+                    GEN_FUNC_DEVICE(vkCmdCopyBuffer);
+                    GEN_FUNC_DEVICE(vkCreateDescriptorSetLayout);
+                    GEN_FUNC_DEVICE(vkDestroyPipelineLayout);
+                    GEN_FUNC_DEVICE(vkDestroyPipeline);
+                    GEN_FUNC_DEVICE(vkDestroyRenderPass);
+                    GEN_FUNC_DEVICE(vkDestroyDescriptorSetLayout);
+                    GEN_FUNC_DEVICE(vkDestroyShaderModule);
+                    GEN_FUNC_DEVICE(vkCreateDescriptorPool);
+                    GEN_FUNC_DEVICE(vkDestroyDescriptorPool);
+                    GEN_FUNC_DEVICE(vkAllocateDescriptorSets);
+                    GEN_FUNC_DEVICE(vkUpdateDescriptorSets);
+                    GEN_FUNC_DEVICE(vkCmdBindDescriptorSets);
+                    GEN_FUNC_DEVICE(vkCmdBindPipeline);
+                    GEN_FUNC_DEVICE(vkCmdDrawIndexed);
+                    GEN_FUNC_DEVICE(vkCmdBindVertexBuffers);
+                    GEN_FUNC_DEVICE(vkCmdBindIndexBuffer);
+                    GEN_FUNC_DEVICE(vkCmdDrawIndexedIndirect);
+
+                public:
+                    void setLoadPtr(PFN_vkGetInstanceProcAddr ptr) { mvkGetInstanceProcAddr = ptr; }
+                    void setInstance(VkInstance instance) { mInstance = instance; }
+                    void setDevice(VkDevice device) { mDevice = device; }
+            };
+
+            struct Allocation {
+                VkDeviceMemory memory = VK_NULL_HANDLE;
+                VkDeviceSize offset = 0;
+            };
+
+            struct PartialBuffer {
+                VkBuffer buffer = VK_NULL_HANDLE;
+                uint64_t byteSize;
+                Allocation alloc;
+                interval_union<uint64_t> free;
+                scope_guard guard;
+            };
+
+            struct FullBuffer {
+                VkBuffer buffer = VK_NULL_HANDLE;
+                uint64_t byteSize;
+                Allocation alloc;
+                scope_guard guard;
+            };
+
+            struct RenderTargetEntry;
+
+            struct RenderTargetSetEntry {
+                std::vector<std::weak_ptr<RenderTargetEntry>> renderTargets;
+            };
+
+            struct RenderTargetSetHandle {
+                TprRenderTargetSetCapabilityFlags capability = std::numeric_limits<TprRenderTargetSetCapabilityFlags>::max();
+                std::shared_ptr<RenderTargetSetEntry> entry;
+            };
+
+            struct Image {
+                VkImage image = VK_NULL_HANDLE;
+                VkImageView view = VK_NULL_HANDLE;
+                Allocation alloc;
+            };
+
+            struct Swapchain {
+                struct Link {
+                    struct SwapchainImage {
+                        VkImage image = VK_NULL_HANDLE;
+                        VkImageView view = VK_NULL_HANDLE;
+                    } swap;
+                    Image depth;
+                    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+                    VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
+                };
+                std::vector<Link> links;
+                VkFormat swapFormat;
+                VkFormat depthFormat;
+                VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+                uint32_t currentLinkIndex;
+            };
+
+            struct RenderPass {
+                VkRenderPass renderPass = VK_NULL_HANDLE;
+                VkPipeline basicPipeline = VK_NULL_HANDLE;
+            };
+
+            struct Frame {
+                VkCommandPool commandPool = VK_NULL_HANDLE;
+                VkCommandBuffer renderCommandBuffer = VK_NULL_HANDLE;
+                VkCommandBuffer presentCommandBuffer = VK_NULL_HANDLE;
+                VkFence inFlightFence = VK_NULL_HANDLE;
+                std::vector<std::shared_ptr<PartialBuffer>> buffersHeld;
+                FullBuffer entityChunksBuffer;
+                VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+                VkDescriptorSet entityDataSet = VK_NULL_HANDLE;
+            };
+
+            struct WindowEntry {
+                WindowIdentity id;
+                VkSurfaceKHR surface = VK_NULL_HANDLE;
+                Swapchain swapchain;
+                VkExtent2D extent;
+                RenderPass renderPass;
+                std::vector<VkSemaphore> imageAvailableSemaphores;
+                std::vector<std::weak_ptr<RenderTargetEntry>> renderTargets;
+            };
+
+            struct DepthDomainEntry {
+                std::vector<std::weak_ptr<RenderTargetEntry>> renderTargets;
+            };
+
+            struct DepthDomainHandle {
+                TprDepthDomainCapabilityFlags capability = std::numeric_limits<TprDepthDomainCapabilityFlags>::max();
+                std::shared_ptr<DepthDomainEntry> entry;
+            };
+
+            struct MeshEntry;
+
+            struct EntityDataRange {
+                MeshEntry* mesh;
+                uint32_t offset;
+                uint32_t count;
+            };
+
+            struct IndirectDraws {
+                MeshEntry* mesh;
+                uint32_t offset;
+                uint32_t count;
+            };
+
+            struct RenderTargetEntry {
+                std::vector<std::weak_ptr<RenderTargetSetEntry>> sets;
+                std::weak_ptr<DepthDomainEntry> depthDomain;
+                WindowEntry* windowContext;
+                std::vector<IndirectDraws> draws;
+                FullBuffer indirectDrawBuffer;
+                TprViewport viewport;
+                TprScissor scissor;
+
+                RenderTargetEntry() = default;
+                RenderTargetEntry(
+                    std::weak_ptr<DepthDomainEntry> depthDomain, WindowEntry* windowContext, FullBuffer&& indirectDrawBuffer,
+                    TprViewport viewport, TprScissor scissor
+                ) : depthDomain(depthDomain), windowContext(windowContext), indirectDrawBuffer(std::move(indirectDrawBuffer)),
+                    viewport(viewport), scissor(scissor) {}
+            };
+
+            struct RenderTargetHandle {
+                TprRenderTargetCapabilityFlags capability = std::numeric_limits<TprRenderTargetCapabilityFlags>::max();
+                std::shared_ptr<RenderTargetEntry> entry;
+            };
+
+            struct EntityImageEntry {
+                MeshEntry* mesh;
+            };
+
+            struct EntityImageHandle {
+                TprEntityImageCapabilityFlags capability = std::numeric_limits<TprEntityImageCapabilityFlags>::max();
+                std::shared_ptr<EntityImageEntry> entry;
+            };
+
+            struct ChunkConfig {
+                MeshEntry* mesh;
+                std::weak_ptr<RenderTargetSetEntry> renderTargetSet;
+                struct hash {
+                    size_t operator()(const ChunkConfig& conf) const {
+                        if constexpr (sizeof(size_t) == sizeof(XXH64_hash_t)) {
+                            thread_local static xxhash64_holder state;
+                            XXH64_reset(state.state(), 0);
+                            auto meshHash = std::hash<MeshEntry*>{}(conf.mesh);
+                            XXH64_update(state.state(), &meshHash, sizeof(meshHash));
+                            auto renderTargetSetHash = std::hash<RenderTargetSetEntry*>{}(conf.renderTargetSet.lock().get());
+                            XXH64_update(state.state(), &renderTargetSetHash, sizeof(renderTargetSetHash));
+                            return XXH64_digest(state.state());
+
+                        } else if constexpr (sizeof(size_t) == sizeof(XXH32_hash_t)) {
+                            thread_local static xxhash32_holder state;
+                            XXH32_reset(state.state(), 0);
+                            auto meshHash = std::hash<MeshEntry*>{}(conf.mesh);
+                            XXH32_update(state.state(), &meshHash, sizeof(meshHash));
+                            auto renderTargetSetHash = std::hash<RenderTargetSetEntry*>{}(conf.renderTargetSet.lock().get());
+                            XXH32_update(state.state(), &renderTargetSetHash, sizeof(renderTargetSetHash));
+                            return XXH32_digest(state.state());
+                            
+                        } else {
+                            throw "Unsupported architecture";
+                        }
+                    }
+                };
+                bool operator==(const ChunkConfig& other) const noexcept {
+                    return mesh == other.mesh && renderTargetSet.lock() == other.renderTargetSet.lock();
+                }
+            };
+
+            struct EntityData {
+                glm::mat4 transform;
+                static constexpr size_t perfectPackSize = sizeof(packed_mat4::value_type) * packed_mat4::size;
+                bool operator==(const EntityData& other) const noexcept = default;
+            };
+
+            struct EntityConfig {
+                ChunkConfig chunk;
+                EntityData data;
+                struct hash {
+                    size_t operator()(const EntityConfig& conf) const {
+                        if constexpr (sizeof(size_t) == sizeof(XXH64_hash_t)) {
+                            thread_local static xxhash64_holder state;
+                            XXH64_reset(state.state(), 0);
+                            auto meshHash = std::hash<MeshEntry*>{}(conf.chunk.mesh);
+                            XXH64_update(state.state(), &meshHash, sizeof(meshHash));
+                            auto renderTargetSetHash = std::hash<RenderTargetSetEntry*>{}(conf.chunk.renderTargetSet.lock().get());
+                            XXH64_update(state.state(), &renderTargetSetHash, sizeof(renderTargetSetHash));
+                            XXH64_update(state.state(), &conf.data.transform[0][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[0][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[0][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[0][3], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[1][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[1][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[1][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[1][3], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[2][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[2][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[2][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[2][3], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[3][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[3][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[3][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH64_update(state.state(), &conf.data.transform[3][3], sizeof(decltype(conf.data.transform)::value_type));
+                            return XXH64_digest(state.state());
+
+                        } else if constexpr (sizeof(size_t) == sizeof(XXH32_hash_t)) {
+                            thread_local static xxhash32_holder state;
+                            XXH32_reset(state.state(), 0);
+                            auto meshHash = std::hash<MeshEntry*>{}(conf.chunk.mesh);
+                            XXH32_update(state.state(), &meshHash, sizeof(meshHash));
+                            auto renderTargetSetHash = std::hash<RenderTargetSetEntry*>{}(conf.chunk.renderTargetSet.lock().get());
+                            XXH32_update(state.state(), &renderTargetSetHash, sizeof(renderTargetSetHash));
+                            XXH32_update(state.state(), &conf.data.transform[0][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[0][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[0][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[0][3], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[1][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[1][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[1][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[1][3], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[2][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[2][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[2][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[2][3], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[3][0], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[3][1], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[3][2], sizeof(decltype(conf.data.transform)::value_type));
+                            XXH32_update(state.state(), &conf.data.transform[3][3], sizeof(decltype(conf.data.transform)::value_type));
+                            return XXH32_digest(state.state());
+                            
+                        } else {
+                            throw "Unsupported architecture";
+                        }
+                    }
+                };
+                bool operator==(const EntityConfig& other) const noexcept = default;
+            };
+
+            struct MeshEntry {
+                std::shared_ptr<PartialBuffer> indexBuffer;
+                interval<uint64_t> indexSpace;
+                std::shared_ptr<PartialBuffer> vertexBuffer;
+                interval<uint64_t> vertexSpace;
+                std::vector<std::weak_ptr<EntityImageEntry>> entityImages;
+            };
+        #pragma endregion  // structs
+
+
+        TprResult ensureSwapchain(WindowEntry& ctx);
+        void freeSwapchain(WindowEntry& ctx);
+
+        expected<uint32_t, TprResult> findMemoryType(const VkMemoryRequirements& requirements, VkMemoryPropertyFlags property);
+        expected<Allocation, TprResult> allocateMemory(
+            const VkMemoryRequirements& requirements, VkMemoryPropertyFlags property,
+            std::source_location loc = std::source_location::current()
         );
+        expected<Allocation, TprResult> allocateExclusiveMemory(
+            const VkMemoryRequirements& requirements, VkMemoryPropertyFlags property,
+            std::source_location loc = std::source_location::current()
+        );
+        void freeMemory(Allocation allocation, std::source_location loc = std::source_location::current());
 
-        expected<WindowContext, TprResult> createWindowContext(uint32_t queueFamilyIndex, TprWindow window);
+        expected<PartialBuffer, TprResult> createPartialBuffer(
+            uint64_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
+            std::source_location loc = std::source_location::current()
+        );
+        expected<PartialBuffer, TprResult> createExclusivePartialBuffer(
+            uint64_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
+            std::source_location loc = std::source_location::current()
+        );
+        void freePartialBuffer(PartialBuffer& buffer, std::source_location loc = std::source_location::current());
+
+        expected<FullBuffer, TprResult> createFullBuffer(
+            uint64_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
+            std::source_location loc = std::source_location::current()
+        );
+        expected<FullBuffer, TprResult> createExclusiveFullBuffer(
+            uint64_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags property,
+            std::source_location loc = std::source_location::current()
+        );
+        void freeFullBuffer(FullBuffer& buffer, std::source_location loc = std::source_location::current());
+
+        void freeWindowEntry(WindowEntry& ctx);
+
+        TprResult render() noexcept;
 
         Logger mLogger;
         FileRegistry& mrFileReg;
-        Windowing& mrWinMan;
-        Settings& mrSettings;
+        Windowing& mrWin;
+        Scheduler& mrSched;
+        Settings& mrSett;
         SceneGraph& mrScGr;
+        AssetStore& mrAstr;
+        std::atomic<TprResult>& mrRunResult;
+        uint64_t mPackedEngineVersion;
 
-        TprComponent mComponentRenderable;
-        uint32_t mObjectChunkSize;
-        double mObjectBufferGrowth;
+        std::mutex mMutex;
+        bool mInitialised = false;
 
-        VulkanSymbols mSym;
-        std::optional<Allocator> mAlloc;
+        SymLoader mLoader;
 
         VkInstance mInstance = VK_NULL_HANDLE;
         uint32_t mApiVer;
         VkDevice mDevice = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT mDebugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice mPhysicalDevice = VK_NULL_HANDLE;
+        uint32_t mRenderQueueFamily;
         VkQueue mRenderQueue = VK_NULL_HANDLE;
+        uint32_t mTransferQueueFamily;
+        VkQueue mTransferQueue = VK_NULL_HANDLE;
         VkCommandPool mCommandPool = VK_NULL_HANDLE;
-        VkCommandBuffer mImmidiateCopyCmdBuffer = VK_NULL_HANDLE;
+        VkCommandBuffer mImmidiateCopyBuffer = VK_NULL_HANDLE;
         VkFence mImmidiateCopyFence = VK_NULL_HANDLE;
-        VkDescriptorSetLayout mObjectDataSetLayout = VK_NULL_HANDLE;
-        VkPipelineLayout mBasicPipelinelayout = VK_NULL_HANDLE;
-        // VkDescriptorPool mDescriptorPool = VK_NULL_HANDLE;
-        // VkDescriptorSet mObjectDataSet = VK_NULL_HANDLE;
+        VkPipelineLayout mBasicPipelineLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout mEntityDataSetLayout = VK_NULL_HANDLE;
 
-        std::unordered_map<uint64_t, WindowContext> mWindowContexts;
-        uint32_t mFrameCounter = 0;
+        std::vector<VkMemoryType> mAllocMemoryTypes;
+        uint32_t mAllocMaxAllocCount;
+
         uint32_t mMaxFramesInFlight;
+        std::vector<Frame> mFrames;
 
-        std::unordered_map<uint32_t, GeometryIndexBuffer> mIndexBuffers;
-        uint32_t mGeoIndexBufferCount = 0;
-        std::unordered_map<uint32_t, GeometryVertexBuffer> mVertexBuffers;
-        uint32_t mGeoVertexBufferCount = 0;
-        uint32_t mGeometryBufferSize;
+        uint64_t mIndexBufferSize;
+        uint64_t mVertexBufferSize;
 
-        std::unordered_map<uint32_t, DepthDomain> mDepthDomains;
+        TprComponent mComponentRenderable;
+        TprFile mFetchRenderableFile;
+        uint64_t mRenderLaunchTime;
+        TprJob mRenderSignalJob;
+        TprJob mRenderJob;
+
+        uint32_t mFrameCounter = 0;
+
+        std::unordered_map<MeshIdentity, MeshEntry> mMeshes;
+
+        std::set<std::weak_ptr<PartialBuffer>, std::owner_less<std::weak_ptr<PartialBuffer>>> mIndexBuffers;
+        std::set<std::weak_ptr<PartialBuffer>, std::owner_less<std::weak_ptr<PartialBuffer>>> mVertexBuffers;
+
+        std::unordered_map<WindowIdentity, WindowEntry> mWindowContexts;
+
+        std::unordered_map<uint32_t, DepthDomainHandle> mDepthDomains;
+        std::vector<std::weak_ptr<DepthDomainEntry>> mDepthDomainOrder;
         uint32_t mDepthDomainCounter = 0;
-        std::vector<uint32_t> mDepthDomainOrder;
-
-        std::unordered_map<uint32_t, RenderTarget> mRenderTargets;
+        std::unordered_map<uint32_t, RenderTargetHandle> mRenderTargets;
         uint32_t mRenderTargetCounter = 0;
-
-        std::unordered_map<uint64_t, Mesh> mMeshes;
-
-        std::unordered_map<uint32_t, ObjectImage> mObjectImages;
-        uint32_t mObjectImageCounter = 0;
-
-        std::unordered_map<uint64_t, ChunkEntry> mChunks;
-        TprFile mRenderableChunksFetchFile;
-        std::optional<Buffer> mObjectBuffer;
-        std::optional<Buffer> mObjectIndicesBuffer;
-        std::vector<uint32_t> mObjectsFreeList;
-
+        std::unordered_map<uint32_t, RenderTargetSetHandle> mRenderTargetSets;
+        uint32_t mRenderTargetSetCounter = 0;
+        std::unordered_map<uint32_t, EntityImageHandle> mEntityImages;
+        uint32_t mEntityImageCounter = 0;
 };
 
 
-
-
-#endif  // HARDWARE_LAYER_INTERFACE_LAYERS_VULKAN_HARDWARE_LAYER_HPP_
+#endif  // I_GRAPHICS_DEVICE_BACKENDS_VULKAN_BACKEND_HPP_
 

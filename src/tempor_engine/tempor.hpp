@@ -252,7 +252,8 @@ class TemporEngine {
             TprResult sched_createJob(const TprJobCreateInfo* pInfo, TprJob* pJob) noexcept;
             TprResult sched_createJobCapability(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) noexcept;
             TprResult sched_scheduleJob(TprJob job, uint64_t timepoint) noexcept;
-            void sched_pendJobDestruction(TprJob job) noexcept;
+            void sched_invalidateJob(TprJob job) noexcept;
+            void sched_destroyJob(TprJob job) noexcept;
             TprJob sched_getShutdownJob() noexcept;
             uint64_t sched_now() noexcept;
         #pragma endregion  // api
@@ -309,6 +310,8 @@ class TemporEngine {
         Settings* mpSettings = nullptr;
         Scheduler* mpSched = nullptr;
         OutputSink* mpOutSink = nullptr;
+
+        TprJob mLoadPluginsJob;
 
         volatile sig_atomic_t mSignal = 0;
         std::atomic<TprResult> mRunResult = _TPR_RESULT_MAX_ENUM;

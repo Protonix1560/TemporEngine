@@ -5,7 +5,6 @@
 #include "plugin_loader.hpp"
 #include "tempor.hpp"
 
-
 #pragma region log
     void TemporEngine::out_log(TprLogLevel logLevel, const char* message) noexcept {
         mpOutSink->writeLog(format_sequence(message), logLevel);
@@ -579,9 +578,13 @@
         if (!mpSched) return TPR_ERROR_NOT_LOADED;
         return mpSched->scheduleJob(job, timepoint);
     }
-    void TemporEngine::sched_pendJobDestruction(TprJob job) noexcept {
+    void TemporEngine::sched_invalidateJob(TprJob job) noexcept {
         if (!mpSched) return;
-        mpSched->pendJobDestruction(job);
+        mpSched->invalidateJob(job);
+    }
+    void TemporEngine::sched_destroyJob(TprJob job) noexcept {
+        if (!mpSched) return;
+        mpSched->destroyJob(job);
     }
     TprJob TemporEngine::sched_getShutdownJob() noexcept {
         return mpPlugLd->getShutdownJob();
@@ -591,4 +594,3 @@
         return mpSched->now();
     }
 #pragma endregion  // sched
-

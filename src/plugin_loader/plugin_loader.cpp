@@ -27,6 +27,7 @@ TprResult PluginLoader::loadPlugins() {
     // a stub for now
     auto plugin = std::make_unique<PluginWrapper>(mLogger, mpAPI, "plugins/test/libtest_plugin.so");
     mCurrentPlugin = mPluginCounter;
+    
     TprResult result = plugin->init();
     if (result == TPR_SUCCESS) {
         mPlugins.insert_or_assign(mPluginCounter, std::move(plugin));

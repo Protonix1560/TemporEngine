@@ -221,19 +221,20 @@ int TemporEngine::runtime() {
             TprJobCreateInfo info{};
             info.context = this;
             info.duration = TPR_JOB_DURATION_LONG;
-            info.function = [](void* ctx, TprJob job) {
+            info.function = [](void* ctx) noexcept {
                 auto* engine = reinterpret_cast<TemporEngine*>(ctx);
                 auto result = engine->mpPlugLd->loadPlugins();
                 if (result != TPR_SUCCESS) engine->mRunResult.store(result);
                 engine->mpSettings->finalizeRead();
-                engine->mpSched->pendJobDestruction(job);
+                engine->mpSched->destroyJob(engine->mLoadPluginsJob);
             };
             auto exp = mpSched->createJob(info);
             if (!exp.has_value()) {
                 mLogger->error() << "Failed to create pluginLoadJob [" << exp.error() << "]";
                 return 2;
             }
-            if (auto r = mpSched->scheduleJob(exp.value(), mpSched->now()); r != TPR_SUCCESS) {
+            mLoadPluginsJob = exp.value();
+            if (auto r = mpSched->scheduleJob(mLoadPluginsJob, mpSched->now()); r != TPR_SUCCESS) {
                 mLogger->error() << "Failed to schedule pluginLoadJob [" << r << "]";
                 return 2;
             }

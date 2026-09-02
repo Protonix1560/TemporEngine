@@ -83,31 +83,42 @@ class atomic_counter<bool> {
 };
 
 
+struct JobEntry;
+
+struct SharedJobMeta {
+    std::shared_ptr<JobEntry> entry;
+    TprJob handle;
+};
+
+struct WeakJobMeta {
+    std::weak_ptr<JobEntry> entry;
+    TprJob handle;
+    WeakJobMeta(const SharedJobMeta& meta) : entry(meta.entry), handle(meta.handle) {}
+};
+
 struct JobEntry {
     atomic_counter<bool> destroyed;
     atomic_counter<bool> destructionPended;
+    atomic_counter<bool> invalidated;
 
     std::mutex mutex;
 
-    const std::vector<std::weak_ptr<JobEntry>> dependencies;
+    const std::vector<WeakJobMeta> dependencies;
     size_t countdown;
-    std::vector<std::shared_ptr<JobEntry>> dependents;
+    std::vector<SharedJobMeta> dependents;
     size_t usage = 0;
 
-    const TprJob mainHandle;
-    std::vector<uint32_t> capabilities;
-
-    void(*const function)(void* context, TprJob job);
+    void(*const function)(void* context);
     void* const context;
     const TprJobDuration duration;
 
     template <std::input_iterator It>
-    JobEntry(const TprJobCreateInfo& info, TprJob mainHandle, It depsBegin, It depsEnd)
+    JobEntry(const TprJobCreateInfo& info, It depsBegin, It depsEnd)
         : function(info.function), context(info.context), duration(info.duration),
-        mainHandle(mainHandle), dependencies(depsBegin, depsEnd), countdown(dependencies.size()) {}
+        dependencies(depsBegin, depsEnd), countdown(dependencies.size()) {}
 
-    JobEntry(const TprJobCreateInfo& info, TprJob mainHandle)
-        : function(info.function), context(info.context), duration(info.duration), mainHandle(mainHandle) {}
+    JobEntry(const TprJobCreateInfo& info)
+        : function(info.function), context(info.context), duration(info.duration) {}
 };
 
 
@@ -126,7 +137,7 @@ struct Thread {
 
 
 struct JobLaunch {
-    std::shared_ptr<JobEntry> entry;
+    SharedJobMeta meta;
     std::chrono::steady_clock::time_point timepoint;
     std::strong_ordering operator<=>(const JobLaunch& other) const {
         return timepoint <=> other.timepoint;
@@ -160,11 +171,11 @@ struct JobQueue {
                 for (auto it = mLaunches.begin(); it < mLaunches.end(); it++) {
                     auto launch = *it;
                     if (launch.timepoint > now) break;
-                    std::lock_guard<std::mutex> entryLock(launch.entry->mutex);
-                    if (launch.entry->usage == 0) {
+                    std::lock_guard<std::mutex> entryLock(launch.meta.entry->mutex);
+                    if (launch.meta.entry->usage == 0) {
                         // incrementing it here so another thread wouldn't pull a launch
                         // of this job before working thread locks it
-                        launch.entry->usage++;
+                        launch.meta.entry->usage++;
                         mLaunches.erase(it);
                         lock.unlock();
                         mCv.notify_all();
@@ -200,7 +211,8 @@ class Scheduler {
         expected<TprJob, TprResult> createJob(const TprJobCreateInfo& info) noexcept;
         expected<TprJob, TprResult> createJobCapability(TprJob job, TprJobCapabilityFlags mask) noexcept;
         TprResult scheduleJob(TprJob job, uint64_t timepoint) noexcept;
-        void pendJobDestruction(TprJob job) noexcept;
+        void invalidateJob(TprJob job) noexcept;
+        void destroyJob(TprJob job) noexcept;
         uint64_t now() noexcept;
 
         std::chrono::steady_clock::time_point timeBegin();

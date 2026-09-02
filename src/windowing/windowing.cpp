@@ -197,7 +197,7 @@ TprResult Windowing::init(IGraphicsDevice* pIGD, GraphicsAPI graphics) {
         TprJobCreateInfo info{};
         info.context = this;
         info.duration = TPR_JOB_DURATION_SHORT;
-        info.function = [](void* ctx, TprJob job) noexcept {
+        info.function = [](void* ctx) noexcept {
             reinterpret_cast<Windowing*>(ctx)->processEvents();
         };
         info.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;

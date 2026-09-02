@@ -306,8 +306,11 @@ namespace api {
         TprResult scheduleJob(TprJob job, uint64_t timepoint) noexcept {
             assert(gEngine); return gEngine->sched_scheduleJob(job, timepoint);
         }
-        void pendJobDestruction(TprJob job) noexcept {
-            assert(gEngine); return gEngine->sched_pendJobDestruction(job);
+        void invalidateJob(TprJob job) noexcept {
+            assert(gEngine); return gEngine->sched_invalidateJob(job);
+        }
+        void destroyJob(TprJob job) noexcept {
+            assert(gEngine); return gEngine->sched_destroyJob(job);
         }
         TprJob getShutdownJob() noexcept {
             assert(gEngine); return gEngine->sched_getShutdownJob();
@@ -431,7 +434,8 @@ void TemporEngine::registerAPI() {
     mSchedAPI.createJob = api::sched::createJob;
     mSchedAPI.createJobCapability = api::sched::createJobCapability;
     mSchedAPI.scheduleJob = api::sched::scheduleJob;
-    mSchedAPI.pendJobDestruction = api::sched::pendJobDestruction;
+    mSchedAPI.invalidateJob = api::sched::invalidateJob;
+    mSchedAPI.destroyJob = api::sched::destroyJob;
     mSchedAPI.getShutdownJob = api::sched::getShutdownJob;
     mSchedAPI.now = api::sched::now;
 

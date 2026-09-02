@@ -496,7 +496,7 @@ typedef struct TprJobCreateInfo {
     TprCreateJobFlags flags;
     TprJobDuration duration;
     void* context;
-    void(*function)(void* ctx, TprJob job);
+    void(*function)(void* ctx);
     TprJobTriggerType triggerType;
     uint32_t dependencyCount;
     const TprJob* pDependencies;

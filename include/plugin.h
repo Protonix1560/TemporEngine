@@ -166,7 +166,8 @@ typedef struct TprEngineAPI {
         TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
         TprResult(*createJobCapability)(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
         TprResult(*scheduleJob)(TprJob job, uint64_t timepoint) _TPR_NOEXCEPT_ATTR;
-        void(*pendJobDestruction)(TprJob job) _TPR_NOEXCEPT_ATTR;
+        void(*invalidateJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
+        void(*destroyJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
 
         TprJob(*getShutdownJob)() _TPR_NOEXCEPT_ATTR;
 

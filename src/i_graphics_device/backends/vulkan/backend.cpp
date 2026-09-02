@@ -454,7 +454,7 @@ TprResult VulkanBackend::init() {
     renderJobInfo.duration = TPR_JOB_DURATION_LONG;
     renderJobInfo.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;
     renderJobInfo.context = this;
-    renderJobInfo.function = [](void* ctx, TprJob job) noexcept {
+    renderJobInfo.function = [](void* ctx) noexcept {
         VulkanBackend* backend = reinterpret_cast<VulkanBackend*>(ctx);
         if (auto r = backend->render(); r != TPR_SUCCESS) {
             backend->mLogger.error() << "render failed [" << r << "]";

@@ -36,7 +36,7 @@ class PluginWrapper {
         const TprEngineAPI* api;
         TprWindow window;
 
-        TprJob frameJob;
+        TprJob renderJob;
         TprJob updateJob;
         TprJob shutdownJob;
 
@@ -126,7 +126,7 @@ int32_t testScheduler(PluginWrapper* plugin) {
 }
 
 
-void update(void* ctx, TprJob job) noexcept {
+void update(void* ctx) noexcept {
     PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
 
     std::lock_guard<std::mutex> lock(plugin->mutex);
@@ -139,7 +139,14 @@ void update(void* ctx, TprJob job) noexcept {
         LOF(plugin->api->win->copyActionsHistory(history.data(), 1, &plugin->quitAction));
         for (const auto& entry : history) {
             if (entry.state.vector.x > 0.0f) {
+                plugin->api->render->destroyEntityImage(plugin->image);
+                plugin->api->render->destroyRenderTarget(plugin->target);
+                plugin->api->render->destroyRenderTargetSet(plugin->targetSet);
+                plugin->api->render->destroyDepthDomain(plugin->domain);
                 plugin->api->win->closeWindow(plugin->window);
+                plugin->api->sched->destroyJob(plugin->updateJob);
+                plugin->api->sched->destroyJob(plugin->renderJob);
+                return;
             }
         }
     }
@@ -194,7 +201,7 @@ void update(void* ctx, TprJob job) noexcept {
 }
 
 
-void frame(void* ctx, TprJob job) noexcept {
+void frame(void* ctx) noexcept {
     PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
 
     std::lock_guard<std::mutex> lock(plugin->mutex);
@@ -377,7 +384,7 @@ extern "C" {
         frameInfo.pDependencies = renderJobs;
         frameInfo.duration = TPR_JOB_DURATION_SHORT;
         frameInfo.function = frame;
-        ROF(plugin->api->sched->createJob(&frameInfo, &plugin->frameJob));
+        ROF(plugin->api->sched->createJob(&frameInfo, &plugin->renderJob));
 
         TprJob updateJob = plugin->api->win->getInputUpdateJob();
 
@@ -398,9 +405,9 @@ extern "C" {
         shutdownInfo.dependencyCount = 1;
         shutdownInfo.pDependencies = &shutdownJob;
         shutdownInfo.duration = TPR_JOB_DURATION_SHORT;
-        shutdownInfo.function = [](void* ctx, TprJob job) noexcept {
+        shutdownInfo.function = [](void* ctx) noexcept {
             auto plugin = reinterpret_cast<PluginWrapper*>(ctx);
-            plugin->api->out->error("Test plugin shutdown");
+            plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "Test plugin shutdown");
         };
         ROF(plugin->api->sched->createJob(&shutdownInfo, &plugin->shutdownJob));
 

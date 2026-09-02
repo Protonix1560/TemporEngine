@@ -8,8 +8,10 @@
 #include "plugin_core.h"
 #include "hash.hpp"
 
+#include <atomic>
 #include <limits>
 #include <filesystem>
+#include <memory>
 #include <system_error>
 #include <unordered_map>
 #include <variant>
@@ -115,30 +117,33 @@ class std::hash<file_identity> {
 };
 
 
-struct FileSource {
-    FILE* file;
+struct File {};
+
+struct FileSource : File {
+    FILE* file = nullptr;
     TprOpenFileFlags flags;
+    FileSource(FILE* file, TprOpenFileFlags flags) : file(file), flags(flags) {}
+    ~FileSource() {
+        if (file) std::fclose(file);
+    }
 };
 
-struct MemorySource {
+struct MemorySource : File {
     std::vector<std::byte> data;
 };
 
-struct FileEntry {
-    std::variant<FileSource, MemorySource> source;
-    size_t refcount = 1;
-};
+using SharedSource = std::variant<std::shared_ptr<FileSource>, std::shared_ptr<MemorySource>>;
 
 struct FileHandle {
-    uint32_t pos = 0;
-    uint32_t entry;
+    uint64_t pos = 0;
     TprFileCapabilityFlags mask = std::numeric_limits<TprFileCapabilityFlags>::max();
+    SharedSource source;
 };
 
 
 class FileRegistry {
     public:
-        FileRegistry(Logger logger);
+        FileRegistry(Logger logger, std::atomic<TprResult>& rRunResult);
         ~FileRegistry();
 
         expected<TprFile, TprResult> openFile(std::filesystem::path path, TprOpenFileFlags flags = 0) noexcept;
@@ -147,14 +152,14 @@ class FileRegistry {
         expected<TprFile, TprResult> createFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
         void closeFile(TprFile file) noexcept;
 
-        TprResult seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept;
-        expected<uint32_t, TprResult> tell(TprFile file) noexcept;
-        TprResult read(TprFile file, uint32_t n, std::byte* pData) noexcept;
-        TprResult readAt(TprFile file, uint32_t pos, uint32_t n, std::byte* pData) noexcept;
-        TprResult resize(TprFile file, uint32_t newSize) noexcept;
-        TprResult write(TprFile file, uint32_t n, const std::byte* pData) noexcept;
-        TprResult writeAt(TprFile file, uint32_t pos, uint32_t n, const std::byte* pData) noexcept;
-        TprResult append(TprFile file, uint32_t n, const std::byte* pData) noexcept;
+        TprResult seek(TprFile file, int64_t offset, TprSeekWhence whence) noexcept;
+        expected<uint64_t, TprResult> tell(TprFile file) noexcept;
+        TprResult read(TprFile file, uint64_t n, std::byte* pData) noexcept;
+        TprResult readAt(TprFile file, uint64_t pos, uint64_t n, std::byte* pData) noexcept;
+        TprResult resize(TprFile file, uint64_t newSize) noexcept;
+        TprResult write(TprFile file, uint64_t n, const std::byte* pData) noexcept;
+        TprResult writeAt(TprFile file, uint64_t pos, uint64_t n, const std::byte* pData) noexcept;
+        TprResult append(TprFile file, uint64_t n, const std::byte* pData) noexcept;
 
         expected<TprPathType, TprResult> pathType(std::filesystem::path path) noexcept;
         TprResult createDirectory(std::filesystem::path path, TprCreateDirectoryFlags flags = 0) noexcept;
@@ -164,15 +169,14 @@ class FileRegistry {
 
     private:
         Logger mLogger;
+        std::atomic<TprResult>& mrRunResult;
 
         std::mutex mMutex;
 
-        std::unordered_map<uint32_t, FileEntry> mEntries;
-        std::unordered_map<uint32_t, FileHandle> mHandles;
-        std::unordered_map<file_identity, uint32_t> mFileMap;
+        std::unordered_map<uint32_t, FileHandle> mFiles;
+        std::unordered_map<file_identity, std::shared_ptr<FileSource>> mFileSources;
 
-        uint32_t mEntryCounter = 0;
-        uint32_t mHandleCounter = 0;
+        uint32_t mFileCounter = 0;
 };
 
 REGISTER_TYPE_NAME_S(FileRegistry, "FReg");

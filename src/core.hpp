@@ -3,6 +3,7 @@
 #define CORE_HPP_
 
 #include <cstdint>
+#include <source_location>
 #include <type_traits>
 #include <vector>
 #include <optional>
@@ -66,6 +67,32 @@ A variant_cast_to(const std::variant<B...>& v) {
         return static_cast<A>(x);
     }, v);
 }
+
+template <std::integral T, std::integral Min, std::integral Max, std::integral Def>
+T bounded_or(T value, Min min, Max max, Def def) {
+    using common = std::common_type_t<T, Min, Max, Def>;
+    static_assert(std::is_same_v<common, T> || std::is_same_v<T, std::common_type_t<T, common>>, "bounded_or: type conversion would lose information");
+    if (static_cast<common>(value) > static_cast<common>(max) || 
+        static_cast<common>(value) < static_cast<common>(min)) {
+        return static_cast<T>(def);
+    }
+    return value;
+}
+
+constexpr std::string_view relative_path(std::string_view file, std::string_view root) {
+    if (file.starts_with(root)) {
+        file.remove_prefix(root.size());
+        while (!file.empty() && (file.front() == '/' || file.front() == '\\')) {
+            file.remove_prefix(1);
+        }
+    }
+    return file;
+}
+
+constexpr std::string_view current_file(std::source_location loc = std::source_location::current(), std::string_view root = SOURCE_ROOT_DIR) {
+    return relative_path(loc.file_name(), root);
+}
+
 
 
 // converter from something to string
@@ -322,9 +349,10 @@ enum class handle_type : uint8_t {
     setting = 6,
     depth_domain = 7,
     render_target = 8,
-    object_image = 9,
-    component_chunk = 10,
-    job = 11
+    render_target_set = 9,
+    entity_image = 10,
+    component_chunk = 11,
+    job = 12
 };
 
 template <typename T>

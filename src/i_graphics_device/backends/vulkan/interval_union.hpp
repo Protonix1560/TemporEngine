@@ -1,6 +1,6 @@
 
-#ifndef HARDWARE_LAYER_INTERFACE_LAYERS_VULKAN_INTERVAL_UNION_HPP_
-#define HARDWARE_LAYER_INTERFACE_LAYERS_VULKAN_INTERVAL_UNION_HPP_
+#ifndef I_GRAPHICS_DEVICE_BACKENDS_VULKAN_INTERVAL_UNION_HPP_
+#define I_GRAPHICS_DEVICE_BACKENDS_VULKAN_INTERVAL_UNION_HPP_
 
 
 #include <type_traits>
@@ -34,6 +34,10 @@ class interval {
         bool last_included() const { return m_last_included; }
         bool empty() const { return begin() == end() && !(first_included() && last_included()); }
         S size() const { return end() - begin(); }
+
+        bool operator==(const interval<S>& other) const {
+            return begin() == other.begin() && end() == other.end() && first_included() == other.first_included() && last_included() == other.last_included();
+        }
 
         bool operator<(const interval<S>& other) const {
             if (end() < other.begin()) return true;
@@ -214,4 +218,4 @@ class interval_union {
 };
 
 
-#endif  // HARDWARE_LAYER_INTERFACE_LAYERS_VULKAN_INTERVAL_UNION_HPP_
+#endif  // I_GRAPHICS_DEVICE_BACKENDS_VULKAN_INTERVAL_UNION_HPP_

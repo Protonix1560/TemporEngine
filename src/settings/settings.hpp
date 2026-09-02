@@ -7,6 +7,7 @@
 #include "core.hpp"
 #include "logger.hpp"
 
+#include <atomic>
 #include <optional>
 #include <variant>
 #include <string_view>
@@ -56,7 +57,7 @@ struct JsonData {
 class Settings {
 
     public:
-        Settings(Logger logger, FileRegistry& rResReg);
+        Settings(Logger logger, FileRegistry& rResReg, std::atomic<TprResult>& rRunResult);
         TprResult init(std::filesystem::path configPath, bool flushConfig, bool configEnabled);
         ~Settings();
 
@@ -125,6 +126,7 @@ class Settings {
 
         FileRegistry& mrFileReg;
         Logger mLogger;
+        std::atomic<TprResult>& mrRunResult;
 
         std::mutex mMutex;
 

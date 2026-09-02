@@ -1,6 +1,4 @@
 
-find_package(Vulkan REQUIRED)
-
 # compiling shaders
 file(
     GLOB SHADERS
@@ -20,19 +18,23 @@ endforeach()
 
 add_custom_target(vulkan_shaders ALL DEPENDS ${SPV_OUTPUTS})
 
-# layer
+# backend
 add_library(
     vulkan_backend SHARED
-    lifecycle.cpp buffer.cpp utility.cpp window_context.cpp asset.cpp allocator.cpp capability.cpp
+    backend.cpp render.cpp memory.cpp
 )
 add_dependencies(vulkan_backend vulkan_shaders)
 target_link_libraries(
     vulkan_backend PRIVATE
-    Vulkan::Vulkan logger windowing scheduler scene_graph common file_registry settings
+    logger windowing scheduler scene_graph common file_registry settings scheduler asset_store
+)
+target_compile_definitions(
+    vulkan_backend PRIVATE
+    BACKEND_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_include_directories(vulkan_backend PRIVATE ${I_GRAPHICS_DEVICE_SOURCE_DIR})
 
-# linking to i_graphics_device
+# linking i_graphics_device to it
 target_link_libraries(i_graphics_device INTERFACE vulkan_backend)
 
 # installment

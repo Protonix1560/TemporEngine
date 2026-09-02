@@ -1,15 +1,19 @@
 
 
 #include "tempor.hpp"
-#include "output_sink.hpp"
+#include "i_graphics_device.hpp"
+#include "logger.hpp"
 #include "plugin_core.h"
+#include "plugin_loader.hpp"
+#include "scene_graph.hpp"
+#include "scheduler.hpp"
 #include "thread_job_info.hpp"
+#include "log_entry.hpp"
+
+#include "sleep_clock.hpp"
 
 #include <chrono>
 #include <cstddef>
-#include <exception>
-#include <memory>
-#include <mutex>
 #include <optional>
 
 using namespace std::chrono_literals;
@@ -21,7 +25,7 @@ void TemporEngine::signal(int sig) noexcept {
 
 
 expected<uint32_t, TprResult> TemporEngine::activePluginID() {
-    if (!mpPlugLd) return unexpected(TPR_ERROR_MODULE_NOT_LOADED);
+    if (!mpPlugLd) return unexpected(TPR_ERROR_NOT_LOADED);
     if (threadInfo.mainThread) {
         auto pluginOpt = mpPlugLd->getActivePluginID();
         if (!pluginOpt.has_value()) {
@@ -40,6 +44,7 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
             // the map is desynced for some reason
             // therefore, threadInfo is probably corrupted
             mLogger->panic() << "Corrupted internal structures: job " << job._d << " doesn't appear in mJobPluginMap";
+            mRunResult.store(TPR_PANIC);
             return unexpected(TPR_PANIC);
         }
         return it->second;
@@ -48,13 +53,14 @@ expected<uint32_t, TprResult> TemporEngine::activePluginID() {
 
 
 expected<PluginInfo, TprResult> TemporEngine::activePluginInfo() {
-    if (!mpPlugLd) return unexpected(TPR_ERROR_MODULE_NOT_LOADED);
+    if (!mpPlugLd) return unexpected(TPR_ERROR_NOT_LOADED);
     auto pluginExp = activePluginID();
     if (!pluginExp.has_value()) return unexpected(pluginExp.error());
     auto infoExp = mpPlugLd->getPluginInfo(pluginExp.value());
     if (!infoExp.has_value()) {
         mLogger->panic() << "Corrupted internal structures: PluginLoader.getPluginInfo doesn't"
             "recognise plugin id that was returned by PluginLoader.getActivePluginID";
+        mRunResult.store(TPR_PANIC);
         return unexpected(TPR_PANIC);
     }
     return infoExp.value();
@@ -62,27 +68,18 @@ expected<PluginInfo, TprResult> TemporEngine::activePluginInfo() {
 
 
 TemporEngine::TemporEngine(
-    size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled, bool colourEnabled
-) : mConfigPath(configPath), mFlushConfig(flushConfig), mConfigEnabled(configEnabled), mColourEnabled(colourEnabled) {
+    size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled, bool allowTermColour
+) : mConfigPath(configPath), mFlushConfig(flushConfig), mConfigEnabled(configEnabled),
+    mAllowTermColour(allowTermColour), mTermLevel(static_cast<TprLogLevel>(verboseLevel)) {
 
-    mVerbosity = static_cast<TprLogLevel>(verboseLevel);
+    mpOutSink = &constructService<OutputSink>(mTermLevel, mAllowTermColour);
+    mLogger.emplace(mpOutSink);
 
-    mpOutSink.store(
-        std::visit(overload{
-            [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); }
-        }, mServHolder.construct<OutputSinkVariant>(std::make_shared<TermSink>(mVerbosity, mColourEnabled)))
-    );
-
-    mLogger.emplace(Logger(mpOutSink, ""));
-
-    mLogger->info(TPR_LOG_STYLE_STANDART) << "Tempor Engine " << BUILD_VERSION << " (build datetime: " << BUILD_DATETIME << ")\n";
-
+    mLogger->info(TPR_LOG_STYLE_NORMAL) << "Tempor Engine " << BUILD_VERSION << " (build datetime: " << BUILD_DATETIME << ")";
 }
 
 
 int TemporEngine::runtime() {
-
-    TprResult result;
 
     // init
     {
@@ -90,82 +87,79 @@ int TemporEngine::runtime() {
         mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Initializing services";
 
         threadInfo.mainThread = true;
-
-        mpFileReg = &mServHolder.construct<FileRegistry>(Logger(mpOutSink, (type_name_v_s<FileRegistry> + ": "_ces).string()));
-
-        mpSettings = &mServHolder.construct<Settings>(
-            Logger(mpOutSink, (type_name_v_s<Settings> + ": "_ces).string()), *mpFileReg
+        mpFileReg = &constructService<FileRegistry>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<FileRegistry> + ": "_ces)),
+            mRunResult
         );
-        result = mpSettings->init(mConfigPath, mFlushConfig, mConfigEnabled);
-        if (result != TPR_SUCCESS) {
-            mLogger->error() << "Failed to initialize Settings [" << result << "]";
+
+        mpSettings = &constructService<Settings>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<Settings> + ": "_ces)),
+            *mpFileReg, mRunResult
+        );
+        if (auto r = mpSettings->init(mConfigPath, mFlushConfig, mConfigEnabled); r != TPR_SUCCESS) {
+            mLogger->error() << "Failed to initialize Settings [" << r << "]";
             return 2;
         }
 
-        // switching TermSink to TermFileSink
-        {
-            std::shared_ptr<TermSink> sink = std::get<std::shared_ptr<TermSink>>(mServHolder.get<OutputSinkVariant>());
-            mServHolder.destruct<OutputSinkVariant>();
-            auto& var = mServHolder.construct<OutputSinkVariant>(std::make_shared<TermFileSink>(
-                *mpSettings, *mpFileReg, *sink.get(), mVerbosity, mColourEnabled
-            ));
-            std::shared_ptr<LogSinkInterface> shar = std::visit(overload{
-                [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); }
-            }, var);
-            mpOutSink.store(shar);
+        auto logsRootExp = mpSettings->createSetting(mpSettings->getRoot(), "logFiles");
+        if (!logsRootExp.has_value() && logsRootExp.error() == TPR_PANIC) return 2;
+        auto logsRoot = logsRootExp.value();
+        auto logCountExp = mpSettings->getSettingArraySize(logsRoot);
+        if (!logCountExp.has_value() && logCountExp.error() == TPR_PANIC) return 2;
+        for (size_t i = 0; i < logCountExp.value(); i++) {
+            auto elExp = mpSettings->getSettingArrayElement(logsRoot, i);
+            if (!elExp.has_value()) {
+                if (elExp.error() == TPR_PANIC) return 2;
+                continue;
+            }
+            auto el = elExp.value();
+            auto levelExp = mpSettings->createSetting(el, "level");
+            if (!levelExp.has_value()) {
+                if (levelExp.error() == TPR_PANIC) return 2;
+                continue;
+            }
+            auto levelIntExp = mpSettings->getSettingInteger(levelExp.value());
+            if (!levelIntExp.has_value()) {
+                if (levelIntExp.error() == TPR_PANIC) return 2;
+                continue;
+            }
+            auto levelInt = levelIntExp.value();
+            if (levelInt < 0) levelInt = 0;
+            auto pathExp = mpSettings->createSetting(el, "path");
+            if (!pathExp.has_value()) {
+                if (pathExp.error() == TPR_PANIC) return 2;
+                continue;
+            }
+            auto pathStringExp = mpSettings->getSettingString(pathExp.value());
+            if (!pathStringExp.has_value()) {
+                if (pathStringExp.error() == TPR_PANIC) return 2;
+                continue;
+            }
+            mpOutSink->addLogFile(static_cast<TprLogLevel>(levelInt), pathStringExp.value());
+            mLogger->info() << "Added log file " << pathStringExp.value();
         }
+        mpOutSink->stopHistory();
 
-        mpSched = &mServHolder.construct<Scheduler>(Logger(mpOutSink, (type_name_v_s<Scheduler> + ": "_ces).string()), *mpSettings);
-        result = mpSched->init();
-        if (result != TPR_SUCCESS) {
-            mLogger->error() << "Failed to initialize Scheduler [" << result << "]";
+        mpSched = &constructService<Scheduler>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<Scheduler> + ": "_ces)),
+            *mpSettings, mRunResult
+        );
+        if (auto r = mpSched->init(); r != TPR_SUCCESS) {
+            mLogger->error() << "Failed to initialize Scheduler [" << r << "]";
             return 2;
         }
 
-        {
-            TprJobCreateInfo renderJobInfo{};
-            renderJobInfo.context = this;
-            renderJobInfo.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;
-            renderJobInfo.duration = TPR_JOB_DURATION_LONG;
-            renderJobInfo.function = [](void* ctx, TprJob job) noexcept {
-                auto* engine = reinterpret_cast<TemporEngine*>(ctx);
-                engine->runtimeRender();
-            };
-            auto exp = mpSched->createJob(&renderJobInfo);
-            if (!exp.has_value()) {
-                mLogger->error() << "Failed to create Render Job [" << result << "]";
-                return 2;
-            }
-            mRenderJob = exp.value();
-        }
-
-        {
-            TprJobCreateInfo shutdownJobInfo{};
-            shutdownJobInfo.triggerType = TPR_JOB_TRIGGER_TYPE_SCHEDULE;
-            shutdownJobInfo.duration = TPR_JOB_DURATION_LONG;
-            auto exp = mpSched->createJob(&shutdownJobInfo);
-            if (!exp.has_value()) {
-                mLogger->error() << "Failed to create Shutdown Job [" << result << "]";
-                return 2;
-            }
-            mShutdownJob = exp.value();
-        }
-
-        mpSceneGraph = &mServHolder.construct<SceneGraph>(
-            Logger(mpOutSink, (type_name_v_s<SceneGraph> + ": "_ces).string()),
+        mpSceneGraph = &constructService<SceneGraph>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<SceneGraph> + ": "_ces)),
             *mpSettings, *mpFileReg
         );
 
-        {
-            auto exp = mpSceneGraph->createComponent(sizeof(TprComponentRenderable));
-            if (!exp.has_value()) {
-                mLogger->error() << "Failed to create TprComponentRenderable [" << result << "]";
-                return 2;
-            }
-            mComponentRenderable = exp.value();
-        }
+        mpAssetStore = &constructService<AssetStore>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<AssetStore> + ": "_ces)),
+            *mpFileReg, mRunResult
+        );
 
-        // finding sufficient HWL
+        // searching for a sufficient Graphics Device
         for (
             auto it = static_registry<GraphicsDeviceBackendInfo, 0>::instance().begin();
             it < static_registry<GraphicsDeviceBackendInfo, 0>::instance().end();
@@ -173,130 +167,123 @@ int TemporEngine::runtime() {
         ) {
             const auto& info = *it;
 
-            try {
+            mLogger->debug() << "Trying Graphics Device backend " << info.name << " with " << kGraphicsBackendName[to_underlying(info.graphics)] << "";
 
-                mLogger->debug() << "Trying graphics device backend " << info.name << " with " << graphicsBackendName[to_underlying(info.graphicsAPI)] << "";
+            Windowing* localWindowing = &constructService<Windowing>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<Windowing> + ": "_ces)),
+                *mpSched, mRunResult
+            );
 
-                Windowing* localWinMan = &mServHolder.construct<Windowing>(
-                    Logger(mpOutSink, (type_name_v_s<Windowing> + ": "_ces).string()),
-                    *mpSched, info.graphicsAPI
-                );
-                if (auto r = localWinMan->init(); r != TPR_SUCCESS) {
-                    mLogger->panic() << "Failed to initialize Windowing [" << r << "]";
-                    return 2;
-                }
+            IGraphicsDevice* localGDev = constructService<PGraphicsDevice>(std::move(info.factory(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<PGraphicsDevice> + ": "_ces)),
+                *mpFileReg, *localWindowing, *mpSettings, *mpSceneGraph, *mpSched, *mpAssetStore, mRunResult, 0
+            ))).get();
 
-                auto layerExp = info.factory(
-                    Logger(mpOutSink, (type_name_v_s<PGraphicsDevice> + ": "_ces).string()),
-                    *mpFileReg, *localWinMan, *mpSettings, *mpSceneGraph, mComponentRenderable, 0
-                );
-                IGraphicsDevice* localGDev = mServHolder.construct<std::unique_ptr<IGraphicsDevice>>(std::move(layerExp.value())).get();
-
-                mpWindowing = localWinMan;
-                mpGDev = localGDev;
-
-            } catch (const std::exception& e) {
-                mLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize graphics device backend " << info.name << ":\n" << e.what() << "";
+            if (auto r = localWindowing->init(localGDev, info.graphics); r != TPR_SUCCESS) {
+                mLogger->error() << "Failed to initialize Windowing [" << r << "]";
                 mServHolder.destruct<Windowing>();
-                mServHolder.destruct<std::unique_ptr<IGraphicsDevice>>();
-                
-            } catch (...) {
-                mLogger->error(TPR_LOG_STYLE_ERROR1) << "Failed to initialize graphics device backend " << info.name << "";
-                mServHolder.destruct<Windowing>();
-                mServHolder.destruct<std::unique_ptr<IGraphicsDevice>>();
+                mServHolder.destruct<PGraphicsDevice>();
+                continue;
             }
 
+            if (auto r = localGDev->init(); r != TPR_SUCCESS) {
+                mLogger->error() << "Failed to initialize Graphics Device [" << r << "]";
+                mServHolder.destruct<Windowing>();
+                mServHolder.destruct<PGraphicsDevice>();
+                continue;
+            }
+
+            mpWindowing = localWindowing;
+            mpGDev = localGDev;
+        }
+        if (!mpGDev) {
+            mLogger->error() << "Failed to initialize any graphics device backend";
+            return 2;
+        }
+        if (auto r = mpAssetStore->init(mpGDev); r != TPR_SUCCESS) {
+            mLogger->error() << "Failed to initialize AssetStore [" << r << "]";
+            return 2;
         }
 
-        if (!mpGDev) {
-            mLogger->warn(TPR_LOG_STYLE_WARN1) << "Failed to initialize any graphics device backend. Continuing without it";
-            mpWindowing = &mServHolder.construct<Windowing>(
-                Logger(mpOutSink, (type_name_v_s<Windowing> + ": "_ces).string()),
-                *mpSched, GraphicsAPI::None
-            );
-            if (auto r = mpWindowing->init(); r != TPR_SUCCESS) {
-                mLogger->panic() << "Failed to initialize Windowing [" << r << "]";
+        mpPlugLd = &constructService<PluginLoader>(
+            Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<PluginLoader> + ": "_ces)),
+            *mpSettings, *mpSched, &mAPI, mRunResult
+        );
+        if (auto r = mpPlugLd->init(); r != TPR_SUCCESS) {
+            mLogger->error() << "Failed to initialize PluginLoader [" << r << "]";
+            return 2;
+        }
+
+        registerAPI();
+
+        // loading plugins
+        {
+            TprJobCreateInfo info{};
+            info.context = this;
+            info.duration = TPR_JOB_DURATION_LONG;
+            info.function = [](void* ctx) noexcept {
+                auto* engine = reinterpret_cast<TemporEngine*>(ctx);
+                auto result = engine->mpPlugLd->loadPlugins();
+                if (result != TPR_SUCCESS) engine->mRunResult.store(result);
+                engine->mpSettings->finalizeRead();
+                engine->mpSched->destroyJob(engine->mLoadPluginsJob);
+            };
+            auto exp = mpSched->createJob(info);
+            if (!exp.has_value()) {
+                mLogger->error() << "Failed to create pluginLoadJob [" << exp.error() << "]";
+                return 2;
+            }
+            mLoadPluginsJob = exp.value();
+            if (auto r = mpSched->scheduleJob(mLoadPluginsJob, mpSched->now()); r != TPR_SUCCESS) {
+                mLogger->error() << "Failed to schedule pluginLoadJob [" << r << "]";
                 return 2;
             }
         }
 
-        mpAssetStore = &mServHolder.construct<AssetStore>(
-            Logger(mpOutSink, (type_name_v_s<AssetStore> + ": "_ces).string()),
-            *mpFileReg, *mpGDev
-        );
-
-        mpPlugLd = &mServHolder.construct<PluginLoader>(
-            Logger(mpOutSink, (type_name_v_s<PluginLoader> + ": "_ces).string()),
-            *mpSettings, mAliveTokens
-        );
-
-        registerAPI();
-
         auto initEndTimepoint = std::chrono::steady_clock::now();
         std::chrono::duration<double, std::milli> initTime = initEndTimepoint - initStartTimepoint;
         mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Service initialization done in " << initTime.count() << " ms";
-
-        auto pluginStartTimepoint = std::chrono::steady_clock::now();
-        mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Initializing plugins";
-
-        PluginLoadInfo info{};
-        info.loadType = PluginLoadType::InThread;
-        info.name = "test";
-        info.pAPI = &mAPI;
-        info.path = "plugins/test/libtest_plugin.so";
-        mpPlugLd->loadPlugin(&info);
-
-        auto pluginEndTimepoint = std::chrono::steady_clock::now();
-        std::chrono::duration<double, std::milli> pluginTime = pluginEndTimepoint - pluginStartTimepoint;
-        mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Plugin initialization done in " << pluginTime.count() << " ms";
-
-        mpSettings->finalizeRead();
-
-        mRenderLastLaunch = mpSched->now();
-        mpSched->scheduleJob(mRenderJob, mRenderLastLaunch);
     }
 
-    std::unique_lock<std::mutex> lock(mMainThreadMutex);
-    // polling because:
-    // 1. signal handling in cross-platform C++ is dumb
-    // 2. cocoa is dumb, only main thread is allowed for UI for some reason
-    while (!mRunResult.has_value() && mSignal == 0) {
-        mMainThreadCv.wait_for(lock, 5ms);
-        mpWindowing->update();
+    {
+        sleep_clock clock{200.0};
+        // polling because:
+        // 1. signal handling in cross-platform C++ is dumb
+        // 2. cocoa is dumb, only main thread is allowed for UI for some reason
+        while (mRunResult.load() == _TPR_RESULT_MAX_ENUM) {
+            clock.tick();
+            if (auto r = mpWindowing->update(); r != TPR_SUCCESS) {
+                mLogger->error() << "Failed to update Windowing [" << r << "]";
+            }
+            if (mSignal != 0) mRunResult.store(TPR_SUCCESS);
+        }
     }
+    mpWindowing->eventLoopEnded();
 
-    if (mRunResult && mRunResult.value() == TPR_PANIC) mLogger->panic(TPR_LOG_STYLE_TIMESTAMP1) << "Engine panicked!";
+    auto runResult = mRunResult.load();
+    if (runResult == TPR_PANIC) {
+        mLogger->panic(TPR_LOG_STYLE_TIMESTAMP1) << "Engine panicked!";
+    } else if (runResult != TPR_SUCCESS && runResult != _TPR_RESULT_MAX_ENUM) {
+        mLogger->error(TPR_LOG_STYLE_TIMESTAMP1) << "Engine runtime failed [" << runResult << "]";
+    }
 
     // shutdown
     {
         auto shutdownStartTimepoint = std::chrono::steady_clock::now();
         mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Shutting down";
 
-        mpSched->scheduleJob(mShutdownJob, 0);
+        mpPlugLd->shutdown();
 
         mpSched->shutdown();
 
-        mServHolder.destruct<PluginLoader>();
-        if (mpGDev) mServHolder.destruct<std::unique_ptr<IGraphicsDevice>>();
-        mServHolder.destruct<SceneGraph>();
-        mServHolder.destruct<Windowing>();
-        mServHolder.destruct<AssetStore>();
-
-        mServHolder.destruct<Scheduler>();
-
-        // switching TermFileSink back to TermSink
-        {
-            std::shared_ptr<TermFileSink> sink = std::get<std::shared_ptr<TermFileSink>>(mServHolder.get<OutputSinkVariant>());
-            mServHolder.destruct<OutputSinkVariant>();
-            auto& var = mServHolder.construct<OutputSinkVariant>(std::make_shared<TermSink>(mVerbosity, mColourEnabled));
-            std::shared_ptr<LogSinkInterface> shar = std::visit(overload{
-                [](auto sink) -> std::shared_ptr<LogSinkInterface> { return static_cast<std::shared_ptr<LogSinkInterface>>(sink); }
-            }, var);
-            mpOutSink.store(shar);
-        }
-
-        mServHolder.destruct<Settings>();
-        mServHolder.destruct<FileRegistry>();
+        destructService<PluginLoader>();
+        if (mpGDev) destructService<std::unique_ptr<IGraphicsDevice>>();
+        destructService<SceneGraph>();
+        destructService<Windowing>();
+        destructService<AssetStore>();
+        destructService<Scheduler>();
+        destructService<Settings>();
+        destructService<FileRegistry>();
 
         auto shutdownEndTimepoint = std::chrono::steady_clock::now();
         std::chrono::duration<double, std::milli> shutdownTime = shutdownEndTimepoint - shutdownStartTimepoint;
@@ -304,43 +291,12 @@ int TemporEngine::runtime() {
         mLogger->info(TPR_LOG_STYLE_ENDSTAMP1) << "Shutdown finished in " << shutdownTime.count() << " ms";
     }
 
-    return (mRunResult && mRunResult.value() != TPR_SUCCESS) ? 3 : 0;
+    return (runResult != TPR_SUCCESS) ? 3 : 0;
 }
 
 
-void TemporEngine::runtimeRender() {
-
-    std::optional<TprResult> runResult;
-    {
-        std::lock_guard<std::mutex> lock(mMainThreadMutex);
-        runResult = mRunResult;
-    }
-    if (!runResult.has_value()) {
-
-        mpWindowing->update();
-
-        if (mpGDev) {
-            if (auto result = mpGDev->update(); result != TPR_SUCCESS) {
-                mLogger->error() << "Failed to update PHWL [" << result << "]";
-                std::lock_guard<std::mutex> lock(mMainThreadMutex);
-                mRunResult.emplace(result);
-                mMainThreadCv.notify_all();
-                return;
-            }
-            if (auto result = mpGDev->render(); result != TPR_SUCCESS) {
-                mLogger->error() << "Failed to render [" << result << "]";
-                std::lock_guard<std::mutex> lock(mMainThreadMutex);
-                mRunResult.emplace(result);
-                mMainThreadCv.notify_all();
-                return;
-            }
-        }
-    }
-
-    mRenderLastLaunch += 16'666'667;
-    mpSched->scheduleJob(mRenderJob, mRenderLastLaunch);
+TemporEngine::~TemporEngine() noexcept {
+    mLogger.reset();
+    destructService<OutputSink>();
 }
-
-
-TemporEngine::~TemporEngine() noexcept {}
 

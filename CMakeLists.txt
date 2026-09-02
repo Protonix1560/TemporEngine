@@ -35,11 +35,14 @@ set(BUILD_VERSION "v0.0.0")
 
 target_compile_options(
     common INTERFACE
-    -g -O0 -fno-rtti -DNDEBUG
+    -g -O0 -fno-rtti -DNDEBUG -fno-omit-frame-pointer
     -ffunction-sections -fdata-sections
 )
-
-target_compile_definitions(common INTERFACE BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}")
+target_compile_definitions(
+    common INTERFACE
+    BUILD_DATETIME="${BUILD_DATETIME}" BUILD_VERSION="${BUILD_VERSION}"
+    SOURCE_ROOT_DIR="${CMAKE_SOURCE_DIR}"
+)
 
 # main executable
 add_executable(tempor_executable src/bootstrap.cpp)
@@ -61,7 +64,6 @@ endif()
 
 # adding services
 add_subdirectory(src/i_graphics_device)
-add_subdirectory(src/output_sink)
 add_subdirectory(src/logger)
 add_subdirectory(src/file_registry)
 add_subdirectory(src/plugin_loader)
@@ -74,6 +76,7 @@ add_subdirectory(src/tempor_engine)
 
 set(FASTGLTF_ENABLE_INSTALL OFF)
 add_subdirectory(3rd_party/fastgltf)
+set_target_properties(fastgltf PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(tempor_executable PRIVATE tempor_engine)
 

@@ -36,7 +36,7 @@ class PluginWrapper {
         const TprEngineAPI* api;
         TprWindow window;
 
-        TprJob frameJob;
+        TprJob renderJob;
         TprJob updateJob;
         TprJob shutdownJob;
 
@@ -60,9 +60,10 @@ class PluginWrapper {
         TprAction flyDownwardAction;
 
         TprMesh mesh;
-        TprObjectImage image;
+        TprEntityImage image;
         TprEntity object;
         TprRenderTarget target;
+        TprRenderTargetSet targetSet;
         TprDepthDomain domain;
         glm::vec3 camPos{};
         float camYaw = 0.0f, camPitch = 0.0f;
@@ -125,7 +126,7 @@ int32_t testScheduler(PluginWrapper* plugin) {
 }
 
 
-void update(void* ctx, TprJob job) noexcept {
+void update(void* ctx) noexcept {
     PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
 
     std::lock_guard<std::mutex> lock(plugin->mutex);
@@ -138,7 +139,14 @@ void update(void* ctx, TprJob job) noexcept {
         LOF(plugin->api->win->copyActionsHistory(history.data(), 1, &plugin->quitAction));
         for (const auto& entry : history) {
             if (entry.state.vector.x > 0.0f) {
+                plugin->api->render->destroyEntityImage(plugin->image);
+                plugin->api->render->destroyRenderTarget(plugin->target);
+                plugin->api->render->destroyRenderTargetSet(plugin->targetSet);
+                plugin->api->render->destroyDepthDomain(plugin->domain);
                 plugin->api->win->closeWindow(plugin->window);
+                plugin->api->sched->destroyJob(plugin->updateJob);
+                plugin->api->sched->destroyJob(plugin->renderJob);
+                return;
             }
         }
     }
@@ -193,7 +201,7 @@ void update(void* ctx, TprJob job) noexcept {
 }
 
 
-void frame(void* ctx, TprJob job) noexcept {
+void frame(void* ctx) noexcept {
     PluginWrapper* plugin = reinterpret_cast<PluginWrapper*>(ctx);
 
     std::lock_guard<std::mutex> lock(plugin->mutex);
@@ -232,7 +240,8 @@ void frame(void* ctx, TprJob job) noexcept {
     glm::mat4 mvpMat = projMat * viewMat * modelMat;
 
     TprComponentRenderable renderable{};
-    renderable.image = plugin->image;
+    renderable.entityImage = plugin->image;
+    renderable.renderTargetSet = plugin->targetSet;
     renderable.transform.x0 = mvpMat[0][0];
     renderable.transform.x1 = mvpMat[1][0];
     renderable.transform.x2 = mvpMat[2][0];
@@ -328,13 +337,12 @@ extern "C" {
         TprFile modelFile;
         ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
         TprMeshCreateInfo parseInfo{};
-        parseInfo.file = modelFile;
+        parseInfo.data = modelFile;
         parseInfo.index = 0;
         ROF(plugin->api->geo->createMesh(&parseInfo, &plugin->mesh));
         plugin->api->fs->closeFile(modelFile);
 
-        TprMeshLoadInfo loadInfo{};
-        ROF(plugin->api->geo->loadMesh(plugin->mesh, &loadInfo));
+        ROF(plugin->api->geo->requireMeshLoaded(plugin->mesh));
 
         TprDepthDomainCreateInfo domainInfo{};
         ROF(plugin->api->render->createDepthDomain(&domainInfo, &plugin->domain));
@@ -346,39 +354,37 @@ extern "C" {
         targetInfo.window = plugin->window;
         ROF(plugin->api->render->createRenderTarget(&targetInfo, &plugin->target));
 
-        TprObjectImageCreateInfo imageInfo{};
+        TprRenderTargetSetCreateInfo targetSetInfo{};
+        targetSetInfo.targetCount = 1;
+        targetSetInfo.pTargets = &plugin->target;
+        ROF(plugin->api->render->createRenderTargetSet(&targetSetInfo, &plugin->targetSet));
+
+        TprEntityImageCreateInfo imageInfo{};
         imageInfo.mesh = plugin->mesh;
-        imageInfo.pRenderTargets = &plugin->target;
-        imageInfo.renderTargetCount = 1;
-        ROF(plugin->api->render->createObjectImage(&imageInfo, &plugin->image));
+        ROF(plugin->api->render->createEntityImage(&imageInfo, &plugin->image));
 
-        TprComponent components[] = {
-            plugin->api->render->getComponentRenderable()
-        };
-        ROF(plugin->api->scene->spawnEntity(components, std::size(components), &plugin->object));
-
-        TprComponentRenderable renderable{};
-        renderable.image = plugin->image;
-        renderable.transform.x0 = 1.0f;
-        renderable.transform.y1 = 1.0f;
-        renderable.transform.z2 = 1.0f;
-        renderable.transform.w3 = 1.0f;
-        renderable.transform.z0 = 3.0f;
-        renderable.transform.x0 = 0.5f;
+        TprComponent componentRenderable = plugin->api->render->getComponentRenderable();
+        ROF(plugin->api->scene->spawnEntity(&componentRenderable, 1, &plugin->object));
+        TprComponentRenderable renderableData{};
+        renderableData.entityImage = plugin->image;
+        renderableData.renderTargetSet = plugin->targetSet;
         ROF(plugin->api->scene->writeEntityComponentData(
-            plugin->object, plugin->api->render->getComponentRenderable(), reinterpret_cast<const char*>(&renderable), 0, 0
+            plugin->object, componentRenderable, reinterpret_cast<const char*>(&renderableData), 0, 0
         ));
 
-        TprJob renderJob = plugin->api->render->getRenderJob();
+        TprJob renderJobs[2] = {
+            plugin->api->render->getRenderJob(),
+            plugin->api->render->getRenderSignalJob()
+        };
 
         TprJobCreateInfo frameInfo{};
         frameInfo.context = plugin;
         frameInfo.triggerType = TPR_JOB_TRIGGER_TYPE_DEPENDENCIES;
-        frameInfo.dependencyCount = 1;
-        frameInfo.pDependencies = &renderJob;
+        frameInfo.dependencyCount = std::size(renderJobs);
+        frameInfo.pDependencies = renderJobs;
         frameInfo.duration = TPR_JOB_DURATION_SHORT;
         frameInfo.function = frame;
-        ROF(plugin->api->sched->createJob(&frameInfo, &plugin->frameJob));
+        ROF(plugin->api->sched->createJob(&frameInfo, &plugin->renderJob));
 
         TprJob updateJob = plugin->api->win->getInputUpdateJob();
 
@@ -399,9 +405,9 @@ extern "C" {
         shutdownInfo.dependencyCount = 1;
         shutdownInfo.pDependencies = &shutdownJob;
         shutdownInfo.duration = TPR_JOB_DURATION_SHORT;
-        shutdownInfo.function = [](void* ctx, TprJob job) noexcept {
+        shutdownInfo.function = [](void* ctx) noexcept {
             auto plugin = reinterpret_cast<PluginWrapper*>(ctx);
-            plugin->api->out->info("Test plugin shutdown");
+            plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "Test plugin shutdown");
         };
         ROF(plugin->api->sched->createJob(&shutdownInfo, &plugin->shutdownJob));
 

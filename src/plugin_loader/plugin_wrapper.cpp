@@ -2,42 +2,31 @@
 #include "plugin_wrapper.hpp"
 #include "core.hpp"
 #include "logger.hpp"
+#include "plugin.h"
+#include "plugin_core.h"
+#include "log_entry.hpp"
 
 #include <cstdint>
 
 
-PluginWrapperInThread::PluginWrapperInThread(Logger logger, std::atomic<int32_t>& rAliveTokens) : mLogger(logger), mrAliveTokens(rAliveTokens), mPluginLib() {}
+PluginWrapper::PluginWrapper(Logger logger, TprEngineAPI* pAPI, std::filesystem::path path)
+    : mLogger(logger), mPluginLib(), mPath(path), mpAPI(pAPI), mName(path.filename()) {}
 
 
-TprResult PluginWrapperInThread::init(const PluginLoadInfo* pLoadInfo) {
-
-    mrAliveTokens++;
-
-    mLogger.debug() << "Loading plugin " << pLoadInfo->name << " (\"" << pLoadInfo->path.string() << "\") in-thread" << "\n";
-
-    mName = pLoadInfo->name;
-
-    mPluginLib.open(pLoadInfo->path).value();
-
+TprResult PluginWrapper::init() {
+    mLogger.debug() << "Loading plugin " << mName << " from " << mPath;
+    mPluginLib.open(mPath).value();
     auto initSymbol = mPluginLib.sym<decltype(pluginInit)*>("pluginInit").value();
-
-    int32_t initResult = initSymbol(pLoadInfo->pAPI);
+    int32_t initResult = initSymbol(mpAPI);
     if (initResult < 0) {
-        mLogger.error(TPR_LOG_STYLE_ERROR1) << "pluginInit of " << mName << " returned negative exit code [" << initResult << "]\n";
-        mrAliveTokens--;
-        return TPR_USER_CODE_ERROR;
+        mLogger.error(TPR_LOG_STYLE_ERROR1) << "pluginInit of plugin " << mName << " failed [" << initResult << "]\n";
+        return TPR_ERROR_NOT_LOADED;
     }
-    mLogger.trace() << "pluginInit of " << mName << " returned non-negative exit code [" << initResult << "]\n";
-
+    mLogger.trace() << "pluginInit of " << mName << " returned succeeded [" << initResult << "]\n";
     mLogger.debug() << "Loaded plugin " << mName << "\n";
-
-    mrAliveTokens--;
-
     return TPR_SUCCESS;
 }
 
-
-const std::string_view PluginWrapperInThread::name() noexcept {
+const std::string_view PluginWrapper::name() const noexcept {
     return mName;
 }
-

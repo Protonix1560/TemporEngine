@@ -1,28 +1,33 @@
 
 #include "logger.hpp"
+#include "output_sink.hpp"
 #include "plugin_core.h"
+#include "log_entry.hpp"
 
-#include <memory>
-#include <string_view>
+#include <mutex>
 
 
-Logger::Logger(const std::atomic<std::shared_ptr<LogSinkInterface>>& rSink, std::string_view prefix)
-    : mpSink(&rSink), mPrefix(prefix) {}
+Logger::Logger(OutputSink* pSink) : mpSink(pSink) {}
+
+Logger::Logger(OutputSink* pSink, const format_sequence& prefix) : mpSink(pSink), mPrefix(prefix) {}
 
 LogEntry Logger::operator()(TprLogLevel level, TprLogStyle style) const {
-    if (mpSink) {
-        return LogEntry(mpSink->load(), mPrefix, level, style);
-    } else {
-        return LogEntry(nullptr, mPrefix, level, style);
-    }
+    if (mpSink && level <= mpSink->maxLevel()) return LogEntry(OutputSinkFlusher(*mpSink, level, style), mPrefix);
+    return LogEntry();
 }
 
-std::shared_ptr<LogSinkInterface> Logger::sink() const noexcept {
-    return mpSink->load();
+OutputSink* Logger::sink() const noexcept {
+    return mpSink;
 }
 
-Logger Logger::derive(const std::string& prefix) const {
-    return Logger(*mpSink, mPrefix + prefix);
+LogEntry Logger::prefix() {
+    return LogEntry(LoggerPrefixFlusher(*this));
+}
+
+Logger& Logger::setPrefix(const format_sequence& prefix) {
+    std::lock_guard<std::mutex> lock(mMutex);
+    mPrefix = prefix;
+    return *this;
 }
 
 LogEntry Logger::panic(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_PANIC, style); }
@@ -32,22 +37,3 @@ LogEntry Logger::info(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_IN
 LogEntry Logger::debug(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_DEBUG, style); }
 LogEntry Logger::trace(TprLogStyle style) const { return (*this)(TPR_LOG_LEVEL_TRACE, style); }
 
-
-
-LogEntry::LogEntry(std::shared_ptr<LogSinkInterface> rSink, std::string_view prefix, TprLogLevel level, TprLogStyle style)
-    : mpSink(rSink), mLevel(level), mStyle(style) {
-    if (!mpSink || mpSink->maxVerbosity() < mLevel) mDummy = true;
-    if (!mDummy) mBuffer << prefix;
-}
-
-LogEntry::~LogEntry() {
-    flush();
-}
-
-void LogEntry::flush() {
-    if (!mDummy) {
-        mpSink->writeLog(mBuffer.str(), mLevel, mStyle);
-        mBuffer.str("");
-        mBuffer.clear();
-    }
-}

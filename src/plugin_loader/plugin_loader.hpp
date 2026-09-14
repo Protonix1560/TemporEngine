@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 
@@ -21,11 +22,6 @@ class Settings;
 class Scheduler;
 
 
-struct PluginInfo {
-    std::string name;
-};
-
-
 class PluginLoader {
 
     public:
@@ -34,12 +30,12 @@ class PluginLoader {
 
         TprResult init();
         TprResult loadPlugins();
+        void update();
         void shutdown();
+        uint32_t loadedPluginCount() const;
 
         TprJob getShutdownJob() noexcept;
-
-        std::optional<uint32_t> getActivePluginID();
-        expected<PluginInfo, TprResult> getPluginInfo(uint32_t id);
+        void shutdownReady() noexcept;
 
     private:
         Logger mLogger;
@@ -48,12 +44,12 @@ class PluginLoader {
         std::atomic<TprResult>& mrRunResult;
         TprEngineAPI* mpAPI;
 
+        mutable std::mutex mMutex;
+
         TprJob mShutdownJob;
 
         std::unordered_map<uint32_t, std::unique_ptr<PluginWrapper>> mPlugins;
         uint32_t mPluginCounter = 0;
-
-        std::optional<uint32_t> mCurrentPlugin;
 
 };
 

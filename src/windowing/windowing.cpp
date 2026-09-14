@@ -6,7 +6,6 @@
 #include "plugin_core.h"
 #include "scheduler.hpp"
 #include "log_entry.hpp"
-#include "scope_guard.hpp"
 
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_events.h>
@@ -18,8 +17,11 @@
 
 #include <cassert>
 #include <exception>
+#include <memory>
 #include <mutex>
+#include <string_view>
 #include <unordered_set>
+#include <variant>
 
 
 
@@ -148,6 +150,7 @@ TprResult Windowing::init(IGraphicsDevice* pIGD, GraphicsAPI graphics) {
     mpGDev = pIGD;
     mGraphics = graphics;
 
+    // TODO: allow user to hint whatever API they want to use
     // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -209,7 +212,7 @@ TprResult Windowing::init(IGraphicsDevice* pIGD, GraphicsAPI graphics) {
     // mesuring the offset between the Scheduler's time beginning and SDL's time beginning
     {
         // this all is probably an overkill :)
-        constexpr size_t testsCount = 10;
+        constexpr size_t testsCount = 20;
         uint64_t minD = UINT64_MAX;
         for (size_t i = 0; i < testsCount; i++) {
             uint64_t before = mrSched.now();
@@ -232,7 +235,7 @@ Windowing::~Windowing() noexcept {
     assert(threadInfo.mainThread);
     std::lock_guard<std::mutex> lock(mMutex);
     if (mInitialised) {
-        for (auto& [window, entry] : mWindowEntryMap) {
+        for (auto& [window, entry] : mWindowEntries) {
             SDL_DestroyWindow(window);
         }
         switch (mGraphics) {
@@ -255,12 +258,19 @@ TprResult Windowing::update() {
     if (auto r = mrSched.scheduleJob(mProcessEventsJob, mrSched.now()); r != TPR_SUCCESS) return r;
 
     {
-        std::unique_lock<std::mutex> lock(mMutex, std::defer_lock);
+        std::unique_lock<std::mutex> lock(mQueryMutex, std::defer_lock);
         if (lock.try_lock()) {
-            for (auto query : mMainThreadQueries) {
+            for (auto& query : mMainThreadQueries) {
                 auto r = std::visit(overload{
                     [&](CreateWindowQuery& q) {
-                        auto* window = SDL_CreateWindow(q.title, q.w, q.h, q.flags);
+                        Uint32 flags = 0;
+                        switch (mGraphics) {
+                            case GraphicsAPI::Vulkan: flags |= SDL_WINDOW_VULKAN;
+                            default: break;
+                        }
+                        if (q.hidden) flags |= SDL_WINDOW_HIDDEN;
+                        if (!q.unresizable) flags |= SDL_WINDOW_RESIZABLE;
+                        auto* window = SDL_CreateWindow(q.title.data(), static_cast<int>(q.width), static_cast<int>(q.height), flags);
                         q.window.emplace(window);
                         if (!window) {
                             mLogger.panic() << "SDL_CreateWindow failed: " << SDL_GetError();
@@ -270,13 +280,13 @@ TprResult Windowing::update() {
                         return TPR_SUCCESS;
                     },
                     [&](DestroyWindowQuery& q) {
-                        SDL_DestroyWindow(q.window);
+                        SDL_DestroyWindow(q.window.window);
                         return TPR_SUCCESS;
                     },
                     [&](GetWindowWidthQuery& q) {
                         int w;
                         bool r = SDL_GetWindowSizeInPixels(q.window, &w, nullptr);
-                        q.w.emplace(static_cast<uint32_t>(w));
+                        q.width.emplace(static_cast<uint32_t>(w));
                         if (!r) {
                             mLogger.panic() << "SDL_GetWindowSizeInPixel failed: " << SDL_GetError();
                             mrRunResult.store(TPR_PANIC);
@@ -287,7 +297,7 @@ TprResult Windowing::update() {
                     [&](GetWindowHeightQuery& q) {
                         int h;
                         bool r = SDL_GetWindowSizeInPixels(q.window, nullptr, &h);
-                        q.h.emplace(static_cast<uint32_t>(h));
+                        q.height.emplace(static_cast<uint32_t>(h));
                         if (!r) {
                             mLogger.panic() << "SDL_GetWindowSizeInPixels failed: " << SDL_GetError();
                             mrRunResult.store(TPR_PANIC);
@@ -301,17 +311,25 @@ TprResult Windowing::update() {
             mMainThreadQueries.clear();
         }
     }
-    mCv.notify_all();
+    mQueryCv.notify_all();
 
     return TPR_SUCCESS;
 }
 
+void Windowing::eventLoopStarted() {
+    {
+        std::lock_guard<std::mutex> lock(mQueryMutex);
+        mEventLoopInOrder = true;
+    }
+    mQueryCv.notify_all();
+}
+
 void Windowing::eventLoopEnded() {
     {
-        std::lock_guard<std::mutex> lock(mMutex);
+        std::lock_guard<std::mutex> lock(mQueryMutex);
         mEventLoopInOrder = false;
     }
-    mCv.notify_all();
+    mQueryCv.notify_all();
 }
 
 void Windowing::processEvents() {
@@ -322,17 +340,16 @@ void Windowing::processEvents() {
     std::vector<SDL_Event> events(eventCount);
     SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
 
-    for (auto& [window, entry] : mWindowEntryMap) {
-        for (auto action : entry->actions) {
-            action->history.clear();
-        }
+    for (auto& [handle, entryWeak] : mActionEntries) {
+        auto entry = entryWeak.lock();
+        if (entry) entry->history.clear();
     }
 
     for (const auto& event : events) {
-
-        auto windowIt = mWindowEntryMap.find(SDL_GetWindowFromEvent(&event));
-        if (windowIt == mWindowEntryMap.end()) continue;  // mustn't happen
-        std::shared_ptr<WindowEntry> window = windowIt->second;
+        auto windowIt = mWindowEntries.find(SDL_GetWindowFromEvent(&event));
+        if (windowIt == mWindowEntries.end()) continue;  // can happen with global events, such as SDL_QUIT 
+        std::shared_ptr<WindowEntry> window = windowIt->second.lock();
+        if (!window) continue;  // mustn't happen
 
         TprInputDevice device;
         switch (event.type) {
@@ -362,112 +379,110 @@ void Windowing::processEvents() {
             default: continue;
         }
 
-        for (auto action : window->actions) {
-            if (action->device == device) {
-                uint64_t timepoint = event.common.timestamp - mTimeBeginOffset;
+        for (auto actionWeak : window->actions) {
+            auto action = actionWeak.lock();
+            if (action) {
+                if (action->profile.device == device) {
+                    uint64_t timepoint = event.common.timestamp - mTimeBeginOffset;
 
-                TprVec4 raw{};
-                switch (event.type) {
-                    case SDL_EVENT_KEY_DOWN:
-                    case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                        raw = {1.0f, 0.0f, 0.0f, 0.0f};
-                        break;
-                    case SDL_EVENT_KEY_UP:
-                    case SDL_EVENT_MOUSE_BUTTON_UP:
-                        raw = {0.0f, 0.0f, 0.0f, 0.0f};
-                        break;
-                    case SDL_EVENT_MOUSE_WHEEL:
-                        raw = {event.wheel.x, event.wheel.y, 0.0f, 0.0f};
-                        break;
-                    case SDL_EVENT_MOUSE_MOTION:
-                        raw = {event.motion.x, event.motion.y, 0.0f, 0.0f};
-                        break;
-                    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                        raw = {static_cast<float>(event.window.data1), static_cast<float>(event.window.data2), 0.0f, 0.0f};
-                        break;
+                    TprVec4 raw{};
+                    switch (event.type) {
+                        case SDL_EVENT_KEY_DOWN:
+                        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                            raw = {1.0f, 0.0f, 0.0f, 0.0f};
+                            break;
+                        case SDL_EVENT_KEY_UP:
+                        case SDL_EVENT_MOUSE_BUTTON_UP:
+                            raw = {0.0f, 0.0f, 0.0f, 0.0f};
+                            break;
+                        case SDL_EVENT_MOUSE_WHEEL:
+                            raw = {event.wheel.x, event.wheel.y, 0.0f, 0.0f};
+                            break;
+                        case SDL_EVENT_MOUSE_MOTION:
+                            raw = {event.motion.x, event.motion.y, 0.0f, 0.0f};
+                            break;
+                        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+                            raw = {static_cast<float>(event.window.data1), static_cast<float>(event.window.data2), 0.0f, 0.0f};
+                            break;
+                    }
+                    if (
+                        raw.x == action->currAbsState.vector.x &&
+                        raw.y == action->currAbsState.vector.y &&
+                        raw.z == action->currAbsState.vector.z &&
+                        raw.w == action->currAbsState.vector.w
+                    ) continue;
+
+                    TprVec4 measure{};
+                    switch (action->profile.valueMode) {
+                        case TPR_ACTION_VALUE_MODE_ABSOLUTE:
+                            measure = raw;
+                            break;
+
+                        case TPR_ACTION_VALUE_MODE_DIFFERENCE:
+                            measure.x = raw.x - action->currAbsState.vector.x;
+                            measure.y = raw.y - action->currAbsState.vector.y;
+                            measure.z = raw.z - action->currAbsState.vector.z;
+                            measure.w = raw.w - action->currAbsState.vector.w;
+                            break;
+
+                        case TPR_ACTION_VALUE_MODE_DERIVATIVE:
+                            measure.x = (raw.x - action->currAbsState.vector.x) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
+                            measure.y = (raw.y - action->currAbsState.vector.y) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
+                            measure.z = (raw.z - action->currAbsState.vector.z) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
+                            measure.w = (raw.w - action->currAbsState.vector.w) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
+                            break;
+
+                        default: break;
+                    }
+
+                    action->history.push_back({measure, timepoint});
+                    action->currAbsState = {raw, timepoint};
                 }
-                if (
-                    raw.x == action->currAbsState.vector.x &&
-                    raw.y == action->currAbsState.vector.y &&
-                    raw.z == action->currAbsState.vector.z &&
-                    raw.w == action->currAbsState.vector.w
-                ) continue;
-
-                TprVec4 measure{};
-                switch (action->measureType) {
-                    case TPR_MEASURE_TYPE_ABSOLUTE:
-                        measure = raw;
-                        break;
-
-                    case TPR_MEASURE_TYPE_DIFFERENCE:
-                        measure.x = raw.x - action->currAbsState.vector.x;
-                        measure.y = raw.y - action->currAbsState.vector.y;
-                        measure.z = raw.z - action->currAbsState.vector.z;
-                        measure.w = raw.w - action->currAbsState.vector.w;
-                        break;
-
-                    case TPR_MEASURE_TYPE_DERIVATIVE:
-                        measure.x = (raw.x - action->currAbsState.vector.x) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
-                        measure.y = (raw.y - action->currAbsState.vector.y) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
-                        measure.z = (raw.z - action->currAbsState.vector.z) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
-                        measure.w = (raw.w - action->currAbsState.vector.w) / (static_cast<float>(timepoint - action->currAbsState.timepoint) * 1e-9);
-                        break;
-
-                    default: break;
-                }
-
-                action->history.push_back({measure, timepoint});
-                action->currAbsState = {raw, timepoint};
-            }
-
-            if (!action->history.empty()) {
-                action->currState = action->history.back();
             }
         }
+    }
 
+    for (auto& [handle, entryWeak] : mActionEntries) {
+        auto entry = entryWeak.lock();
+        if (entry && !entry->history.empty()) entry->currState = entry->history.back();
     }
 }
 
+uint32_t Windowing::openWindowCount() const {
+    return mWindowEntries.size();
+}
 
 
 expected<TprWindow, TprResult> Windowing::openWindow(const TprWindowCreateInfo& info) noexcept {
     std::unique_lock<std::mutex> lock(mMutex);
     assert(mInitialised);
-    if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
     try {
-        Uint32 flags = 0;
-        switch (mGraphics) {
-            case GraphicsAPI::Vulkan: flags |= SDL_WINDOW_VULKAN;
-            default: break;
-        }
-        if (info.flags & TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT) flags |= SDL_WINDOW_HIDDEN;
-        if (!(info.flags & TPR_CREATE_WINDOW_UNRESIZEABLE_FLAG_BIT)) flags |= SDL_WINDOW_RESIZABLE;
-
-        std::optional<SDL_Window*> windowOpt;
-        mMainThreadQueries.push_back(CreateWindowQuery{
-            windowOpt, info.name,
-            static_cast<int>(info.width), static_cast<int>(info.height), flags
-        });
-        mCv.wait(lock, [&]() { return windowOpt.has_value(); });
-        if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
-        SDL_Window* window = windowOpt.value();
-        if (!window) return unexpected(TPR_PANIC);
-
+        std::optional<WindowEntry> entry;
         {
-            unlock_guard unlock(lock);
-            if (auto r = mpGDev->registerWindow(WindowIdentity(window)); r != TPR_SUCCESS) {
-                mMainThreadQueries.push_back(DestroyWindowQuery{window});
-                return unexpected(r);
-            }
+            std::unique_lock<std::mutex> queryLock(mQueryMutex);
+            if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
+            mMainThreadQueries.emplace_back(CreateWindowQuery{
+                entry, std::string_view(info.name), info.width, info.height,
+                (info.flags & TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT) != 0,
+                (info.flags & TPR_CREATE_WINDOW_UNRESIZEABLE_FLAG_BIT) != 0
+            });
+            mQueryCv.wait(queryLock, [&]() { return entry.has_value(); });
         }
-        
-        auto handle = mWindowHandles.insert_or_assign(mWindowCounter, WindowHandle{std::make_shared<WindowEntry>(window)}).first->second;
-        mWindowEntryMap.insert_or_assign(window, handle.entry);
+        if (!entry.has_value() || !entry->valid()) return unexpected(TPR_PANIC);
+        if (auto r = mpGDev->registerWindow(WindowIdentity(entry.value().window)); r != TPR_SUCCESS) {
+            std::lock_guard<std::mutex> queryLock(mQueryMutex);
+            mMainThreadQueries.emplace_back(DestroyWindowQuery{entry.value().window});
+            return unexpected(r);
+        }
+        SDL_Window* window = entry->window;
+        auto handle = mWindows.insert_or_assign(
+            mWindowCounter, WindowHandle{std::make_shared<WindowEntry>(std::move(entry.value()))}
+        ).first->second;
+        mWindowEntries.insert_or_assign(window, handle.entry);
         TprWindow h = construct_basic_handle<TprWindow>(mWindowCounter, 0, handle_type::window);
         mLogger.debug() << "Created Window " << mWindowCounter;
         mWindowCounter++;
         return h;
-
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -484,14 +499,13 @@ expected<TprWindow, TprResult> Windowing::createWindowCapability(TprWindow windo
     std::lock_guard<std::mutex> lock(mMutex);
     assert(mInitialised);
     try {
-        auto it = mWindowHandles.find(get_basic_handle_index(window));
-        if (it == mWindowHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-        mWindowHandles.insert_or_assign(mWindowCounter, WindowHandle{it->second.entry, it->second.capability & flags});
+        auto it = mWindows.find(get_basic_handle_index(window));
+        if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+        mWindows.insert_or_assign(mWindowCounter, WindowHandle{it->second.entry, it->second.capability & flags});
         TprWindow h = construct_basic_handle<TprWindow>(mWindowCounter, 0, handle_type::window);
         mLogger.debug() << "Created Window capability " << mWindowCounter << " for Window " << get_basic_handle_index(window);
         mWindowCounter++;
         return h;
-
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -505,25 +519,19 @@ expected<TprWindow, TprResult> Windowing::createWindowCapability(TprWindow windo
 
 void Windowing::closeWindow(TprWindow window) noexcept {
     if (get_basic_handle_type(window) != handle_type::window) return;
-    std::unique_lock<std::mutex> lock(mMutex);
+    std::lock_guard<std::mutex> lock(mMutex);
     assert(mInitialised);
     try {
-        auto it = mWindowHandles.find(get_basic_handle_index(window));
-        if (it == mWindowHandles.end()) return;
+        auto it = mWindows.find(get_basic_handle_index(window));
+        if (it == mWindows.end()) return;
         auto entry = it->second.entry;
-        mWindowHandles.erase(it);
-        if (entry.use_count() <= 2) {
-            for (auto action : entry->actions) {
-                for (auto handle : action->handles) {
-                    mActions.erase(handle);
-                }
-            }
-            mWindowEntryMap.erase(entry->window);
-            mMainThreadQueries.push_back(DestroyWindowQuery{entry->window});
-            mCv.notify_all();
+        mWindows.erase(it);
+        if (entry.use_count() == 1) {
+            mpGDev->unregisterWindow(WindowIdentity(entry->window));
+            mWindowEntries.erase(entry->window);
             {
-                unlock_guard unlock(lock);
-                mpGDev->unregisterWindow(WindowIdentity(entry->window));
+                std::lock_guard<std::mutex> lock(mQueryMutex);
+                if (mEventLoopInOrder) mMainThreadQueries.emplace_back(DestroyWindowQuery{std::move(*entry.get())});
             }
         }
         mLogger.debug() << "Closed Window " << get_basic_handle_index(window);
@@ -540,29 +548,141 @@ void Windowing::closeWindow(TprWindow window) noexcept {
 }
 
 
-
 expected<TprAction, TprResult> Windowing::createAction(const TprActionCreateInfo& info) noexcept {
-    if (get_basic_handle_type(info.window) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
-    switch (info.measureType) {
-        case TPR_MEASURE_TYPE_ABSOLUTE: case TPR_MEASURE_TYPE_DIFFERENCE: case TPR_MEASURE_TYPE_DERIVATIVE: break;
+    switch (info.profile.valueMode) {
+        case TPR_ACTION_VALUE_MODE_ABSOLUTE: case TPR_ACTION_VALUE_MODE_DIFFERENCE: case TPR_ACTION_VALUE_MODE_DERIVATIVE: break;
         default: return unexpected(TPR_ERROR_INVALID_VALUE);
+    }
+    if (
+        std::ranges::find_if(mKeyMap, [&](const auto& el) { return el.second == info.profile.device; } ) == mKeyMap.end() &&
+        std::ranges::find_if(mMouseButtonMap, [&](const auto& el) { return el.second == info.profile.device; } ) == mMouseButtonMap.end() &&
+        info.profile.device != TPR_MOUSE_WHEEL && info.profile.device != TPR_MOUSE_MOTION && info.profile.device != TPR_WINDOW_SIZE
+    ) {
+        return unexpected(TPR_ERROR_INVALID_VALUE);
     }
     std::lock_guard<std::mutex> lock(mMutex);
     assert(mInitialised);
     try {
-        auto it = mWindowHandles.find(get_basic_handle_index(info.window));
-        if (it == mWindowHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-        auto window = it->second.entry;
-        auto& action = mActions.insert_or_assign(mActionCounter, ActionHandle{
-            std::make_shared<ActionEntry>(*window.get(), info.device, info.measureType)
-        }).first->second;
-        action.entry->handles.push_back(mActionCounter);
-        window->actions.emplace_back(action.entry);
+        auto& action = mActions.insert_or_assign(
+            mActionCounter, ActionHandle{std::make_shared<ActionEntry>(info.profile)}
+        ).first->second;
         TprAction h = construct_basic_handle<TprAction>(mActionCounter, 0, handle_type::action);
-        mLogger.debug() << "Created Action " << mActionCounter << " for Window " << get_basic_handle_index(info.window);
+        mActionEntries.insert_or_assign(mActionCounter, action.entry);
+        mLogger.debug() << "Created Action " << mActionCounter;
         mActionCounter++;
         return h;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return unexpected(TPR_PANIC);
+    }
+}
 
+TprResult Windowing::bindActionWindow(TprAction action, TprWindow window) noexcept {
+    if (get_basic_handle_type(window) != handle_type::window) return TPR_ERROR_INVALID_VALUE;
+    if (get_basic_handle_type(action) != handle_type::action) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    assert(mInitialised);
+    try {
+        auto windowIt = mWindows.find(get_basic_handle_index(window));
+        if (windowIt == mWindows.end()) return TPR_ERROR_INVALID_VALUE;
+        auto actionIt = mActions.find(get_basic_handle_index(action));
+        if (actionIt == mActions.end()) return TPR_ERROR_INVALID_VALUE;
+        actionIt->second.entry->windows.insert(windowIt->second.entry);
+        windowIt->second.entry->actions.insert(actionIt->second.entry);
+        mLogger.debug() << "Bound Action " << get_basic_handle_index(action) << " to Window " << get_basic_handle_index(window);
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Windowing::unbindActionWindow(TprAction action, TprWindow window) noexcept {
+    if (get_basic_handle_type(window) != handle_type::window) return TPR_ERROR_INVALID_VALUE;
+    if (get_basic_handle_type(action) != handle_type::action) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    assert(mInitialised);
+    try {
+        auto windowIt = mWindows.find(get_basic_handle_index(window));
+        if (windowIt == mWindows.end()) return TPR_ERROR_INVALID_VALUE;
+        auto actionIt = mActions.find(get_basic_handle_index(action));
+        if (actionIt == mActions.end()) return TPR_ERROR_INVALID_VALUE;
+        actionIt->second.entry->windows.erase(windowIt->second.entry);
+        windowIt->second.entry->actions.erase(actionIt->second.entry);
+        mLogger.debug() << "Unbound Action " << get_basic_handle_index(action) << " from Window " << get_basic_handle_index(window);
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Windowing::setActionProfile(TprAction action, const TprActionProfile& profile) noexcept {
+    switch (profile.valueMode) {
+        case TPR_ACTION_VALUE_MODE_ABSOLUTE: case TPR_ACTION_VALUE_MODE_DIFFERENCE: case TPR_ACTION_VALUE_MODE_DERIVATIVE: break;
+        default: return TPR_ERROR_INVALID_VALUE;
+    }
+    if (
+        std::ranges::find_if(mKeyMap, [&](const auto& el) { return el.second == profile.device; } ) == mKeyMap.end() &&
+        std::ranges::find_if(mMouseButtonMap, [&](const auto& el) { return el.second == profile.device; } ) == mMouseButtonMap.end() &&
+        profile.device != TPR_MOUSE_WHEEL && profile.device != TPR_MOUSE_MOTION && profile.device != TPR_WINDOW_SIZE
+    ) {
+        return TPR_ERROR_INVALID_VALUE;
+    }
+    if (get_basic_handle_type(action) != handle_type::window) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    assert(mInitialised);
+    try {
+        auto it = mActions.find(get_basic_handle_index(action));
+        if (it == mActions.end()) return TPR_ERROR_INVALID_VALUE;
+        auto action = it->second;
+        action.entry->profile = profile;
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+expected<TprAction, TprResult> Windowing::forkAction(TprAction action) noexcept {
+    if (get_basic_handle_type(action) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
+    assert(mInitialised);
+    try {
+        auto it = mActions.find(get_basic_handle_index(action));
+        if (it == mActions.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+        auto& action = mActions.insert_or_assign(
+            mActionCounter, ActionHandle{std::make_shared<ActionEntry>(*it->second.entry.get())}
+        ).first->second;
+        for (auto windowWeak : action.entry->windows) {
+            auto window = windowWeak.lock();
+            if (window) {
+                window->actions.insert(action.entry);
+            }
+        }
+        TprAction h = construct_basic_handle<TprAction>(mActionCounter, 0, handle_type::action);
+        mActionCounter++;
+        return h;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -583,7 +703,6 @@ expected<TprAction, TprResult> Windowing::createActionCapability(TprAction actio
         if (it == mActions.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto handle = it->second;
         mActions.insert_or_assign(mActionCounter, ActionHandle{handle.entry, mask & handle.capability});
-        handle.entry->handles.push_back(mActionCounter);
         TprAction h = construct_basic_handle<TprAction>(mActionCounter, 0, handle_type::action);
         mLogger.debug() << "Created Action capability " << mActionCounter << " for Action " << get_basic_handle_index(action);
         mActionCounter++;
@@ -609,10 +728,13 @@ void Windowing::destroyAction(TprAction action) noexcept {
         if (it == mActions.end()) return;
         auto entry = it->second.entry;
         mActions.erase(it);
-        if (entry.use_count() <= 2) {
-            // uses must be here in the local variable 'entry' and in the window entry
-            auto it = std::ranges::find(entry->window.actions, entry);
-            if (it != entry->window.actions.end()) entry->window.actions.erase(it);
+        if (entry.use_count() == 1) {
+            for (auto windowWeak : entry->windows) {
+                auto window = windowWeak.lock();
+                if (window) {
+                    window->actions.erase(entry);
+                }
+            }
         }
         mLogger.debug() << "Destroyed Action " << get_basic_handle_index(action);
 
@@ -729,42 +851,43 @@ expected<TprActionState, TprResult> Windowing::getActionState(TprAction action) 
 
 
 TprJob Windowing::getInputUpdateJob() noexcept {
-    return mProcessEventsJob;  // TODO: create a new capability every time
+    auto jobExp = mrSched.createJobCapability(mProcessEventsJob, 0);
+    if (!jobExp.has_value()) {
+        mrRunResult.store(TPR_PANIC);
+        return {};
+    }
+    return jobExp.value();
 }
 
 
 expected<WindowIdentity, TprResult> Windowing::getWindowIdentity(TprWindow window) {
     std::lock_guard<std::mutex> lock(mMutex);
     if (get_basic_handle_type(window) != handle_type::window) return unexpected(TPR_ERROR_INVALID_VALUE);
-    auto it = mWindowHandles.find(get_basic_handle_index(window));
-    if (it == mWindowHandles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+    auto it = mWindows.find(get_basic_handle_index(window));
+    if (it == mWindows.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
     return WindowIdentity{it->second.entry->window};
 }
 
 expected<uint32_t, TprResult> Windowing::windowPixelWidth(WindowIdentity id) {
     if (!id.ptr) return unexpected(TPR_ERROR_INVALID_VALUE);
-    std::unique_lock<std::mutex> lock(mMutex);
+    std::unique_lock<std::mutex> lock(mQueryMutex);
     if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
-    assert(mInitialised);
-    std::optional<uint32_t> w;
-    mMainThreadQueries.push_back(GetWindowWidthQuery{id.ptr, w});
-    mCv.wait(lock, [&]() { return w.has_value(); });
-    if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
-    if (!w.has_value()) return unexpected(TPR_PANIC);
-    return w.value();
+    std::optional<uint32_t> width;
+    mMainThreadQueries.emplace_back(GetWindowWidthQuery{id.ptr, width});
+    mQueryCv.wait(lock, [&]() { return width.has_value(); });
+    if (!width.has_value()) return unexpected(TPR_PANIC);
+    return width.value();
 }
 
 expected<uint32_t, TprResult> Windowing::windowPixelHeight(WindowIdentity id) {
     if (!id.ptr) return unexpected(TPR_ERROR_INVALID_VALUE);
-    std::unique_lock<std::mutex> lock(mMutex);
+    std::unique_lock<std::mutex> lock(mQueryMutex);
     if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
-    assert(mInitialised);
-    std::optional<uint32_t> h;
-    mMainThreadQueries.push_back(GetWindowHeightQuery{id.ptr, h});
-    mCv.wait(lock, [&]() { return h.has_value(); });
-    if (!mEventLoopInOrder) return unexpected(TPR_ERROR_NOT_LOADED);
-    if (!h.has_value()) return unexpected(TPR_PANIC);
-    return h.value();
+    std::optional<uint32_t> height;
+    mMainThreadQueries.emplace_back(GetWindowHeightQuery{id.ptr, height});
+    mQueryCv.wait(lock, [&]() { return height.has_value(); });
+    if (!height.has_value()) return unexpected(TPR_PANIC);
+    return height.value();
 }
 
 

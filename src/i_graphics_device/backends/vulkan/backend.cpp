@@ -482,42 +482,46 @@ TprResult VulkanBackend::init() {
 
 VulkanBackend::~VulkanBackend() noexcept {
 
-    if (auto r = mLoader.vkDeviceWaitIdle()(mDevice); r != VK_SUCCESS) {
-        mLogger.panic() << "vkDeviceWaitIdle failed [" << r << "]";
-        mrRunResult.store(TPR_PANIC);
-        return;
+    if (mDevice != VK_NULL_HANDLE) {
+        if (auto r = mLoader.vkDeviceWaitIdle()(mDevice); r != VK_SUCCESS) {
+            mLogger.panic() << "vkDeviceWaitIdle failed [" << r << "]";
+            mrRunResult.store(TPR_PANIC);
+            return;
+        }
+
+        mMeshes.clear();
+
+        for (auto& [handle, target] : mRenderTargets) {
+            freeFullBuffer(target.entry->indirectDrawBuffer);
+        }
+
+        for (auto& [id, ctx] : mWindowContexts) {
+            freeWindowEntry(ctx);
+        }
+
+        for (auto& frame : mFrames) {
+            freeFullBuffer(frame.entityChunksBuffer);
+            mLoader.vkDestroyCommandPool()(mDevice, frame.commandPool, nullptr);
+            mLoader.vkDestroyFence()(mDevice, frame.inFlightFence, nullptr);
+            mLoader.vkDestroyDescriptorPool()(mDevice, frame.descriptorPool, nullptr);
+        }
+
+        mLoader.vkDestroyPipelineLayout()(mDevice, mBasicPipelineLayout, nullptr);
+
+        mLoader.vkDestroyCommandPool()(mDevice, mCommandPool, nullptr);
+        mLoader.vkDestroyDescriptorSetLayout()(mDevice, mEntityDataSetLayout, nullptr);
+        mLoader.vkDestroyFence()(mDevice, mImmidiateCopyFence, nullptr);
+
+        if (mDevice) mLoader.vkDestroyDevice()(mDevice, nullptr);
     }
 
-    mMeshes.clear();
+    if (mInstance != VK_NULL_HANDLE) {
+        if (mLoader.vkDestroyDebugUtilsMessengerEXT()) {
+            mLoader.vkDestroyDebugUtilsMessengerEXT()(mInstance, mDebugMessenger, nullptr);
+        }
 
-    for (auto& [handle, target] : mRenderTargets) {
-        freeFullBuffer(target.entry->indirectDrawBuffer);
+        mLoader.vkDestroyInstance()(mInstance, nullptr);
     }
-
-    for (auto& [id, ctx] : mWindowContexts) {
-        freeWindowEntry(ctx);
-    }
-
-    for (auto& frame : mFrames) {
-        freeFullBuffer(frame.entityChunksBuffer);
-        mLoader.vkDestroyCommandPool()(mDevice, frame.commandPool, nullptr);
-        mLoader.vkDestroyFence()(mDevice, frame.inFlightFence, nullptr);
-        mLoader.vkDestroyDescriptorPool()(mDevice, frame.descriptorPool, nullptr);
-    }
-
-    mLoader.vkDestroyPipelineLayout()(mDevice, mBasicPipelineLayout, nullptr);
-
-    mLoader.vkDestroyCommandPool()(mDevice, mCommandPool, nullptr);
-    mLoader.vkDestroyDescriptorSetLayout()(mDevice, mEntityDataSetLayout, nullptr);
-    mLoader.vkDestroyFence()(mDevice, mImmidiateCopyFence, nullptr);
-
-    if (mDevice) mLoader.vkDestroyDevice()(mDevice, nullptr);
-
-    if (mLoader.vkDestroyDebugUtilsMessengerEXT()) {
-        mLoader.vkDestroyDebugUtilsMessengerEXT()(mInstance, mDebugMessenger, nullptr);
-    }
-
-    mLoader.vkDestroyInstance()(mInstance, nullptr);
 }
 
 

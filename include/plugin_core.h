@@ -237,12 +237,12 @@ typedef enum TprJobTriggerType {
     _TPR_JOB_TRIGGER_TYPE_MAX_ENUM = _TPR_MAX_ENUM
 } TprJobTriggerType;
 
-typedef enum TprActionMeasureType {
-    TPR_MEASURE_TYPE_ABSOLUTE = 0,
-    TPR_MEASURE_TYPE_DIFFERENCE = 1,
-    TPR_MEASURE_TYPE_DERIVATIVE = 2,
-    _TPR_MEASURE_TYPE_MAX_ENUM = _TPR_MAX_ENUM
-} TprActionMeasureType;
+typedef enum TprActionValueMode {
+    TPR_ACTION_VALUE_MODE_ABSOLUTE = 0,
+    TPR_ACTION_VALUE_MODE_DIFFERENCE = 1,
+    TPR_ACTION_VALUE_MODE_DERIVATIVE = 2,
+    _TPR_ACTION_VALUE_MODE_MAX_ENUM = _TPR_MAX_ENUM
+} TprActionValueMode;
 
 
 // flags
@@ -445,6 +445,11 @@ typedef struct TprComponentRenderable {
     TprRenderTargetSet renderTargetSet;
 } TprComponentRenderable;
 
+typedef struct TprActionProfile {
+    TprInputDevice device;
+    TprActionValueMode valueMode;
+} TprActionProfile;
+
 
 // create infos
 
@@ -457,9 +462,7 @@ typedef struct TprWindowCreateInfo {
 
 typedef struct TprActionCreateInfo {
     TprCreateActionFlags flags;
-    TprInputDevice device;
-    TprActionMeasureType measureType;
-    TprWindow window;
+    TprActionProfile profile;
 } TprActionCreateInfo;
 
 typedef struct TprMeshCreateInfo {

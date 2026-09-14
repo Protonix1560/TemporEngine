@@ -135,6 +135,18 @@ namespace api {
         TprResult createAction(const TprActionCreateInfo* pInfo, TprAction* pAction) noexcept {
             assert(gEngine); return gEngine->win_createAction(pInfo, pAction);
         }
+        TprResult bindActionWindow(TprAction action, TprWindow window) noexcept {
+            assert(gEngine); return gEngine->win_bindActionWindow(action, window);
+        }
+        TprResult unbindActionWindow(TprAction action, TprWindow window) noexcept {
+            assert(gEngine); return gEngine->win_unbindActionWindow(action, window);
+        }
+        TprResult setActionProfile(TprAction action, const TprActionProfile* pProfile) noexcept {
+            assert(gEngine); return gEngine->win_setActionProfile(action, pProfile);
+        }
+        TprResult forkAction(TprAction action, TprAction* pAction) noexcept {
+            assert(gEngine); return gEngine->win_forkAction(action, pAction);
+        }
         TprResult createActionCapability(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) noexcept {
             assert(gEngine); return gEngine->win_createActionCapability(action, mask, pAction);
         }
@@ -312,11 +324,17 @@ namespace api {
         void destroyJob(TprJob job) noexcept {
             assert(gEngine); return gEngine->sched_destroyJob(job);
         }
-        TprJob getShutdownJob() noexcept {
-            assert(gEngine); return gEngine->sched_getShutdownJob();
-        }
         uint64_t now() noexcept {
             assert(gEngine); return gEngine->sched_now();
+        }
+    }
+
+    namespace life {
+        TprJob getShutdownJob() noexcept {
+            assert(gEngine); return gEngine->life_getShutdownJob();
+        }
+        void shutdownReady() noexcept {
+            assert(gEngine); return gEngine->life_shutdownReady();
         }
     }
 }
@@ -383,6 +401,10 @@ void TemporEngine::registerAPI() {
     mWinAPI.createWindowCapability = api::win::createWindowCapability;
     mWinAPI.closeWindow = api::win::closeWindow;
     mWinAPI.createAction = api::win::createAction;
+    mWinAPI.bindActionWindow = api::win::bindActionWindow;
+    mWinAPI.unbindActionWindow = api::win::unbindActionWindow;
+    mWinAPI.setActionProfile = api::win::setActionProfile;
+    mWinAPI.forkAction = api::win::forkAction;
     mWinAPI.createActionCapability = api::win::createActionCapability;
     mWinAPI.destroyAction = api::win::destroyAction;
     mWinAPI.getActionsHistorySize = api::win::getActionsHistorySize;
@@ -436,8 +458,10 @@ void TemporEngine::registerAPI() {
     mSchedAPI.scheduleJob = api::sched::scheduleJob;
     mSchedAPI.invalidateJob = api::sched::invalidateJob;
     mSchedAPI.destroyJob = api::sched::destroyJob;
-    mSchedAPI.getShutdownJob = api::sched::getShutdownJob;
     mSchedAPI.now = api::sched::now;
+    // life
+    mLifeAPI.getShutdownJob = api::life::getShutdownJob;
+    mLifeAPI.shutdownReady = api::life::shutdownReady;
 
     mAPI.out = &mOutAPI;
     mAPI.win = &mWinAPI;
@@ -447,5 +471,6 @@ void TemporEngine::registerAPI() {
     mAPI.conf = &mConfAPI;
     mAPI.render = &mRenderAPI;
     mAPI.sched = &mSchedAPI;
+    mAPI.life = &mLifeAPI;
 }
 

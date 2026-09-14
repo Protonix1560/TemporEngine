@@ -146,6 +146,7 @@ void update(void* ctx) noexcept {
                 plugin->api->win->closeWindow(plugin->window);
                 plugin->api->sched->destroyJob(plugin->updateJob);
                 plugin->api->sched->destroyJob(plugin->renderJob);
+                plugin->api->life->shutdownReady();
                 return;
             }
         }
@@ -283,56 +284,50 @@ extern "C" {
         ROF(plugin->api->win->openWindow(&windowCreateInfo, &plugin->window));
 
         TprActionCreateInfo quitActionInfo{};
-        quitActionInfo.device = TPR_KEY_ESCAPE;
-        quitActionInfo.window = plugin->window;
+        quitActionInfo.profile.device = TPR_KEY_ESCAPE;
         ROF(plugin->api->win->createAction(&quitActionInfo, &plugin->quitAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->quitAction, plugin->window));
 
         TprActionCreateInfo cameraActionInfo{};
-        cameraActionInfo.device = TPR_MOUSE_MOTION;
-        cameraActionInfo.measureType = TPR_MEASURE_TYPE_DIFFERENCE;
-        cameraActionInfo.window = plugin->window;
+        cameraActionInfo.profile.device = TPR_MOUSE_MOTION;
+        cameraActionInfo.profile.valueMode = TPR_ACTION_VALUE_MODE_DIFFERENCE;
         ROF(plugin->api->win->createAction(&cameraActionInfo, &plugin->cameraAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->cameraAction, plugin->window));
 
         TprActionCreateInfo mouseActionInfo{};
-        mouseActionInfo.device = TPR_MOUSE_BUTTON1;
-        mouseActionInfo.window = plugin->window;
+        mouseActionInfo.profile.device = TPR_MOUSE_BUTTON1;
         ROF(plugin->api->win->createAction(&mouseActionInfo, &plugin->mouseAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->mouseAction, plugin->window));
 
         TprActionCreateInfo walkForwardInfo{};
-        walkForwardInfo.device = TPR_KEY_W;
-        walkForwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
-        walkForwardInfo.window = plugin->window;
+        walkForwardInfo.profile.device = TPR_KEY_W;
         ROF(plugin->api->win->createAction(&walkForwardInfo, &plugin->walkForwardAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->walkForwardAction, plugin->window));
 
         TprActionCreateInfo walkBackwardInfo{};
-        walkBackwardInfo.device = TPR_KEY_S;
-        walkBackwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
-        walkBackwardInfo.window = plugin->window;
+        walkBackwardInfo.profile.device = TPR_KEY_S;
         ROF(plugin->api->win->createAction(&walkBackwardInfo, &plugin->walkBackwardAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->walkBackwardAction, plugin->window));
 
         TprActionCreateInfo strafeRightInfo{};
-        strafeRightInfo.device = TPR_KEY_D;
-        strafeRightInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
-        strafeRightInfo.window = plugin->window;
+        strafeRightInfo.profile.device = TPR_KEY_D;
         ROF(plugin->api->win->createAction(&strafeRightInfo, &plugin->strafeRightAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->strafeRightAction, plugin->window));
         
         TprActionCreateInfo strafeLeftInfo{};
-        strafeLeftInfo.device = TPR_KEY_A;
-        strafeLeftInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
-        strafeLeftInfo.window = plugin->window;
+        strafeLeftInfo.profile.device = TPR_KEY_A;
         ROF(plugin->api->win->createAction(&strafeLeftInfo, &plugin->strafeLeftAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->strafeLeftAction, plugin->window));
 
         TprActionCreateInfo flyUpwardInfo{};
-        flyUpwardInfo.device = TPR_KEY_E;
-        flyUpwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
-        flyUpwardInfo.window = plugin->window;
+        flyUpwardInfo.profile.device = TPR_KEY_E;
         ROF(plugin->api->win->createAction(&flyUpwardInfo, &plugin->flyUpwardAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->flyUpwardAction, plugin->window));
         
         TprActionCreateInfo flyDownwardInfo{};
-        flyDownwardInfo.device = TPR_KEY_Q;
-        flyDownwardInfo.measureType = TPR_MEASURE_TYPE_ABSOLUTE;
-        flyDownwardInfo.window = plugin->window;
+        flyDownwardInfo.profile.device = TPR_KEY_Q;
         ROF(plugin->api->win->createAction(&flyDownwardInfo, &plugin->flyDownwardAction));
+        ROF(plugin->api->win->bindActionWindow(plugin->flyDownwardAction, plugin->window));
 
         TprFile modelFile;
         ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
@@ -397,7 +392,7 @@ extern "C" {
         updateInfo.function = update;
         ROF(plugin->api->sched->createJob(&updateInfo, &plugin->updateJob));
 
-        TprJob shutdownJob = plugin->api->sched->getShutdownJob();
+        TprJob shutdownJob = plugin->api->life->getShutdownJob();
 
         TprJobCreateInfo shutdownInfo{};
         shutdownInfo.context = plugin;

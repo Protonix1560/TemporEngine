@@ -5,8 +5,7 @@
 #include "plugin_core.h"
 #include "settings.hpp"
 #include "log_entry.hpp"
-
-#include "thread_job_info.hpp"
+#include "thread_info.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -170,7 +169,11 @@ void Scheduler::shutdown() {
     }
 }
 
-Scheduler::~Scheduler() {}
+Scheduler::~Scheduler() {
+    if (mInitialised) {
+        shutdown();
+    }
+}
 
 
 void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept {
@@ -201,18 +204,21 @@ void Scheduler::processLaunch(JobLaunch launch) {
 
     if (launch.meta.entry->invalidated.load()) return;
     if (launch.meta.entry->destroyed.load()) return;
+    if (launch.meta.entry->pluginContext->unloaded.load()) return;
 
     if (launch.meta.entry->destructionPended.load()) {
         launch.meta.entry->destroyed.store_true();
 
     } else if (launch.meta.entry->function) {
         mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline << " is launching";
+        launch.meta.entry->pluginContext->executions.fetch_add(1);
+        threadInfo.currentPlugin = launch.meta.entry->pluginContext;
 
-        threadInfo.currentJob = launch.meta.handle;
         launch.meta.entry->function(launch.meta.entry->context);
         // Great job!
-        threadInfo.currentJob.reset();
 
+        threadInfo.currentPlugin.reset();
+        launch.meta.entry->pluginContext->executions.fetch_sub(1);
         mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline << " is finished";
     }
 
@@ -269,8 +275,9 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
         case TPR_JOB_DURATION_SHORT: case TPR_JOB_DURATION_LONG: break;
         default: return unexpected(TPR_ERROR_INVALID_VALUE);
     }
+    if (!threadInfo.currentPlugin) return unexpected(TPR_ERROR_INVALID_OPERATION);
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mInitialised) return unexpected(TPR_ERROR_INVALID_OPERATION);
+    assert(mInitialised);
     try {
         std::shared_ptr<JobEntry> entry;
         TprJob h = construct_basic_handle<TprJob>(mJobCounter, 0, handle_type::job);
@@ -291,7 +298,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
                     deps.push_back({handleIt->second.entry, h});
                 }
 
-                entry = std::make_shared<JobEntry>(info, deps.begin(), deps.end());
+                entry = std::make_shared<JobEntry>(info, threadInfo.currentPlugin, deps.begin(), deps.end());
                 entry->countdown = entry->dependencies.size();
 
                 for (auto dep : deps) {
@@ -302,7 +309,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
             }
 
             case TPR_JOB_TRIGGER_TYPE_SCHEDULE: {
-                entry = std::make_shared<JobEntry>(info);
+                entry = std::make_shared<JobEntry>(info, threadInfo.currentPlugin);
                 break;
             }
 
@@ -327,7 +334,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
 expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCapabilityFlags mask) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mInitialised) return unexpected(TPR_ERROR_INVALID_OPERATION);
+    assert(mInitialised);
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
@@ -353,7 +360,7 @@ expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCap
 TprResult Scheduler::scheduleJob(TprJob job, uint64_t timepoint) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mInitialised) return TPR_ERROR_INVALID_OPERATION;
+    assert(mInitialised);
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return TPR_ERROR_INVALID_VALUE;

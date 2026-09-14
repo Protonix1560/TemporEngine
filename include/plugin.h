@@ -79,7 +79,12 @@ typedef struct TprEngineAPI {
         TprResult(*openWindow)(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
         TprResult(*createWindowCapability)(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
         void(*closeWindow)(TprWindow window) _TPR_NOEXCEPT_ATTR;
+
         TprResult(*createAction)(const TprActionCreateInfo* pInfo, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
+        TprResult(*bindActionWindow)(TprAction action, TprWindow window) _TPR_NOEXCEPT_ATTR;
+        TprResult(*unbindActionWindow)(TprAction action, TprWindow window) _TPR_NOEXCEPT_ATTR;
+        TprResult(*setActionProfile)(TprAction action, const TprActionProfile* pProfile) _TPR_NOEXCEPT_ATTR;
+        TprResult(*forkAction)(TprAction action, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
         TprResult(*createActionCapability)(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
         void(*destroyAction)(TprAction action) _TPR_NOEXCEPT_ATTR;
 
@@ -169,11 +174,16 @@ typedef struct TprEngineAPI {
         void(*invalidateJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
         void(*destroyJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
 
-        TprJob(*getShutdownJob)() _TPR_NOEXCEPT_ATTR;
-
         uint64_t(*now)() _TPR_NOEXCEPT_ATTR;
 
     } *sched;
+
+    struct Lifetime {
+
+        TprJob(*getShutdownJob)() _TPR_NOEXCEPT_ATTR;
+        void(*shutdownReady)() _TPR_NOEXCEPT_ATTR;
+
+    } *life;
 
 } TprEngineAPI;
 

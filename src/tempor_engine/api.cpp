@@ -4,6 +4,7 @@
 #include "plugin_core.h"
 #include "plugin_loader.hpp"
 #include "tempor.hpp"
+#include "thread_info.hpp"
 
 #pragma region log
     void TemporEngine::out_log(TprLogLevel logLevel, const char* message) noexcept {
@@ -173,6 +174,27 @@
         *pAction = exp.value();
         return TPR_SUCCESS;
     }
+    TprResult TemporEngine::win_bindActionWindow(TprAction action, TprWindow window) noexcept {
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        return mpWindowing->bindActionWindow(action, window);
+    }
+    TprResult TemporEngine::win_unbindActionWindow(TprAction action, TprWindow window) noexcept {
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        return mpWindowing->bindActionWindow(action, window);
+    }
+    TprResult TemporEngine::win_setActionProfile(TprAction action, const TprActionProfile* pProfile) noexcept {
+        if (!pProfile) return TPR_ERROR_INVALID_VALUE;
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        return mpWindowing->setActionProfile(action, *pProfile);
+    }
+    TprResult TemporEngine::win_forkAction(TprAction action, TprAction* pAction) noexcept {
+        if (!pAction) return TPR_ERROR_INVALID_VALUE;
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpWindowing->forkAction(action);
+        if (!exp.has_value()) return exp.error();
+        *pAction = exp.value();
+        return TPR_SUCCESS;
+    }
     TprResult TemporEngine::win_createActionCapability(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) noexcept {
         if (!pAction) return TPR_ERROR_INVALID_VALUE;
         if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
@@ -318,10 +340,8 @@
         if (!pSetting) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_ERROR_NOT_LOADED;
         if (!mpPlugLd) return TPR_ERROR_NOT_LOADED;
-        auto infoExp = activePluginInfo();
-        if (!infoExp.has_value()) return infoExp.error();
-        auto info = infoExp.value();
-        auto exp = mpSettings->createSetting(mpSettings->getRoot(), info.name);
+        if (!threadInfo.currentPlugin) return TPR_ERROR_INVALID_OPERATION;
+        auto exp = mpSettings->createSetting(mpSettings->getRoot(), threadInfo.currentPlugin->name);
         if (!exp.has_value()) return exp.error();
         TprSetting value = exp.value();
         if (auto r = mpSettings->setSettingStruct(value); r != TPR_SUCCESS) return r;
@@ -586,11 +606,17 @@
         if (!mpSched) return;
         mpSched->destroyJob(job);
     }
-    TprJob TemporEngine::sched_getShutdownJob() noexcept {
-        return mpPlugLd->getShutdownJob();
-    }
     uint64_t TemporEngine::sched_now() noexcept {
         if (!mpSched) return 0;
         return mpSched->now();
     }
 #pragma endregion  // sched
+
+#pragma region life
+    TprJob TemporEngine::life_getShutdownJob() noexcept {
+        return mpPlugLd->getShutdownJob();
+    }
+    void TemporEngine::life_shutdownReady() noexcept {
+        return mpPlugLd->shutdownReady();
+    }
+#pragma endregion  // life

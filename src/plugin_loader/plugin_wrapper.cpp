@@ -2,8 +2,7 @@
 #include "plugin_wrapper.hpp"
 #include "core.hpp"
 #include "logger.hpp"
-#include "plugin.h"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "log_entry.hpp"
 #include "thread_info.hpp"
 
@@ -34,8 +33,8 @@ TprResult PluginWrapper::init(uint32_t id) {
         return TPR_ERROR_NOT_LOADED;
     }
     
-    mLogger.trace() << "pluginInit of " << mName << " returned succeeded [" << initResult << "]";
-    mLogger.debug() << "Loaded plugin " << mName;
+    mLogger.debug() << "pluginInit of " << mName << " returned succeeded [" << initResult << "]";
+    mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Loaded plugin " << mName;
     return TPR_SUCCESS;
 }
 

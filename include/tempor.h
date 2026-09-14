@@ -1,8 +1,8 @@
 
-#ifndef TEMPOR_PLUGIN_CORE_H_
-#define TEMPOR_PLUGIN_CORE_H_
+#ifndef TEMPOR_H_
+#define TEMPOR_H_
 
-#include <cstdint>
+#include <stdint.h>
 
 
 // defs
@@ -25,6 +25,8 @@ typedef uint32_t _TprFlag_T;
 typedef uint8_t TprBool8;
 #define TPR_TRUE 1
 #define TPR_FALSE 0
+
+#define TPR_VERSION 0
 
 
 // enums
@@ -244,6 +246,60 @@ typedef enum TprActionValueMode {
     _TPR_ACTION_VALUE_MODE_MAX_ENUM = _TPR_MAX_ENUM
 } TprActionValueMode;
 
+typedef enum TprTokenType {
+    TPR_TOKEN_TYPE_STRING = 0,
+    TPR_TOKEN_TYPE_RESET = 1,
+    TPR_TOKEN_TYPE_FOREGROUND0_DARK = 2,
+    TPR_TOKEN_TYPE_FOREGROUND1_DARK = 3,
+    TPR_TOKEN_TYPE_FOREGROUND2_DARK = 4,
+    TPR_TOKEN_TYPE_FOREGROUND3_DARK = 5,
+    TPR_TOKEN_TYPE_FOREGROUND4_DARK = 6,
+    TPR_TOKEN_TYPE_FOREGROUND5_DARK = 7,
+    TPR_TOKEN_TYPE_FOREGROUND6_DARK = 8,
+    TPR_TOKEN_TYPE_FOREGROUND7_DARK = 9,
+    TPR_TOKEN_TYPE_FOREGROUND0_BRIGHT = 10,
+    TPR_TOKEN_TYPE_FOREGROUND1_BRIGHT = 11,
+    TPR_TOKEN_TYPE_FOREGROUND2_BRIGHT = 12,
+    TPR_TOKEN_TYPE_FOREGROUND3_BRIGHT = 13,
+    TPR_TOKEN_TYPE_FOREGROUND4_BRIGHT = 14,
+    TPR_TOKEN_TYPE_FOREGROUND5_BRIGHT = 15,
+    TPR_TOKEN_TYPE_FOREGROUND6_BRIGHT = 16,
+    TPR_TOKEN_TYPE_FOREGROUND7_BRIGHT = 17,
+    TPR_TOKEN_TYPE_NO_FOREGROUND = 18,
+    TPR_TOKEN_TYPE_BACKGROUND0_DARK = 19,
+    TPR_TOKEN_TYPE_BACKGROUND1_DARK = 20,
+    TPR_TOKEN_TYPE_BACKGROUND2_DARK = 21,
+    TPR_TOKEN_TYPE_BACKGROUND3_DARK = 22,
+    TPR_TOKEN_TYPE_BACKGROUND4_DARK = 23,
+    TPR_TOKEN_TYPE_BACKGROUND5_DARK = 24,
+    TPR_TOKEN_TYPE_BACKGROUND6_DARK = 25,
+    TPR_TOKEN_TYPE_BACKGROUND7_DARK = 26,
+    TPR_TOKEN_TYPE_BACKGROUND0_BRIGHT = 27,
+    TPR_TOKEN_TYPE_BACKGROUND1_BRIGHT = 28,
+    TPR_TOKEN_TYPE_BACKGROUND2_BRIGHT = 29,
+    TPR_TOKEN_TYPE_BACKGROUND3_BRIGHT = 30,
+    TPR_TOKEN_TYPE_BACKGROUND4_BRIGHT = 31,
+    TPR_TOKEN_TYPE_BACKGROUND5_BRIGHT = 32,
+    TPR_TOKEN_TYPE_BACKGROUND6_BRIGHT = 33,
+    TPR_TOKEN_TYPE_BACKGROUND7_BRIGHT = 34,
+    TPR_TOKEN_TYPE_NO_BACKGROUND = 35,
+    TPR_TOKEN_TYPE_BOLD = 36,
+    TPR_TOKEN_TYPE_DIM = 37,
+    TPR_TOKEN_TYPE_NORMAL = 38,
+    TPR_TOKEN_TYPE_ITALIC = 39,
+    TPR_TOKEN_TYPE_NO_ITALIC = 40,
+    TPR_TOKEN_TYPE_UNDERLINE = 41,
+    TPR_TOKEN_TYPE_DOUBLE_UNDERLINE = 42,
+    TPR_TOKEN_TYPE_NO_UNDERLINE = 43,
+    TPR_TOKEN_TYPE_BLINK = 44,
+    TPR_TOKEN_TYPE_NO_BLINK = 45,
+    TPR_TOKEN_TYPE_INVERSE = 46,
+    TPR_TOKEN_TYPE_NO_INVERSE = 47,
+    TPR_TOKEN_TYPE_STRIKETHROUGH = 48,
+    TPR_TOKEN_TYPE_NO_STRIKETHROUGH = 49,
+    _TPR_TOKEN_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+} TprTokenType;
+
 
 // flags
 
@@ -450,6 +506,11 @@ typedef struct TprActionProfile {
     TprActionValueMode valueMode;
 } TprActionProfile;
 
+typedef struct TprToken {
+    TprTokenType type;
+    const char* str;
+} TprToken;
+
 
 // create infos
 
@@ -506,4 +567,194 @@ typedef struct TprJobCreateInfo {
 } TprJobCreateInfo;
 
 
-#endif  // TEMPOR_PLUGIN_CORE_H_
+// API
+
+typedef struct TprEngineOutputAPI {
+    void(*log)(TprLogLevel logLevel, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*info)(const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*warn)(const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*error)(const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*debug)(const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*trace)(const char* message) _TPR_NOEXCEPT_ATTR;
+
+    void(*logStyled)(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*infoStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*warnStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*errorStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*debugStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*traceStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+
+    void(*writeTokenSequence)(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*writeMachineData)(const char* pData, uint32_t size) _TPR_NOEXCEPT_ATTR;
+} TprOutputAPI;
+
+typedef struct TprEngineSceneAPI {
+    TprResult(*createComponent)(uint32_t componentSize, TprComponent* pComponent) _TPR_NOEXCEPT_ATTR;
+    void(*destroyComponent)(TprComponent component) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*spawnEntity)(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) _TPR_NOEXCEPT_ATTR;
+    void(*killEntity)(TprEntity entity) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*modifyEntityComponentSet)(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*copyEntityComponentData)(TprEntity entity, TprComponent component, uint32_t start, uint32_t n, char* componentData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*writeEntityComponentData)(TprEntity entity, TprComponent component, const char* componentData, uint32_t start, uint32_t n) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*getComponentChunkHandles)(TprComponent component, TprFile resource) _TPR_NOEXCEPT_ATTR;
+    uint32_t(*getComponentChunkMaxElementCount)(void) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getComponentChunkElementCount)(TprComponentChunk chunk, uint32_t* pCount) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getComponentChunkVersion)(TprComponentChunk chunk, uint32_t* pVersion) _TPR_NOEXCEPT_ATTR;
+    TprResult(*copyComponentChunkData)(TprComponentChunk chunk, uint32_t offset, uint32_t n, char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*writeComponentChunkData)(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) _TPR_NOEXCEPT_ATTR;
+} TprSceneAPI;
+
+typedef struct TprFileSystemAPI {
+    TprResult(*openFile)(const char* path, TprOpenFileFlags flags, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createMemoryFile)(TprFile* pFile) _TPR_NOEXCEPT_ATTR;
+    TprResult(*forkFile)(TprFile file, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createFileCapability)(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
+    void(*closeFile)(TprFile file) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*seek)(TprFile file, int32_t offset, TprSeekWhence whence) _TPR_NOEXCEPT_ATTR;
+    TprResult(*tell)(TprFile file, uint32_t* pPos) _TPR_NOEXCEPT_ATTR;
+    TprResult(*read)(TprFile file, uint32_t n, char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*readAt)(TprFile file, uint32_t pos, uint32_t n, char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*resize)(TprFile file, uint32_t newSize) _TPR_NOEXCEPT_ATTR;
+    TprResult(*write)(TprFile file, uint32_t n, const char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*writeAt)(TprFile file, uint32_t pos, uint32_t n, const char* pData) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*pathType)(const char* path, TprPathType* pType) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createDirectory)(const char* path, TprCreateDirectoryFlags flags) _TPR_NOEXCEPT_ATTR;
+    TprResult(*touchFile)(const char* path, TprTouchFileFlags flags) _TPR_NOEXCEPT_ATTR;
+    TprResult(*remove)(const char* path) _TPR_NOEXCEPT_ATTR;
+    TprResult(*move)(const char* path, const char* newPath) _TPR_NOEXCEPT_ATTR;
+} TprFileSystemAPI;
+
+typedef struct TprWindowingAPI {
+    TprResult(*openWindow)(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createWindowCapability)(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
+    void(*closeWindow)(TprWindow window) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*createAction)(const TprActionCreateInfo* pInfo, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
+    TprResult(*bindActionWindow)(TprAction action, TprWindow window) _TPR_NOEXCEPT_ATTR;
+    TprResult(*unbindActionWindow)(TprAction action, TprWindow window) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setActionProfile)(TprAction action, const TprActionProfile* pProfile) _TPR_NOEXCEPT_ATTR;
+    TprResult(*forkAction)(TprAction action, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createActionCapability)(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
+    void(*destroyAction)(TprAction action) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*getActionsHistorySize)(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
+    TprResult(*copyActionsHistory)(TprActionHistoryEntry* pEntries, uint32_t filterCount, const TprAction* pFilters) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getActionState)(TprAction action, TprActionState* pState) _TPR_NOEXCEPT_ATTR;
+
+    TprJob(*getInputUpdateJob)(void) _TPR_NOEXCEPT_ATTR;
+} TprWindowingAPI;
+
+typedef struct TprGeometryAPI {
+    TprResult(*createMesh)(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createMeshCapability)(TprMesh mesh, TprMeshCapabilityFlags mask, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
+    void(*destroyMesh)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*requireMeshLoaded)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+    TprResult(*unrequireMeshLoaded)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+} TprGeometryAPI;
+
+typedef struct TprConfigurationAPI {
+    TprResult(*getRootSetting)(TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*createSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*readSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
+    void(*destroySetting)(TprSetting pSetting) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*getSettingType)(TprSetting setting, TprSettingType* pType) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingDouble)(TprSetting setting, double* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingInteger)(TprSetting setting, int64_t* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingBool)(TprSetting setting, TprBool8* pData) _TPR_NOEXCEPT_ATTR;
+
+    double(*getSettingDoubleOr)(TprSetting setting, double fallback) _TPR_NOEXCEPT_ATTR;
+    int64_t(*getSettingIntegerOr)(TprSetting setting, int64_t fallback) _TPR_NOEXCEPT_ATTR;
+    TprBool8(*getSettingBoolOr)(TprSetting setting, TprBool8 fallback) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*getSettingStringSize)(TprSetting setting, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
+    TprResult(*copySettingString)(TprSetting setting, char* pData) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*setSettingDouble)(TprSetting setting, double data) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingInteger)(TprSetting setting, int64_t data) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingBool)(TprSetting setting, TprBool8 data) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingString)(TprSetting setting, const char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingNull)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*unsetSetting)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingStruct)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingArray)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*getSettingArraySize)(TprSetting setting, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingArrayElement)(TprSetting setting, uint32_t index, TprSetting* pElement) _TPR_NOEXCEPT_ATTR;
+    TprResult(*resizeSettingArray)(TprSetting setting, uint32_t size) _TPR_NOEXCEPT_ATTR;
+} TprConfigurationAPI;
+
+typedef struct TprRenderAPI {
+    TprResult(*createDepthDomain)(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createDepthDomainCapability)(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask, TprDepthDomain* pDomain) _TPR_NOEXCEPT_ATTR;
+    void(*destroyDepthDomain)(TprDepthDomain domain) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*createRenderTarget)(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createRenderTargetCapability)(TprRenderTarget target, TprRenderTargetCapabilityFlags mask, TprRenderTarget* pTarget) _TPR_NOEXCEPT_ATTR;
+    void(*destroyRenderTarget)(TprRenderTarget target) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*createRenderTargetSet)(const TprRenderTargetSetCreateInfo* pInfo, TprRenderTargetSet* pSet) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createRenderTargetSetCapability)(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask, TprRenderTargetSet* pSet) _TPR_NOEXCEPT_ATTR;
+    void(*destroyRenderTargetSet)(TprRenderTargetSet set) _TPR_NOEXCEPT_ATTR;
+
+    TprResult(*createEntityImage)(const TprEntityImageCreateInfo* pInfo, TprEntityImage* pImage) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createEntityImageCapability)(TprEntityImage image, TprEntityImageCapabilityFlags mask, TprEntityImage* pImage) _TPR_NOEXCEPT_ATTR;
+    void(*destroyEntityImage)(TprEntityImage image) _TPR_NOEXCEPT_ATTR;
+
+    TprJob(*getRenderJob)(void) _TPR_NOEXCEPT_ATTR;
+    TprJob(*getRenderSignalJob)(void) _TPR_NOEXCEPT_ATTR;
+    TprComponent(*getComponentRenderable)(void) _TPR_NOEXCEPT_ATTR;
+} TprRenderAPI;
+
+typedef struct TprSchedulingAPI {
+    TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createJobCapability)(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
+    TprResult(*scheduleJob)(TprJob job, uint64_t timepoint) _TPR_NOEXCEPT_ATTR;
+    void(*invalidateJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
+    void(*destroyJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
+
+    uint64_t(*now)(void) _TPR_NOEXCEPT_ATTR;
+} TprSchedulingAPI;
+
+typedef struct TprLifetimeAPI {
+    TprJob(*getShutdownJob)(void) _TPR_NOEXCEPT_ATTR;
+    void(*shutdownReady)(void) _TPR_NOEXCEPT_ATTR;
+} TprLifetimeAPI;
+
+typedef struct TprEngineAPI {
+    uint32_t version = TPR_VERSION;
+    TprOutputAPI *out;
+    TprSceneAPI *scene;
+    TprFileSystemAPI *fs;
+    TprWindowingAPI *win;
+    TprGeometryAPI *geo;
+    TprConfigurationAPI *conf;
+    TprRenderAPI *render;
+    TprSchedulingAPI *sched;
+    TprLifetimeAPI *life;
+
+} TprEngineAPI;
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int32_t pluginInit(const TprEngineAPI* pAPI) _TPR_NOEXCEPT;
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // TEMPOR_H_
+

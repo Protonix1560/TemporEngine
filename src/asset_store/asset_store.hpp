@@ -2,7 +2,7 @@
 #ifndef ASSET_STORE_ASSET_STORE_HPP_
 #define ASSET_STORE_ASSET_STORE_HPP_
 
-#include "plugin_core.h"
+#include "tempor.h"
 #include "core.hpp"
 #include "asset_store_common.hpp"
 #include "logger.hpp"

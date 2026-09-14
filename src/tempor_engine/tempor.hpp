@@ -7,8 +7,7 @@
 #include "atomic_counter.hpp"
 #include "core.hpp"
 
-#include "plugin.h"
-#include "plugin_core.h"
+#include "tempor.h"
 
 #include "plugin_loader.hpp"
 #include "scene_graph.hpp"
@@ -157,6 +156,7 @@ class TemporEngine {
             void out_errorStyled(TprLogStyle logStyle, const char* message) noexcept;
             void out_debugStyled(TprLogStyle logStyle, const char* message) noexcept;
             void out_traceStyled(TprLogStyle logStyle, const char* message) noexcept;
+            void out_writeTokenSequence(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) noexcept;
             TprResult out_writeMachineData(const char* pData, uint32_t size) noexcept;
             // scene
             TprResult scene_createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept;
@@ -265,15 +265,15 @@ class TemporEngine {
         #pragma endregion  // api
 
     private:
-        TprEngineAPI::Output mOutAPI{};
-        TprEngineAPI::FileSystem mFSAPI{};
-        TprEngineAPI::Scene mSceneAPI{};
-        TprEngineAPI::Geometry mGeoAPI{};
-        TprEngineAPI::Windowing mWinAPI{};
-        TprEngineAPI::Configuration mConfAPI{};
-        TprEngineAPI::Render mRenderAPI{};
-        TprEngineAPI::Scheduling mSchedAPI{};
-        TprEngineAPI::Lifetime mLifeAPI{};
+        TprOutputAPI mOutAPI{};
+        TprFileSystemAPI mFSAPI{};
+        TprSceneAPI mSceneAPI{};
+        TprGeometryAPI mGeoAPI{};
+        TprWindowingAPI mWinAPI{};
+        TprConfigurationAPI mConfAPI{};
+        TprRenderAPI mRenderAPI{};
+        TprSchedulingAPI mSchedAPI{};
+        TprLifetimeAPI mLifeAPI{};
         TprEngineAPI mAPI{};
 
         template <typename T, typename... Args>

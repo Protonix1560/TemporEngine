@@ -4,7 +4,7 @@
 #include "core.hpp"
 #include "backend.hpp"
 #include "scheduler.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "asset_store.hpp"
 #include "scene_graph.hpp"
 #include "file_registry.hpp"

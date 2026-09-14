@@ -3,7 +3,7 @@
 #include "tempor.hpp"
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "plugin_loader.hpp"
 #include "scene_graph.hpp"
 #include "scheduler.hpp"
@@ -218,9 +218,6 @@ TprResult TemporEngine::runtimeInit() {
 TprResult TemporEngine::runtimeRun() {
     sleep_clock clock{200.0};
     mpWindowing->eventLoopStarted();
-    // polling because:
-    // 1. signal handling in cross-platform C++ is dumb
-    // 2. cocoa is dumb, only main thread is allowed for UI for some reason
     while (mRunResult.load() == _TPR_RESULT_MAX_ENUM) {
         clock.tick();
         if (auto r = mpWindowing->update(); r != TPR_SUCCESS) {
@@ -231,6 +228,7 @@ TprResult TemporEngine::runtimeRun() {
             mLogger->info() << "Shutting down because no plugins are loaded";
             mRunResult.store(TPR_SUCCESS);
         }
+        mpSched->update();
         if (mSignal != 0) mRunResult.store(TPR_SUCCESS);
     }
 

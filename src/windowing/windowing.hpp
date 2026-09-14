@@ -4,7 +4,7 @@
 
 #include "core.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "graphics_common.hpp"
 
 #include <SDL3/SDL.h>

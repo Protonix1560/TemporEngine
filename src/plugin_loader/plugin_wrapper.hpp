@@ -3,9 +3,8 @@
 #define PLUGIN_LOADER_PLUGIN_BOOTSTRAPPER_HPP_
 
 #include "core.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "logger.hpp"
-#include "plugin.h"
 #include "thread_info.hpp"
 
 #ifdef LINUX

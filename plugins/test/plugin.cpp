@@ -1,6 +1,5 @@
 
-#include "plugin.h"
-#include "plugin_core.h"
+#include "tempor.h"
 
 #include <string>
 #include <format>
@@ -402,7 +401,7 @@ extern "C" {
         shutdownInfo.duration = TPR_JOB_DURATION_SHORT;
         shutdownInfo.function = [](void* ctx) noexcept {
             auto plugin = reinterpret_cast<PluginWrapper*>(ctx);
-            plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "Test plugin shutdown");
+            plugin->api->out->infoStyled(TPR_LOG_STYLE_TIMESTAMP1, "Test plugin early shutdown");
         };
         ROF(plugin->api->sched->createJob(&shutdownInfo, &plugin->shutdownJob));
 

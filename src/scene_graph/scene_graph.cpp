@@ -3,7 +3,7 @@
 #include "archetype.hpp"
 #include "core.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "plugin_core_extender.hpp"
 #include "settings.hpp"
 #include "file_registry.hpp"

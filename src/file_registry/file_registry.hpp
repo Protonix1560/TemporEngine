@@ -5,7 +5,7 @@
 
 #include "core.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "hash.hpp"
 
 #include <atomic>

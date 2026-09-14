@@ -4,7 +4,7 @@
 #include "logger.hpp"
 #include "plugin_wrapper.hpp"
 #include "settings.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "scheduler.hpp"
 #include "log_entry.hpp"
 #include "thread_info.hpp"
@@ -63,6 +63,7 @@ void PluginLoader::update() {
     for (auto it = mPlugins.begin(); it != mPlugins.end();) {
         auto& [id, plugin] = *it;
         if (plugin->context()->unloaded.load() && plugin->context()->executions.load() == 0) {
+            mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Unloaded plugin " << plugin->name();
             it = mPlugins.erase(it);
         } else {
             it++;

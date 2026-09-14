@@ -7,7 +7,7 @@
 
 #include "archetype.hpp"
 #include "core.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "set_key.hpp"
 #include "plugin_core_extender.hpp"
 #include "sparse_set.hpp"

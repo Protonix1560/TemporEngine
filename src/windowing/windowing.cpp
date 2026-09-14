@@ -3,7 +3,7 @@
 #include "core.hpp"
 #include "graphics_common.hpp"
 #include "i_graphics_device.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "scheduler.hpp"
 #include "log_entry.hpp"
 
@@ -160,15 +160,15 @@ TprResult Windowing::init(IGraphicsDevice* pIGD, GraphicsAPI graphics) {
     
     switch (mGraphics) {
         case GraphicsAPI::None:
-            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing Windowing without a graphics backend";
+            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing without a graphics backend";
             break;
 
         case GraphicsAPI::Unknown:
-            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing Windowing with an unknown graphics backend";
+            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing with an unknown graphics backend";
             break;
 
         case GraphicsAPI::Vulkan: {
-            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing Windowing with Vulkan";
+            mLogger.debug(TPR_LOG_STYLE_TIMESTAMP1) << "Initializing with Vulkan";
 
             if (!SDL_Vulkan_LoadLibrary(nullptr)) {
                 mLogger.error() << "SDL_Vulkan_LoadLibrary(nullptr) failed: " << SDL_GetError();

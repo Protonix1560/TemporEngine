@@ -4,7 +4,7 @@
 
 #include "core.hpp"
 #include "graphics_common.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
 #include "interval_union.hpp"
@@ -151,6 +151,7 @@ class VulkanBackend : public IGraphicsDevice {
         TprJob getRenderJob() noexcept override;
         TprJob getRenderSignalJob() noexcept override;
         TprComponent getComponentRenderable() noexcept override;
+        
         TprResult registerWindow(WindowIdentity id) override;
         void unregisterWindow(WindowIdentity id) override;
         TprResult loadMesh(MeshIdentity id) override;

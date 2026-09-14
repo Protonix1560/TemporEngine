@@ -4,11 +4,10 @@
 #include "graphics_common.hpp"
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "file_registry.hpp"
 #include "settings.hpp"
 #include "windowing.hpp"
-#include "plugin_core.h"
 #include "scene_graph.hpp"
 #include "scheduler.hpp"
 #include "asset_store.hpp"
@@ -38,7 +37,7 @@ GraphicsDeviceBackendInfo backendInfo {
             logger, rFileReg, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
         ));
     },
-    "Standard Vulkan HWL", GraphicsAPI::Vulkan
+    "Standard Vulkan Backend", GraphicsAPI::Vulkan
 };
 static_registry<GraphicsDeviceBackendInfo, 0>::registrar registrar(backendInfo);
 
@@ -81,7 +80,7 @@ TprResult VulkanBackend::init() {
         // layers
         std::vector<const char*> layers;
         
-        if (mrSett.createSettingBoolOr(mrSett.getRoot(), "standartVulkanHWL.enableKhronosValidationLayer", false)) {
+        if (mrSett.createSettingBoolOr(mrSett.getRoot(), "standardVulkanBackend.enableKhronosValidationLayer", false)) {
             layers.push_back("VK_LAYER_KHRONOS_validation");
         }
 
@@ -606,7 +605,7 @@ void VulkanBackend::destroyDepthDomain(TprDepthDomain domain) noexcept {
             auto it = std::ranges::find_if(mDepthDomainOrder, [&](const auto& domain) { return domain.lock() == entry; });
             if (it != mDepthDomainOrder.end()) mDepthDomainOrder.erase(it);
         }
-        mLogger.debug() << "Destroyed Depth Domain " << mDepthDomainCounter;
+        mLogger.debug() << "Destroyed Depth Domain " << get_basic_handle_index(domain);
         
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
@@ -620,6 +619,8 @@ void VulkanBackend::destroyDepthDomain(TprDepthDomain domain) noexcept {
 
 expected<TprRenderTarget, TprResult> VulkanBackend::createRenderTarget(const TprRenderTargetCreateInfo& info) noexcept {
     if (get_basic_handle_type(info.depthDomain) != handle_type::depth_domain) return unexpected(TPR_ERROR_INVALID_VALUE);
+    auto windowIdExp = mrWin.getWindowIdentity(info.window);
+    if (!windowIdExp.has_value()) return unexpected(windowIdExp.error());
     std::lock_guard<std::mutex> lock(mMutex);
     assert(mInitialised);
     try {
@@ -627,8 +628,6 @@ expected<TprRenderTarget, TprResult> VulkanBackend::createRenderTarget(const Tpr
         if (domainIt == mDepthDomains.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto depthDomain = domainIt->second.entry;
 
-        auto windowIdExp = mrWin.getWindowIdentity(info.window);
-        if (!windowIdExp.has_value()) return unexpected(windowIdExp.error());
         auto windowContextIt = mWindowContexts.find(windowIdExp.value());
         if (windowContextIt == mWindowContexts.end()) {
             mLogger.panic() << "Corrupted internal structures: mWindowContexts doesn't contain given WindowIdentity";

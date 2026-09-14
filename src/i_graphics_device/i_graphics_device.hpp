@@ -5,7 +5,7 @@
 
 #include "core.hpp"
 #include "graphics_common.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "asset_store/asset_store_common.hpp"
 
 #include <atomic>

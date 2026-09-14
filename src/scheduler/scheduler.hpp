@@ -3,7 +3,7 @@
 #define THREADING_THREADING_HPP_
 
 #include "core.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "logger.hpp"
 #include "atomic_counter.hpp"
 #include "thread_info.hpp"
@@ -39,6 +39,8 @@ struct WeakJobMeta {
     WeakJobMeta(const SharedJobMeta& meta) : entry(meta.entry), handle(meta.handle) {}
 };
 
+struct Thread;
+
 struct JobEntry {
     atomic_counter<bool> destroyed;
     atomic_counter<bool> destructionPended;
@@ -56,6 +58,8 @@ struct JobEntry {
     const TprJobDuration duration;
     const std::shared_ptr<PluginContext> pluginContext;
 
+    std::shared_ptr<Thread> longThread;
+
     template <std::input_iterator It>
     JobEntry(const TprJobCreateInfo& info, std::shared_ptr<PluginContext> ctx, It depsBegin, It depsEnd)
         : function(info.function), context(info.context), duration(info.duration), pluginContext(ctx),
@@ -65,20 +69,10 @@ struct JobEntry {
         : function(info.function), context(info.context), duration(info.duration), pluginContext(ctx) {}
 };
 
-
 struct JobHandle {
     TprJobCapabilityFlags capability = std::numeric_limits<TprJobCapabilityFlags>::max();
     std::shared_ptr<JobEntry> entry;
 };
-
-
-struct Thread {
-    const uint32_t id;
-    atomic_counter<bool> ready{false};
-    std::jthread thread;
-    Thread(uint32_t id) : id(id) {}
-};
-
 
 struct JobLaunch {
     SharedJobMeta meta;
@@ -140,6 +134,14 @@ struct JobQueue {
         std::condition_variable mCv;
 };
 
+struct Thread {
+    const uint32_t id;
+    atomic_counter<bool> ready{false};
+    std::jthread thread;
+    JobQueue queue;
+    Thread(uint32_t id) : id(id) {}
+};
+
 
 // from "settings.hpp"
 class Settings;
@@ -149,6 +151,7 @@ class Scheduler {
     public:
         Scheduler(Logger logger, Settings& rSetting, std::atomic<TprResult>& rRunResult);
         TprResult init();
+        void update();
         void shutdown();
         ~Scheduler();
 
@@ -164,7 +167,7 @@ class Scheduler {
     private:
 
         void shortThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept;
-        void longThread(std::stop_token stop, std::shared_ptr<Thread> thread, ) noexcept;
+        void longThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept;
         void processLaunch(JobLaunch launch);
 
         Logger mLogger;
@@ -182,11 +185,13 @@ class Scheduler {
 
         std::unordered_map<uint32_t, std::shared_ptr<Thread>> mThreads;
         uint32_t mThreadCounter = 0;
+        std::mutex mLongThreadJoinMutex;
+        std::vector<std::shared_ptr<Thread>> mLongThreadJoinQueue;
 
         std::unordered_map<uint32_t, JobHandle> mJobs;
         uint32_t mJobCounter = 0;
         
-        JobQueue mQueue;
+        JobQueue mShortQueue;
 
 };
 

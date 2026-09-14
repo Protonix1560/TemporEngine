@@ -1,5 +1,5 @@
 
-#include "plugin_core.h"
+#include "tempor.h"
 #include "tempor.hpp"
 #include <cassert>
 
@@ -17,12 +17,18 @@ namespace api {
         void error(const char* message) noexcept { assert(gEngine); gEngine->out_error(message); }
         void debug(const char* message) noexcept { assert(gEngine); gEngine->out_debug(message); }
         void trace(const char* message) noexcept { assert(gEngine); gEngine->out_trace(message); }
+
         void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_logStyled(logLevel, logStyle, message); }
         void infoStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_infoStyled(logStyle, message); }
         void warnStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_warnStyled(logStyle, message); }
         void errorStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_errorStyled(logStyle, message); }
         void debugStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_debugStyled(logStyle, message); }
         void traceStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_traceStyled(logStyle, message); }
+
+        void writeTokenSequence(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) noexcept {
+            assert(gEngine); gEngine->out_writeTokenSequence(level, style, pTokens, count);
+        }
+
         TprResult writeMachineData(const char* pData, uint32_t size) noexcept { assert(gEngine); return gEngine->out_writeMachineData(pData, size); }
     }
     
@@ -357,6 +363,7 @@ void TemporEngine::registerAPI() {
     mOutAPI.errorStyled = api::log::errorStyled;
     mOutAPI.debugStyled = api::log::debugStyled;
     mOutAPI.traceStyled = api::log::traceStyled;
+    mOutAPI.writeTokenSequence = api::log::writeTokenSequence;
     mOutAPI.writeMachineData = api::log::writeMachineData;
     // vfs
     mFSAPI.openFile = api::fs::openFile;

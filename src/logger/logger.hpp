@@ -3,9 +3,11 @@
 #define LOGGER_LOGGER_HPP_
 
 
-#include "plugin_core.h"
+#include "tempor.h"
 
+#include <algorithm>
 #include <concepts>
+#include <cstring>
 #include <mutex>
 #include <sstream>
 #include <string_view>
@@ -188,18 +190,67 @@ constexpr std::string_view format_ansi(format_marker_id id) {
     }
 }
 
-class format_sequence {
+template <typename S>
+class basic_format_sequence {
     private:
-        std::vector<std::variant<std::string, format_marker_id>> m_data;
+        std::vector<std::variant<S, format_marker_id>> m_data;
+        template <typename> friend class basic_format_sequence;
 
     public:
-        format_sequence() = default;
-        format_sequence(std::string_view str) {
-            m_data.emplace_back(std::string(str));
+        basic_format_sequence() = default;
+        explicit basic_format_sequence(std::string_view str) {
+            m_data.emplace_back(str);
+        }
+        explicit basic_format_sequence(const S& str) {
+            m_data.emplace_back(str);
+        }
+
+        template <typename Q>
+        basic_format_sequence(const basic_format_sequence<Q>& other) {
+            m_data.reserve(other.m_data.size());
+            std::ranges::transform(
+                other.m_data, m_data.begin(),
+                [](const std::variant<Q, format_marker_id>& value) {
+                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                }
+            );
+        }
+        template <typename Q>
+        basic_format_sequence& operator=(const basic_format_sequence<Q>& other) {
+            m_data.reserve(other.m_data.size());
+            std::ranges::transform(
+                other.m_data, m_data.begin(),
+                [](const std::variant<Q, format_marker_id>& value) {
+                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                }
+            );
+        }
+
+        template <typename Q>
+        basic_format_sequence(basic_format_sequence<Q>&& other) {
+            m_data.reserve(other.m_data.size());
+            std::ranges::transform(
+                other.m_data, m_data.begin(),
+                [](const std::variant<Q, format_marker_id>& value) {
+                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                }
+            );
+            other.clear();
+        }
+        template <typename Q>
+        basic_format_sequence& operator=(basic_format_sequence<Q>&& other) {
+            m_data.reserve(other.m_data.size());
+            std::ranges::transform(
+                other.m_data, m_data.begin(),
+                [](const std::variant<Q, format_marker_id>& value) {
+                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                }
+            );
+            other.clear();
         }
 
         template <is_format_marker M>
-        format_sequence& operator<<(const M& marker) {
+        basic_format_sequence& operator<<(const M& marker) {
             m_data.emplace_back(marker.id);
             return *this;
         }
@@ -208,7 +259,7 @@ class format_sequence {
         requires requires(std::ostream& stream, const T& str) {
             { stream << str } -> std::same_as<std::ostream&>;
         }
-        format_sequence& operator<<(const T& str) {
+        basic_format_sequence& operator<<(const T& str) {
             m_data.emplace_back((std::ostringstream{} << str).str());
             return *this;
         }
@@ -220,8 +271,12 @@ class format_sequence {
         size_t length() const {
             size_t l = 0;
             for (const auto& el : m_data) {
-                if (std::holds_alternative<std::string>(el)){
-                    l += std::get<std::string>(el).size();
+                if (std::holds_alternative<S>(el)) {
+                    if constexpr (std::same_as<S, const char*>) {
+                        l += std::strlen(std::get<S>(el));
+                    } else {
+                        l += std::get<S>(el).size();
+                    }
                 }
             }
             return l;
@@ -236,6 +291,11 @@ class format_sequence {
         auto begin() const { return m_data.begin(); }
         auto end() const { return m_data.end(); }
 };
+
+using format_sequence = basic_format_sequence<std::string>;
+
+template <typename S>
+basic_format_sequence(S str) -> basic_format_sequence<S>;
 
 
 // from "log_sink.hpp"

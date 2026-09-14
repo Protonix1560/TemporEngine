@@ -4,8 +4,7 @@
 
 
 #include "core.hpp"
-#include "plugin.h"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "plugin_wrapper.hpp"
 #include "logger.hpp"
 

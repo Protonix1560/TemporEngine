@@ -3,7 +3,7 @@
 #define SETTINGS_SETTINGS_HPP_
 
 
-#include "plugin_core.h"
+#include "tempor.h"
 #include "core.hpp"
 #include "logger.hpp"
 

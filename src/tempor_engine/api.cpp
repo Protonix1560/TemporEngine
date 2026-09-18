@@ -1,46 +1,108 @@
 
 #include "core.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "plugin_loader.hpp"
 #include "tempor.hpp"
+#include "thread_info.hpp"
 
 #pragma region log
     void TemporEngine::out_log(TprLogLevel logLevel, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), logLevel);
+        mpOutSink->writeLog(basic_format_sequence(message), logLevel);
     }
     void TemporEngine::out_error(const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_ERROR, TPR_LOG_STYLE_ERROR1);
     }
     void TemporEngine::out_warn(const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_WARN, TPR_LOG_STYLE_WARN1);
     }
     void TemporEngine::out_info(const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_INFO);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_INFO);
     }
     void TemporEngine::out_debug(const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_DEBUG);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_DEBUG);
     }
     void TemporEngine::out_trace(const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_TRACE);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_TRACE);
     }
     void TemporEngine::out_logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), logLevel, logStyle);
+        mpOutSink->writeLog(basic_format_sequence(message), logLevel, logStyle);
     }
     void TemporEngine::out_errorStyled(TprLogStyle logStyle, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_ERROR, logStyle);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_ERROR, logStyle);
     }
     void TemporEngine::out_warnStyled(TprLogStyle logStyle, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_WARN, logStyle);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_WARN, logStyle);
     }
     void TemporEngine::out_infoStyled(TprLogStyle logStyle, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_INFO, logStyle);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_INFO, logStyle);
     }
     void TemporEngine::out_debugStyled(TprLogStyle logStyle, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_DEBUG, logStyle);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_DEBUG, logStyle);
     }
     void TemporEngine::out_traceStyled(TprLogStyle logStyle, const char* message) noexcept {
-        mpOutSink->writeLog(format_sequence(message), TPR_LOG_LEVEL_TRACE, logStyle);
+        mpOutSink->writeLog(basic_format_sequence(message), TPR_LOG_LEVEL_TRACE, logStyle);
+    }
+    void TemporEngine::out_writeTokenSequence(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) noexcept {
+        if (!pTokens) return;
+        format_sequence seq;
+        for (auto it = pTokens; it != pTokens + count; it++) {
+            auto token = *it;
+            switch (token.type) {
+                case TPR_TOKEN_TYPE_STRING: seq << token.str; break;
+                case TPR_TOKEN_TYPE_RESET: seq << marker_reset; break;
+                case TPR_TOKEN_TYPE_FOREGROUND0_DARK: seq << marker_foreground0_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND1_DARK: seq << marker_foreground1_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND2_DARK: seq << marker_foreground2_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND3_DARK: seq << marker_foreground3_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND4_DARK: seq << marker_foreground4_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND5_DARK: seq << marker_foreground5_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND6_DARK: seq << marker_foreground6_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND7_DARK: seq << marker_foreground7_dark; break;
+                case TPR_TOKEN_TYPE_FOREGROUND0_BRIGHT: seq << marker_foreground0_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND1_BRIGHT: seq << marker_foreground1_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND2_BRIGHT: seq << marker_foreground2_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND3_BRIGHT: seq << marker_foreground3_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND4_BRIGHT: seq << marker_foreground4_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND5_BRIGHT: seq << marker_foreground5_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND6_BRIGHT: seq << marker_foreground6_bright; break;
+                case TPR_TOKEN_TYPE_FOREGROUND7_BRIGHT: seq << marker_foreground7_bright; break;
+                case TPR_TOKEN_TYPE_NO_FOREGROUND: seq << marker_no_foreground; break;
+                case TPR_TOKEN_TYPE_BACKGROUND0_DARK: seq << marker_background0_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND1_DARK: seq << marker_background1_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND2_DARK: seq << marker_background2_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND3_DARK: seq << marker_background3_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND4_DARK: seq << marker_background4_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND5_DARK: seq << marker_background5_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND6_DARK: seq << marker_background6_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND7_DARK: seq << marker_background7_dark; break;
+                case TPR_TOKEN_TYPE_BACKGROUND0_BRIGHT: seq << marker_background0_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND1_BRIGHT: seq << marker_background1_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND2_BRIGHT: seq << marker_background2_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND3_BRIGHT: seq << marker_background3_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND4_BRIGHT: seq << marker_background4_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND5_BRIGHT: seq << marker_background5_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND6_BRIGHT: seq << marker_background6_bright; break;
+                case TPR_TOKEN_TYPE_BACKGROUND7_BRIGHT: seq << marker_background7_bright; break;
+                case TPR_TOKEN_TYPE_NO_BACKGROUND: seq << marker_no_background; break;
+                case TPR_TOKEN_TYPE_BOLD: seq << marker_bold; break;
+                case TPR_TOKEN_TYPE_DIM: seq << marker_dim; break;
+                case TPR_TOKEN_TYPE_NORMAL: seq << marker_normal; break;
+                case TPR_TOKEN_TYPE_ITALIC: seq << marker_italic; break;
+                case TPR_TOKEN_TYPE_NO_ITALIC: seq << marker_no_italic; break;
+                case TPR_TOKEN_TYPE_UNDERLINE: seq << marker_underline; break;
+                case TPR_TOKEN_TYPE_DOUBLE_UNDERLINE: seq << marker_double_underline; break;
+                case TPR_TOKEN_TYPE_NO_UNDERLINE: seq << marker_no_underline; break;
+                case TPR_TOKEN_TYPE_BLINK: seq << marker_blink; break;
+                case TPR_TOKEN_TYPE_NO_BLINK: seq << marker_no_blink; break;
+                case TPR_TOKEN_TYPE_INVERSE: seq << marker_inverse; break;
+                case TPR_TOKEN_TYPE_NO_INVERSE: seq << marker_no_inverse; break;
+                case TPR_TOKEN_TYPE_STRIKETHROUGH: seq << marker_strikethrough; break;
+                case TPR_TOKEN_TYPE_NO_STRIKETHROUGH: seq << marker_no_strikethrough; break;
+                default: continue;
+            }
+        }
+        mpOutSink->writeLog(seq, level, style);
     }
     TprResult TemporEngine::out_writeMachineData(const char* pData, uint32_t size) noexcept {
         return mpOutSink->writeData(std::span(reinterpret_cast<const std::byte*>(pData), size));
@@ -169,6 +231,27 @@
         if (!pAction) return TPR_ERROR_INVALID_VALUE;
         if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
         auto exp = mpWindowing->createAction(*pInfo);
+        if (!exp.has_value()) return exp.error();
+        *pAction = exp.value();
+        return TPR_SUCCESS;
+    }
+    TprResult TemporEngine::win_bindActionWindow(TprAction action, TprWindow window) noexcept {
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        return mpWindowing->bindActionWindow(action, window);
+    }
+    TprResult TemporEngine::win_unbindActionWindow(TprAction action, TprWindow window) noexcept {
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        return mpWindowing->bindActionWindow(action, window);
+    }
+    TprResult TemporEngine::win_setActionProfile(TprAction action, const TprActionProfile* pProfile) noexcept {
+        if (!pProfile) return TPR_ERROR_INVALID_VALUE;
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        return mpWindowing->setActionProfile(action, *pProfile);
+    }
+    TprResult TemporEngine::win_forkAction(TprAction action, TprAction* pAction) noexcept {
+        if (!pAction) return TPR_ERROR_INVALID_VALUE;
+        if (!mpWindowing) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpWindowing->forkAction(action);
         if (!exp.has_value()) return exp.error();
         *pAction = exp.value();
         return TPR_SUCCESS;
@@ -318,10 +401,8 @@
         if (!pSetting) return TPR_ERROR_INVALID_VALUE;
         if (!mpSettings) return TPR_ERROR_NOT_LOADED;
         if (!mpPlugLd) return TPR_ERROR_NOT_LOADED;
-        auto infoExp = activePluginInfo();
-        if (!infoExp.has_value()) return infoExp.error();
-        auto info = infoExp.value();
-        auto exp = mpSettings->createSetting(mpSettings->getRoot(), info.name);
+        if (!threadInfo.currentPlugin) return TPR_ERROR_INVALID_OPERATION;
+        auto exp = mpSettings->createSetting(mpSettings->getRoot(), threadInfo.currentPlugin->name);
         if (!exp.has_value()) return exp.error();
         TprSetting value = exp.value();
         if (auto r = mpSettings->setSettingStruct(value); r != TPR_SUCCESS) return r;
@@ -586,11 +667,17 @@
         if (!mpSched) return;
         mpSched->destroyJob(job);
     }
-    TprJob TemporEngine::sched_getShutdownJob() noexcept {
-        return mpPlugLd->getShutdownJob();
-    }
     uint64_t TemporEngine::sched_now() noexcept {
         if (!mpSched) return 0;
         return mpSched->now();
     }
 #pragma endregion  // sched
+
+#pragma region life
+    TprJob TemporEngine::life_getShutdownJob() noexcept {
+        return mpPlugLd->getShutdownJob();
+    }
+    void TemporEngine::life_shutdownReady() noexcept {
+        return mpPlugLd->shutdownReady();
+    }
+#pragma endregion  // life

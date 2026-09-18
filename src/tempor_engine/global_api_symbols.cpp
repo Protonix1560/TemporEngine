@@ -1,5 +1,5 @@
 
-#include "plugin_core.h"
+#include "tempor.h"
 #include "tempor.hpp"
 #include <cassert>
 
@@ -17,12 +17,18 @@ namespace api {
         void error(const char* message) noexcept { assert(gEngine); gEngine->out_error(message); }
         void debug(const char* message) noexcept { assert(gEngine); gEngine->out_debug(message); }
         void trace(const char* message) noexcept { assert(gEngine); gEngine->out_trace(message); }
+
         void logStyled(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_logStyled(logLevel, logStyle, message); }
         void infoStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_infoStyled(logStyle, message); }
         void warnStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_warnStyled(logStyle, message); }
         void errorStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_errorStyled(logStyle, message); }
         void debugStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_debugStyled(logStyle, message); }
         void traceStyled(TprLogStyle logStyle, const char* message) noexcept { assert(gEngine); gEngine->out_traceStyled(logStyle, message); }
+
+        void writeTokenSequence(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) noexcept {
+            assert(gEngine); gEngine->out_writeTokenSequence(level, style, pTokens, count);
+        }
+
         TprResult writeMachineData(const char* pData, uint32_t size) noexcept { assert(gEngine); return gEngine->out_writeMachineData(pData, size); }
     }
     
@@ -134,6 +140,18 @@ namespace api {
         }
         TprResult createAction(const TprActionCreateInfo* pInfo, TprAction* pAction) noexcept {
             assert(gEngine); return gEngine->win_createAction(pInfo, pAction);
+        }
+        TprResult bindActionWindow(TprAction action, TprWindow window) noexcept {
+            assert(gEngine); return gEngine->win_bindActionWindow(action, window);
+        }
+        TprResult unbindActionWindow(TprAction action, TprWindow window) noexcept {
+            assert(gEngine); return gEngine->win_unbindActionWindow(action, window);
+        }
+        TprResult setActionProfile(TprAction action, const TprActionProfile* pProfile) noexcept {
+            assert(gEngine); return gEngine->win_setActionProfile(action, pProfile);
+        }
+        TprResult forkAction(TprAction action, TprAction* pAction) noexcept {
+            assert(gEngine); return gEngine->win_forkAction(action, pAction);
         }
         TprResult createActionCapability(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) noexcept {
             assert(gEngine); return gEngine->win_createActionCapability(action, mask, pAction);
@@ -312,11 +330,17 @@ namespace api {
         void destroyJob(TprJob job) noexcept {
             assert(gEngine); return gEngine->sched_destroyJob(job);
         }
-        TprJob getShutdownJob() noexcept {
-            assert(gEngine); return gEngine->sched_getShutdownJob();
-        }
         uint64_t now() noexcept {
             assert(gEngine); return gEngine->sched_now();
+        }
+    }
+
+    namespace life {
+        TprJob getShutdownJob() noexcept {
+            assert(gEngine); return gEngine->life_getShutdownJob();
+        }
+        void shutdownReady() noexcept {
+            assert(gEngine); return gEngine->life_shutdownReady();
         }
     }
 }
@@ -339,6 +363,7 @@ void TemporEngine::registerAPI() {
     mOutAPI.errorStyled = api::log::errorStyled;
     mOutAPI.debugStyled = api::log::debugStyled;
     mOutAPI.traceStyled = api::log::traceStyled;
+    mOutAPI.writeTokenSequence = api::log::writeTokenSequence;
     mOutAPI.writeMachineData = api::log::writeMachineData;
     // vfs
     mFSAPI.openFile = api::fs::openFile;
@@ -383,6 +408,10 @@ void TemporEngine::registerAPI() {
     mWinAPI.createWindowCapability = api::win::createWindowCapability;
     mWinAPI.closeWindow = api::win::closeWindow;
     mWinAPI.createAction = api::win::createAction;
+    mWinAPI.bindActionWindow = api::win::bindActionWindow;
+    mWinAPI.unbindActionWindow = api::win::unbindActionWindow;
+    mWinAPI.setActionProfile = api::win::setActionProfile;
+    mWinAPI.forkAction = api::win::forkAction;
     mWinAPI.createActionCapability = api::win::createActionCapability;
     mWinAPI.destroyAction = api::win::destroyAction;
     mWinAPI.getActionsHistorySize = api::win::getActionsHistorySize;
@@ -436,8 +465,10 @@ void TemporEngine::registerAPI() {
     mSchedAPI.scheduleJob = api::sched::scheduleJob;
     mSchedAPI.invalidateJob = api::sched::invalidateJob;
     mSchedAPI.destroyJob = api::sched::destroyJob;
-    mSchedAPI.getShutdownJob = api::sched::getShutdownJob;
     mSchedAPI.now = api::sched::now;
+    // life
+    mLifeAPI.getShutdownJob = api::life::getShutdownJob;
+    mLifeAPI.shutdownReady = api::life::shutdownReady;
 
     mAPI.out = &mOutAPI;
     mAPI.win = &mWinAPI;
@@ -447,5 +478,6 @@ void TemporEngine::registerAPI() {
     mAPI.conf = &mConfAPI;
     mAPI.render = &mRenderAPI;
     mAPI.sched = &mSchedAPI;
+    mAPI.life = &mLifeAPI;
 }
 

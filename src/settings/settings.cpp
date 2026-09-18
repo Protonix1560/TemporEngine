@@ -1,7 +1,7 @@
 
 #include "settings.hpp"
 #include "core.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "file_registry.hpp"
 #include "logger.hpp"
 #include "log_entry.hpp"

@@ -2,11 +2,10 @@
 #include "scheduler.hpp"
 #include "core.hpp"
 #include "logger.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "settings.hpp"
 #include "log_entry.hpp"
-
-#include "thread_job_info.hpp"
+#include "thread_info.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -144,7 +143,7 @@ TprResult Scheduler::init() {
             shortThread(stop, thread);
         });
         thread->ready.store_true();
-        thread->ready.notify_all();
+        thread->ready.notify_one();
         mLogger.trace() << "Created short thread " << mThreadCounter;
         mThreadCounter++;
     }
@@ -154,6 +153,16 @@ TprResult Scheduler::init() {
     return TPR_SUCCESS;
 }
 
+void Scheduler::update() {
+    std::lock_guard<std::mutex> lock(mMutex);
+    std::lock_guard<std::mutex> lockQueue(mLongThreadJoinMutex);
+    for (auto& thread : mLongThreadJoinQueue) {
+        if (thread->thread.joinable()) thread->thread.join();
+        mThreads.erase(thread->id);
+    }
+    mLongThreadJoinQueue.clear();
+}
+
 void Scheduler::shutdown() {
     {
         std::lock_guard<std::mutex> lock(mMutex);
@@ -161,16 +170,20 @@ void Scheduler::shutdown() {
     }
     for (auto [id, thread] : mThreads) {
         thread->thread.request_stop();
-        mLogger.trace() << "Requiested thread " << thread->id << " to stop";
+        mLogger.trace() << "Requested thread " << thread->id << " to stop";
     }
-    mQueue.notify();
+    mShortQueue.notify();
     for (auto [id, thread] : mThreads) {
         mLogger.trace() << "Joining thread " << thread->id;
         thread->thread.join();
     }
 }
 
-Scheduler::~Scheduler() {}
+Scheduler::~Scheduler() {
+    if (mInitialised) {
+        shutdown();
+    }
+}
 
 
 void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept {
@@ -183,7 +196,7 @@ void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread
     #endif
     while (!stop.stop_requested()) {
         mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " calls queue pull";
-        auto launch = mQueue.pull(stop, mThreadPullWaitTimeout);
+        auto launch = mShortQueue.pull(stop, mThreadPullWaitTimeout);
         if (!launch.has_value()) {
             mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " returned from queue pull with std::nullopt";
             break;
@@ -193,6 +206,32 @@ void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread
             << marker_underline << get_basic_handle_index(launch->meta.handle);
         processLaunch(launch.value());
     }
+    mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " exits";
+}
+
+void Scheduler::longThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept {
+    std::string name = std::format("long{}", thread->id);
+    #ifdef POSIX
+        pthread_setname_np(pthread_self(), name.c_str());
+    #endif
+    #ifdef WINDOWS
+        SetThreadDescription(GetCurrentThread(), name.c_str());
+    #endif
+    while (!stop.stop_requested()) {
+        mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " calls queue pull";
+        auto launch = thread->queue.pull(stop, mThreadPullWaitTimeout);
+        if (!launch.has_value()) {
+            mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " returned from queue pull with std::nullopt";
+            break;
+        }
+        mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " returned from queue pull with a launch";
+        mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " processes Job "
+            << marker_underline << get_basic_handle_index(launch->meta.handle);
+        processLaunch(launch.value());
+    }
+    mSpamLogger.debug() << "Thread " << marker_italic << thread->id << marker_no_italic << " exits";
+    std::lock_guard<std::mutex> lock(mLongThreadJoinMutex);
+    mLongThreadJoinQueue.push_back(thread);
 }
 
 void Scheduler::processLaunch(JobLaunch launch) {
@@ -201,18 +240,21 @@ void Scheduler::processLaunch(JobLaunch launch) {
 
     if (launch.meta.entry->invalidated.load()) return;
     if (launch.meta.entry->destroyed.load()) return;
+    if (launch.meta.entry->pluginContext->unloaded.load()) return;
 
     if (launch.meta.entry->destructionPended.load()) {
         launch.meta.entry->destroyed.store_true();
 
     } else if (launch.meta.entry->function) {
         mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline << " is launching";
+        launch.meta.entry->pluginContext->executions.fetch_add(1);
+        threadInfo.currentPlugin = launch.meta.entry->pluginContext;
 
-        threadInfo.currentJob = launch.meta.handle;
         launch.meta.entry->function(launch.meta.entry->context);
         // Great job!
-        threadInfo.currentJob.reset();
 
+        threadInfo.currentPlugin.reset();
+        launch.meta.entry->pluginContext->executions.fetch_sub(1);
         mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline << " is finished";
     }
 
@@ -238,9 +280,15 @@ void Scheduler::processLaunch(JobLaunch launch) {
     }
 
     for (const auto& launch : plannedLaunches) {
-        mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline
-            << " is pushed to queue at " << std::chrono::duration_cast<std::chrono::nanoseconds>(launch.timepoint - mTimeBegin).count() << " ns";
-        mQueue.push(launch);
+        if (launch.meta.entry->duration == TPR_JOB_DURATION_SHORT) {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline
+                << " is pushed to queue at " << std::chrono::duration_cast<std::chrono::nanoseconds>(launch.timepoint - mTimeBegin).count() << " ns";
+            mShortQueue.push(launch);
+        } else {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(launch.meta.handle) << marker_no_underline
+                << " is pushed to long thread at " << std::chrono::duration_cast<std::chrono::nanoseconds>(launch.timepoint - mTimeBegin).count() << " ns";
+            launch.meta.entry->longThread->queue.push(launch);
+        }
     }
 
     for (auto depMeta : launch.meta.entry->dependencies) {
@@ -260,7 +308,7 @@ void Scheduler::processLaunch(JobLaunch launch) {
     }
 
     // Some jobs' usages might have changed
-    mQueue.notify();
+    mShortQueue.notify();
 }
 
 
@@ -269,8 +317,9 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
         case TPR_JOB_DURATION_SHORT: case TPR_JOB_DURATION_LONG: break;
         default: return unexpected(TPR_ERROR_INVALID_VALUE);
     }
+    if (!threadInfo.currentPlugin) return unexpected(TPR_ERROR_INVALID_OPERATION);
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mInitialised) return unexpected(TPR_ERROR_INVALID_OPERATION);
+    assert(mInitialised);
     try {
         std::shared_ptr<JobEntry> entry;
         TprJob h = construct_basic_handle<TprJob>(mJobCounter, 0, handle_type::job);
@@ -291,7 +340,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
                     deps.push_back({handleIt->second.entry, h});
                 }
 
-                entry = std::make_shared<JobEntry>(info, deps.begin(), deps.end());
+                entry = std::make_shared<JobEntry>(info, threadInfo.currentPlugin, deps.begin(), deps.end());
                 entry->countdown = entry->dependencies.size();
 
                 for (auto dep : deps) {
@@ -302,12 +351,26 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
             }
 
             case TPR_JOB_TRIGGER_TYPE_SCHEDULE: {
-                entry = std::make_shared<JobEntry>(info);
+                entry = std::make_shared<JobEntry>(info, threadInfo.currentPlugin);
                 break;
             }
 
             default: return unexpected(TPR_ERROR_INVALID_VALUE);
         }
+
+        if (info.duration == TPR_JOB_DURATION_LONG) {
+            auto thread = mThreads.insert_or_assign(mThreadCounter, std::make_shared<Thread>(mThreadCounter)).first->second;
+            thread->thread = std::jthread([this, thread](std::stop_token stop) {
+                thread->ready.wait(false);
+                longThread(stop, thread);
+            });
+            thread->ready.store_true();
+            thread->ready.notify_one();
+            mLogger.trace() << "Created long thread " << mThreadCounter;
+            mThreadCounter++;
+            entry->longThread = thread;
+        }
+
         mJobs.insert_or_assign(mJobCounter, JobHandle{.entry = entry});
         mLogger.trace() << "Created job " << mJobCounter;
         mJobCounter++;
@@ -327,7 +390,7 @@ expected<TprJob, TprResult> Scheduler::createJob(const TprJobCreateInfo& info) n
 expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCapabilityFlags mask) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mInitialised) return unexpected(TPR_ERROR_INVALID_OPERATION);
+    assert(mInitialised);
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
@@ -353,16 +416,22 @@ expected<TprJob, TprResult> Scheduler::createJobCapability(TprJob job, TprJobCap
 TprResult Scheduler::scheduleJob(TprJob job, uint64_t timepoint) noexcept {
     if (get_basic_handle_type(job) != handle_type::job) return TPR_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mInitialised) return TPR_ERROR_INVALID_OPERATION;
+    assert(mInitialised);
     try {
         auto handleIt = mJobs.find(get_basic_handle_index(job));
         if (handleIt == mJobs.end()) return TPR_ERROR_INVALID_VALUE;
         auto entry = handleIt->second.entry;
         if (!entry->dependencies.empty()) return TPR_ERROR_INVALID_OPERATION;
         if (entry->invalidated.load()) return TPR_ERROR_INVALID_OPERATION;
-        mQueue.push({{entry, job}, mTimeBegin + std::chrono::nanoseconds(timepoint)});
-        mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(job) << marker_no_underline
-            << " is scheduled to queue at " << timepoint << " ns";
+        if (entry->duration == TPR_JOB_DURATION_SHORT) {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(job) << marker_no_underline
+                << " is scheduled to queue at " << timepoint << " ns";
+            mShortQueue.push({{entry, job}, mTimeBegin + std::chrono::nanoseconds(timepoint)});
+        } else {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(job) << marker_no_underline
+                << " is scheduled to long thread at " << timepoint << " ns";
+            entry->longThread->queue.push({{entry, job}, mTimeBegin + std::chrono::nanoseconds(timepoint)});
+        }
         return TPR_SUCCESS;
 
     } catch (const std::exception& e) {
@@ -406,8 +475,15 @@ void Scheduler::destroyJob(TprJob job) noexcept {
         if (handleIt == mJobs.end()) return;
         auto entry = handleIt->second.entry;
         entry->destructionPended.store_true();
-        mQueue.push(JobLaunch{{entry, job}, {}});
-        mSpamLogger.debug() << "Pended destruction of job " << marker_underline << get_basic_handle_index(job);
+        if (entry->duration == TPR_JOB_DURATION_SHORT) {
+            mShortQueue.push(JobLaunch{{entry, job}, {}});
+            mSpamLogger.debug() << "Pended destruction of job " << marker_underline << get_basic_handle_index(job)
+                << marker_no_underline << " to queue";
+        } else {
+            entry->longThread->queue.push(JobLaunch{{entry, job}, {}});
+            mSpamLogger.debug() << "Pended destruction of job " << marker_underline << get_basic_handle_index(job)
+                << marker_no_underline << " to long thread";
+        }
 
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();

@@ -4,10 +4,10 @@
 #define TEMPOR_ENGINE_TEMPOR_HPP_
 
 
+#include "atomic_counter.hpp"
 #include "core.hpp"
 
-#include "plugin.h"
-#include "plugin_core.h"
+#include "tempor.h"
 
 #include "plugin_loader.hpp"
 #include "scene_graph.hpp"
@@ -26,7 +26,6 @@
 #include <optional>
 #include <stdexcept>
 #include <cassert>
-#include <unordered_map>
 
 
 template <typename T>
@@ -157,6 +156,7 @@ class TemporEngine {
             void out_errorStyled(TprLogStyle logStyle, const char* message) noexcept;
             void out_debugStyled(TprLogStyle logStyle, const char* message) noexcept;
             void out_traceStyled(TprLogStyle logStyle, const char* message) noexcept;
+            void out_writeTokenSequence(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) noexcept;
             TprResult out_writeMachineData(const char* pData, uint32_t size) noexcept;
             // scene
             TprResult scene_createComponent(uint32_t componentSize, TprComponent* pComponent) noexcept;
@@ -195,6 +195,10 @@ class TemporEngine {
             TprResult win_createWindowCapability(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) noexcept;
             void win_closeWindow(TprWindow window) noexcept;
             TprResult win_createAction(const TprActionCreateInfo* pInfo, TprAction* pAction) noexcept;
+            TprResult win_bindActionWindow(TprAction action, TprWindow window) noexcept;
+            TprResult win_unbindActionWindow(TprAction action, TprWindow window) noexcept;
+            TprResult win_setActionProfile(TprAction action, const TprActionProfile* pProfile) noexcept;
+            TprResult win_forkAction(TprAction action, TprAction* pAction) noexcept;
             TprResult win_createActionCapability(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) noexcept;
             void win_destroyAction(TprAction action) noexcept;
             TprResult win_getActionsHistorySize(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) noexcept;
@@ -254,19 +258,22 @@ class TemporEngine {
             TprResult sched_scheduleJob(TprJob job, uint64_t timepoint) noexcept;
             void sched_invalidateJob(TprJob job) noexcept;
             void sched_destroyJob(TprJob job) noexcept;
-            TprJob sched_getShutdownJob() noexcept;
             uint64_t sched_now() noexcept;
+            // life
+            TprJob life_getShutdownJob() noexcept;
+            void life_shutdownReady() noexcept;
         #pragma endregion  // api
 
     private:
-        TprEngineAPI::Output mOutAPI{};
-        TprEngineAPI::FileSystem mFSAPI{};
-        TprEngineAPI::Scene mSceneAPI{};
-        TprEngineAPI::Geometry mGeoAPI{};
-        TprEngineAPI::Windowing mWinAPI{};
-        TprEngineAPI::Configuration mConfAPI{};
-        TprEngineAPI::Render mRenderAPI{};
-        TprEngineAPI::Scheduling mSchedAPI{};
+        TprOutputAPI mOutAPI{};
+        TprFileSystemAPI mFSAPI{};
+        TprSceneAPI mSceneAPI{};
+        TprGeometryAPI mGeoAPI{};
+        TprWindowingAPI mWinAPI{};
+        TprConfigurationAPI mConfAPI{};
+        TprRenderAPI mRenderAPI{};
+        TprSchedulingAPI mSchedAPI{};
+        TprLifetimeAPI mLifeAPI{};
         TprEngineAPI mAPI{};
 
         template <typename T, typename... Args>
@@ -280,19 +287,23 @@ class TemporEngine {
 
         template <typename T>
         void destructService() {
-            mServHolder.destruct<T>();
-            if (mLogger.has_value()) {
-                mLogger->info(TPR_LOG_STYLE_TIMESTAMP1) << "Destructed service " << type_name_v<T> << " (" << type_name_v_s<T> << ")";
+            if (mServHolder.alive<T>()) {
+                if (mLogger.has_value()) {
+                    mLogger->info(TPR_LOG_STYLE_TIMESTAMP1) << "Destroying service " << type_name_v<T> << " (" << type_name_v_s<T> << ")";
+                }
+                mServHolder.destruct<T>();
             }
         }
 
         void registerAPI();
-        expected<uint32_t, TprResult> activePluginID();
-        expected<PluginInfo, TprResult> activePluginInfo();
+
+        TprResult runtimeInit();
+        TprResult runtimeRun();
+        void runtimeShutdown();
 
         service_singleton_holder<
-            Windowing, PGraphicsDevice, AssetStore, SceneGraph, PluginLoader,
-            FileRegistry, Settings, Scheduler, OutputSink
+            OutputSink, FileRegistry, Settings, Windowing, PGraphicsDevice,
+            AssetStore, SceneGraph, PluginLoader, Scheduler
         > mServHolder;
 
         std::filesystem::path mConfigPath;
@@ -312,11 +323,10 @@ class TemporEngine {
         OutputSink* mpOutSink = nullptr;
 
         TprJob mLoadPluginsJob;
+        atomic_counter<bool> mPluginsFinishedLoading = false;
 
         volatile sig_atomic_t mSignal = 0;
         std::atomic<TprResult> mRunResult = _TPR_RESULT_MAX_ENUM;
-
-        std::unordered_map<uint64_t, uint32_t> mJobPluginMap;
 
         std::optional<Logger> mLogger;
 

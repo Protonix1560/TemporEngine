@@ -4,7 +4,7 @@
 #include "core.hpp"
 #include "backend.hpp"
 #include "scheduler.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "asset_store.hpp"
 #include "scene_graph.hpp"
 #include "file_registry.hpp"
@@ -371,10 +371,6 @@ TprResult VulkanBackend::render() noexcept {
         }
         imageAvailableSemaphores.push_back(window.imageAvailableSemaphores[mFrameCounter]);
         renderFinishedSemaphores.push_back(window.swapchain.links[window.swapchain.currentLinkIndex].renderFinishedSemaphore);
-        auto windowWidthExp = mrWin.windowPixelWidth(id);
-        if (!windowWidthExp.has_value()) return windowWidthExp.error();
-        auto windowHeightExp = mrWin.windowPixelHeight(id);
-        if (!windowHeightExp.has_value()) return windowHeightExp.error();
         VkClearValue clears[] = {
             {.color = {.float32 = {0.1f, 0.11f, 0.13f, 1.0f}}},
             {.depthStencil = {1.0f}}
@@ -382,7 +378,7 @@ TprResult VulkanBackend::render() noexcept {
         VkRenderPassBeginInfo passInfo{};
         passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         passInfo.renderPass = window.renderPass.renderPass;
-        passInfo.renderArea.extent = {windowWidthExp.value(), windowHeightExp.value()};
+        passInfo.renderArea.extent = window.extent;
         passInfo.framebuffer = window.swapchain.links[window.swapchain.currentLinkIndex].framebuffer;
         passInfo.clearValueCount = std::size(clears);
         passInfo.pClearValues = clears;

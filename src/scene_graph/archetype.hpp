@@ -6,7 +6,7 @@
 
 #include "core.hpp"
 #include "matrix.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "set_key.hpp"
 #include "plugin_core_extender.hpp"
 

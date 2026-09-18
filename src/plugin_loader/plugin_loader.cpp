@@ -4,11 +4,13 @@
 #include "logger.hpp"
 #include "plugin_wrapper.hpp"
 #include "settings.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "scheduler.hpp"
 #include "log_entry.hpp"
+#include "thread_info.hpp"
 
 #include <memory>
+#include <mutex>
 
 
 PluginLoader::PluginLoader(Logger logger, Settings& rSettings, Scheduler& rSched, TprEngineAPI* pAPI, std::atomic<TprResult>& rRunResult)
@@ -25,15 +27,15 @@ TprResult PluginLoader::init() {
 
 TprResult PluginLoader::loadPlugins() {
     // a stub for now
+
     auto plugin = std::make_unique<PluginWrapper>(mLogger, mpAPI, "plugins/test/libtest_plugin.so");
-    mCurrentPlugin = mPluginCounter;
-    
-    TprResult result = plugin->init();
+    TprResult result = plugin->init(mPluginCounter);
     if (result == TPR_SUCCESS) {
+        std::lock_guard<std::mutex> lock(mMutex);
         mPlugins.insert_or_assign(mPluginCounter, std::move(plugin));
         mPluginCounter++;
     }
-    mCurrentPlugin.reset();
+
     return TPR_SUCCESS;
 }
 
@@ -51,15 +53,29 @@ TprJob PluginLoader::getShutdownJob() noexcept {
     return mShutdownJob;
 }
 
-std::optional<uint32_t> PluginLoader::getActivePluginID() {
-    return mCurrentPlugin;
+void PluginLoader::shutdownReady() noexcept {
+    if (!threadInfo.currentPlugin) return;
+    threadInfo.currentPlugin->unloaded.store_true();
 }
 
-expected<PluginInfo, TprResult> PluginLoader::getPluginInfo(uint32_t id) {
-    auto it = mPlugins.find(id);
-    if (it == mPlugins.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-    PluginWrapper& plugin = *it->second.get();
-    PluginInfo info{};
-    info.name = plugin.name();
-    return info;
+void PluginLoader::update() {
+    std::lock_guard<std::mutex> lock(mMutex);
+    for (auto it = mPlugins.begin(); it != mPlugins.end();) {
+        auto& [id, plugin] = *it;
+        if (plugin->context()->unloaded.load() && plugin->context()->executions.load() == 0) {
+            mLogger.info(TPR_LOG_STYLE_TIMESTAMP1) << "Unloaded plugin " << plugin->name();
+            it = mPlugins.erase(it);
+        } else {
+            it++;
+        }
+    }
+}
+
+uint32_t PluginLoader::loadedPluginCount() const {
+    std::lock_guard<std::mutex> lock(mMutex);
+    uint32_t count = 0;
+    for (auto& [id, plugin] : mPlugins) {
+        if (!plugin->context()->unloaded.load()) count++;
+    }
+    return count;
 }

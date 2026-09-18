@@ -3,7 +3,7 @@
 #define SCENE_GRAPH_PLUGIN_CORE_EXTENDER_HPP_
 
 
-#include "plugin_core.h"
+#include "tempor.h"
 
 #include <functional>
 

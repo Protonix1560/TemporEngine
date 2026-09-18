@@ -1,7 +1,7 @@
 
 #include "logger.hpp"
 #include "output_sink.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "log_entry.hpp"
 
 #include <mutex>

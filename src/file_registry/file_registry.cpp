@@ -1,7 +1,7 @@
 
 #include "file_registry.hpp"
 #include "core.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "log_entry.hpp"
 
 #include <cerrno>

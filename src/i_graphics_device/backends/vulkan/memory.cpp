@@ -1,7 +1,7 @@
 
 #include "core.hpp"
 #include "backend.hpp"
-#include "plugin_core.h"
+#include "tempor.h"
 #include "log_entry.hpp"
 
 #include <vulkan/vulkan_core.h>

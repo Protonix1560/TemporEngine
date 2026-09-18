@@ -4,7 +4,6 @@
 #include "asset_store_common.hpp"
 #include "core.hpp"
 #include "i_graphics_device.hpp"
-#include "plugin_core.h"
 #include "logger.hpp"
 #include "file_registry.hpp"
 #include "log_entry.hpp"

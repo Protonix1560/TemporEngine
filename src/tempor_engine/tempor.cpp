@@ -53,14 +53,14 @@ TprResult TemporEngine::runtimeInit() {
     auto initStartTimepoint = std::chrono::steady_clock::now();
     mLogger->info(TPR_LOG_STYLE_STARTSTAMP1) << "Initializing services";
 
-    mpFileReg = &constructService<FileRegistry>(
-        Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<FileRegistry> + ": "_ces)),
+    mpFileSys = &constructService<Filesystem>(
+        Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<Filesystem> + ": "_ces)),
         mRunResult
     );
 
     mpSettings = &constructService<Settings>(
         Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<Settings> + ": "_ces)),
-        *mpFileReg, mRunResult
+        *mpFileSys, mRunResult
     );
     if (auto r = mpSettings->init(mConfigPath, mFlushConfig, mConfigEnabled); r != TPR_SUCCESS) {
         mLogger->error() << "Failed to initialize Settings [" << r << "]";
@@ -118,12 +118,12 @@ TprResult TemporEngine::runtimeInit() {
 
     mpSceneGraph = &constructService<SceneGraph>(
         Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<SceneGraph> + ": "_ces)),
-        *mpSettings, *mpFileReg
+        *mpSettings, *mpFileSys
     );
 
     mpAssetStore = &constructService<AssetStore>(
         Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<AssetStore> + ": "_ces)),
-        *mpFileReg, mRunResult
+        *mpFileSys, mRunResult
     );
 
     // searching for a sufficient Graphics Device
@@ -143,7 +143,7 @@ TprResult TemporEngine::runtimeInit() {
 
         IGraphicsDevice* localGDev = constructService<PGraphicsDevice>(std::move(info.factory(
         Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<PGraphicsDevice> + ": "_ces)),
-            *mpFileReg, *localWindowing, *mpSettings, *mpSceneGraph, *mpSched, *mpAssetStore, mRunResult, 0
+            *mpFileSys, *localWindowing, *mpSettings, *mpSceneGraph, *mpSched, *mpAssetStore, mRunResult, 0
         ))).get();
 
         if (auto r = localWindowing->init(localGDev, info.graphics); r != TPR_SUCCESS) {
@@ -259,7 +259,7 @@ void TemporEngine::runtimeShutdown() {
     destructService<AssetStore>();
     destructService<Scheduler>();
     destructService<Settings>();
-    destructService<FileRegistry>();
+    destructService<Filesystem>();
 
     auto shutdownEndTimepoint = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> shutdownTime = shutdownEndTimepoint - shutdownStartTimepoint;

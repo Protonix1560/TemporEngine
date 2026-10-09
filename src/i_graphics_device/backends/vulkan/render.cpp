@@ -7,7 +7,7 @@
 #include "tempor.h"
 #include "asset_store.hpp"
 #include "scene_graph.hpp"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "linalg_packed.hpp"
 #include "windowing.hpp"
 #include "log_entry.hpp"
@@ -46,7 +46,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         auto buffer = bufferWeak.lock();
         if (!buffer) continue;  // must not happen
         for (const auto& mem : buffer->free.data()) {
-            if (mem.size() >= indexByteSize && mem.first_included() && !mem.last_included()) {
+            if (mem.length() >= indexByteSize && mem.first_included() && !mem.last_included()) {
                 mesh.indexSpace = {mem.begin(), mem.begin() + indexByteSize};
                 mesh.indexBuffer = buffer;
                 break;
@@ -71,7 +71,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         auto buffer = bufferWeak.lock();
         if (!buffer) continue;  // must not happen
         for (const auto& mem : buffer->free.data()) {
-            if (mem.size() >= vertexByteSize && mem.first_included() && !mem.last_included()) {
+            if (mem.length() >= vertexByteSize && mem.first_included() && !mem.last_included()) {
                 mesh.vertexSpace = {mem.begin(), mem.begin() + vertexByteSize};
                 mesh.vertexBuffer = buffer;
                 break;
@@ -145,12 +145,12 @@ TprResult VulkanBackend::unloadMesh(MeshIdentity id) {
             auto image = imageWeak.lock();
             if (image) image->mesh = nullptr;
         }
-        mesh.indexBuffer->free += mesh.indexSpace;
-        if (mesh.indexBuffer->free.data().size() == 1 && mesh.indexBuffer->free.data().back().size() == mesh.indexBuffer->byteSize) {
+        mesh.indexBuffer->free |= mesh.indexSpace;
+        if (mesh.indexBuffer->free.data().size() == 1 && mesh.indexBuffer->free.data().back().length() == mesh.indexBuffer->byteSize) {
             mIndexBuffers.erase(mesh.indexBuffer);
         }
-        mesh.vertexBuffer->free += mesh.indexSpace;
-        if (mesh.vertexBuffer->free.data().size() == 1 && mesh.vertexBuffer->free.data().back().size() == mesh.vertexBuffer->byteSize) {
+        mesh.vertexBuffer->free |= mesh.indexSpace;
+        if (mesh.vertexBuffer->free.data().size() == 1 && mesh.vertexBuffer->free.data().back().length() == mesh.vertexBuffer->byteSize) {
             mVertexBuffers.erase(mesh.vertexBuffer);
         }
     }
@@ -177,12 +177,12 @@ TprResult VulkanBackend::render() noexcept {
     uint32_t totalSize = 0;
     
     if (auto r = mrScGr.getComponentChunkHandles(mComponentRenderable, mFetchRenderableFile); r != TPR_SUCCESS) return r;
-    if (auto r = mrFileReg.seek(mFetchRenderableFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
-    auto chunkCountExp = mrFileReg.tell(mFetchRenderableFile);
+    if (auto r = mrFileSys.seek(mFetchRenderableFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
+    auto chunkCountExp = mrFileSys.tell(mFetchRenderableFile);
     if (!chunkCountExp.has_value()) return chunkCountExp.error();
     for (size_t readPos = 0; readPos < chunkCountExp.value(); readPos += sizeof(TprComponentChunk)) {
         TprComponentChunk renderableChunk;
-        if (auto r = mrFileReg.readAt(
+        if (auto r = mrFileSys.readAt(
             mFetchRenderableFile, readPos, sizeof(TprComponentChunk), reinterpret_cast<std::byte*>(&renderableChunk)
         ); r != TPR_SUCCESS) return r;
         auto sizeExp = mrScGr.getComponentChunkElementCount(renderableChunk);
@@ -303,7 +303,7 @@ TprResult VulkanBackend::render() noexcept {
             for (const auto& draw : draws) {
                 VkDrawIndexedIndirectCommand command{};
                 command.firstIndex = draw.mesh->indexSpace.begin() / 4;
-                command.indexCount = draw.mesh->indexSpace.size() / 4;
+                command.indexCount = draw.mesh->indexSpace.length() / 4;
                 command.vertexOffset = draw.mesh->vertexSpace.begin() / Vertex::perfectPackSize;
                 command.firstInstance = draw.offset;
                 command.instanceCount = draw.count;

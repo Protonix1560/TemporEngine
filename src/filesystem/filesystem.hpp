@@ -4,6 +4,7 @@
 
 
 #include "core.hpp"
+#include "interval_union.hpp"
 #include "logger.hpp"
 #include "tempor.h"
 #include "hash.hpp"
@@ -17,6 +18,7 @@
 #include <variant>
 #include <mutex>
 #include <cstdio>
+#include <unordered_set>
 
 
 #ifdef POSIX
@@ -29,11 +31,11 @@
 
 struct file_identity {
     private:
-        FILE* m_file;
         #if defined(POSIX)
             ino_t m_ino;
             dev_t m_dev;
-        #elif defined(WINDOWS)
+        #endif
+        #if defined(WINDOWS)
             DWORD m_id_low;
             DWORD m_id_high;
             DWORD m_volume;
@@ -42,9 +44,9 @@ struct file_identity {
         friend class std::hash<file_identity>;
 
     public:
-        file_identity(FILE* file) : m_file(file) {
+        file_identity(FILE* file) {
             #ifdef POSIX
-                int fd = fileno(m_file);
+                int fd = fileno(file);
                 errno = 0;
                 struct stat st;
                 if (fstat(fd, &st) == -1) throw std::system_error(errno, std::generic_category(), "fileno failed");
@@ -52,13 +54,13 @@ struct file_identity {
                 m_dev = st.st_dev;
             #endif
             #ifdef WINDOWS
-                HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(m_file)));
+                HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)));
                 if (handle == INVALID_HANDLE_VALUE) {
                     DWORD err = GetLastError();
                     throw std::system_error(static_cast<int>(err), std::system_category(), "Cast to HANDLE failed");
                 }
                 BY_HANDLE_FILE_INFORMATION info;
-                if (!GetFileInformationByHandle(m_file, &info)) {
+                if (!GetFileInformationByHandle(handle, &info)) {
                     DWORD err = GetLastError();
                     throw std::system_error(static_cast<int>(err), std::system_category(), "GetFileInformationByHandle failed");
                 }
@@ -117,49 +119,24 @@ class std::hash<file_identity> {
 };
 
 
-struct File {};
-
-struct FileSource : File {
-    FILE* file = nullptr;
-    TprOpenFileFlags flags;
-    FileSource(FILE* file, TprOpenFileFlags flags) : file(file), flags(flags) {}
-    ~FileSource() {
-        if (file) std::fclose(file);
-    }
-};
-
-struct MemorySource : File {
-    std::vector<std::byte> data;
-};
-
-using SharedSource = std::variant<std::shared_ptr<FileSource>, std::shared_ptr<MemorySource>>;
-
-struct FileHandle {
-    uint64_t pos = 0;
-    TprFileCapabilityFlags mask = std::numeric_limits<TprFileCapabilityFlags>::max();
-    SharedSource source;
-};
-
-
-class FileRegistry {
+class Filesystem {
     public:
-        FileRegistry(Logger logger, std::atomic<TprResult>& rRunResult);
-        ~FileRegistry();
+        Filesystem(Logger logger, std::atomic<TprResult>& rRunResult);
+        ~Filesystem();
 
         expected<TprFile, TprResult> openFile(std::filesystem::path path, TprOpenFileFlags flags = 0) noexcept;
-        expected<TprFile, TprResult> createMemoryFile() noexcept;
-        expected<TprFile, TprResult> forkFile(TprFile file) noexcept;
+        expected<TprFile, TprResult> createMemoryFile(TprCreateMemoryFileFlags flags = 0) noexcept;
         expected<TprFile, TprResult> createFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
         void closeFile(TprFile file) noexcept;
+        expected<TprFile, TprResult> forkFile(TprFile file, TprForkFileFlags flags = 0) noexcept;
+        expected<TprBool8, TprResult> fileJoinable(TprFile file) noexcept;
+        TprResult joinFile(TprFile file) noexcept;
 
-        TprResult seek(TprFile file, int64_t offset, TprSeekWhence whence) noexcept;
-        expected<uint64_t, TprResult> tell(TprFile file) noexcept;
-        TprResult read(TprFile file, uint64_t n, std::byte* pData) noexcept;
-        TprResult readAt(TprFile file, uint64_t pos, uint64_t n, std::byte* pData) noexcept;
+        TprResult reset(TprFile file, uint64_t pos, uint64_t n) noexcept;
         TprResult resize(TprFile file, uint64_t newSize) noexcept;
-        TprResult write(TprFile file, uint64_t n, const std::byte* pData) noexcept;
-        TprResult writeAt(TprFile file, uint64_t pos, uint64_t n, const std::byte* pData) noexcept;
-        TprResult append(TprFile file, uint64_t n, const std::byte* pData) noexcept;
+        TprResult read(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept;
+        TprResult write(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept;
+        expected<uint64_t, TprResult> fileSize(TprFile file) noexcept;
 
         expected<TprPathType, TprResult> pathType(std::filesystem::path path) noexcept;
         TprResult createDirectory(std::filesystem::path path, TprCreateDirectoryFlags flags = 0) noexcept;
@@ -168,18 +145,50 @@ class FileRegistry {
         TprResult move(std::filesystem::path path, std::filesystem::path newPath) noexcept;
 
     private:
+        struct FileEntry;
+        struct Source {};
+
+        struct FileSource : Source {
+            FILE* file = nullptr;
+            TprOpenFileFlags flags;
+            FileSource(FILE* file, TprOpenFileFlags flags) : file(file), flags(flags) {}
+            ~FileSource() {
+                if (file) std::fclose(file);
+            }
+        };
+
+        struct MemorySource : Source {
+            std::vector<std::byte> data;
+        };
+
+        struct OverlaySource : Source {
+            data_interval_union<std::byte> data;
+            size_t size;
+            std::weak_ptr<FileEntry> overlayed;
+        };
+
+        struct FileEntry {
+            std::variant<FileSource, MemorySource, OverlaySource> source;
+            std::unordered_set<std::weak_ptr<FileEntry>, std::owner_less<std::weak_ptr<FileEntry>>> overlays;
+        };
+
+        struct FileHandle {
+            std::shared_ptr<FileEntry> entry;
+            TprFileCapabilityFlags capability = std::numeric_limits<TprFileCapabilityFlags>::max();
+        };
+
+
         Logger mLogger;
         std::atomic<TprResult>& mrRunResult;
 
         std::mutex mMutex;
 
         std::unordered_map<uint32_t, FileHandle> mFiles;
-        std::unordered_map<file_identity, std::shared_ptr<FileSource>> mFileSources;
 
         uint32_t mFileCounter = 0;
 };
 
-REGISTER_TYPE_NAME_S(FileRegistry, "FReg");
+REGISTER_TYPE_NAME_S(Filesystem, "FReg");
 
 
 #endif  // FILE_REGISTRY_FILE_REGISTRY_HPP_

@@ -21,7 +21,7 @@ namespace sj = simdjson;
 
 
 // from "file_registry.hpp"
-class FileRegistry;
+class Filesystem;
 
 
 struct SettingUnset {};
@@ -57,7 +57,7 @@ struct JsonData {
 class Settings {
 
     public:
-        Settings(Logger logger, FileRegistry& rResReg, std::atomic<TprResult>& rRunResult);
+        Settings(Logger logger, Filesystem& rFileSys, std::atomic<TprResult>& rRunResult);
         TprResult init(std::filesystem::path configPath, bool flushConfig, bool configEnabled);
         ~Settings();
 
@@ -124,7 +124,7 @@ class Settings {
 
         void destroySettingById(uint32_t id);
 
-        FileRegistry& mrFileReg;
+        Filesystem& mrFileSys;
         Logger mLogger;
         std::atomic<TprResult>& mrRunResult;
 

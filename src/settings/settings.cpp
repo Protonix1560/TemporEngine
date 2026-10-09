@@ -2,7 +2,7 @@
 #include "settings.hpp"
 #include "core.hpp"
 #include "tempor.h"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "logger.hpp"
 #include "log_entry.hpp"
 
@@ -18,7 +18,7 @@
 namespace sj = simdjson;
 
 
-Settings::Settings(Logger logger, FileRegistry& rFileReg, std::atomic<TprResult>& rRunResult) : mLogger(logger), mrFileReg(rFileReg), mrRunResult(rRunResult) {}
+Settings::Settings(Logger logger, Filesystem& rFileSys, std::atomic<TprResult>& rRunResult) : mLogger(logger), mrFileSys(rFileSys), mrRunResult(rRunResult) {}
 
 TprResult Settings::init(std::filesystem::path confPath, bool flushConfig, bool configEnabled) {
 
@@ -53,16 +53,16 @@ TprResult Settings::init(std::filesystem::path confPath, bool flushConfig, bool 
 }
 
 TprResult Settings::openConfig() {
-    auto openExp = mrFileReg.openFile(mConfPath);
+    auto openExp = mrFileSys.openFile(mConfPath);
     if (!openExp.has_value()) {
         mLogger.error() << "Failed to open config file [" << openExp.error() << "]";
         return TPR_SUCCESS;
     }
     TprFile config = openExp.value();
-    scope_exit closeConfig([&]() { mrFileReg.closeFile(config); });
+    scope_exit closeConfig([&]() { mrFileSys.closeFile(config); });
 
     TprResult result;
-    result = mrFileReg.seek(config, 0, TPR_SEEK_WHENCE_END);
+    result = mrFileSys.seek(config, 0, TPR_SEEK_WHENCE_END);
     switch (result) {
         case TPR_SUCCESS:
             break;
@@ -73,7 +73,7 @@ TprResult Settings::openConfig() {
             return TPR_SUCCESS;
     }
 
-    auto posExp = mrFileReg.tell(config);
+    auto posExp = mrFileSys.tell(config);
     if (!posExp.has_value()) {
         mLogger.error() << "Failed to call tell at config file [" << posExp.error() << "]";
         return TPR_SUCCESS;
@@ -82,7 +82,7 @@ TprResult Settings::openConfig() {
 
     mJsonData.emplace();
     mJsonData->data = sj::padded_string(size);
-    result = mrFileReg.readAt(config, 0, size, reinterpret_cast<std::byte*>(mJsonData->data.data()));
+    result = mrFileSys.readAt(config, 0, size, reinterpret_cast<std::byte*>(mJsonData->data.data()));
     switch (result) {
         case TPR_SUCCESS:
             break;
@@ -1111,13 +1111,13 @@ TprResult Settings::flush() {
     TprResult result;
     mLogger.debug() << "Writing config file to \"" << mConfPath.string() << "\"\n";
 
-    auto openExp = mrFileReg.openFile(mConfPath, TPR_OPEN_FILE_SYNC_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
+    auto openExp = mrFileSys.openFile(mConfPath, TPR_OPEN_FILE_SYNC_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
     if (!openExp.has_value()) {
         mLogger.error() << "Failed to open config file [" << openExp.error() << "]\n";
         return TPR_SUCCESS;
     }
     TprFile config = openExp.value();
-    scope_exit closeConfig([&]() { mrFileReg.closeFile(config); });
+    scope_exit closeConfig([&]() { mrFileSys.closeFile(config); });
 
     std::ostringstream data;
     auto rootIt = mSettings.find(get_basic_handle_index(mRootSetting));
@@ -1129,7 +1129,7 @@ TprResult Settings::flush() {
     writeSetting(data, 0, rootIt->second);
     std::string string = data.str();
 
-    result = mrFileReg.resize(config, string.size());
+    result = mrFileSys.resize(config, string.size());
     switch (result) {
         case TPR_SUCCESS:
             break;
@@ -1140,7 +1140,7 @@ TprResult Settings::flush() {
             return TPR_SUCCESS;
     }
 
-    result = mrFileReg.write(config, string.size(), reinterpret_cast<const std::byte*>(string.c_str()));
+    result = mrFileSys.write(config, string.size(), reinterpret_cast<const std::byte*>(string.c_str()));
     switch (result) {
         case TPR_SUCCESS:
             break;

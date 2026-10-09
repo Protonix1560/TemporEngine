@@ -24,13 +24,13 @@
 class Settings;
 
 // from "file_registry.hpp"
-class FileRegistry;
+class Filesystem;
 
 
 class SceneGraph {
 
     public:
-        SceneGraph(Logger logger, Settings& rSettings, FileRegistry& rFileReg);
+        SceneGraph(Logger logger, Settings& rSettings, Filesystem& rFileSys);
         ~SceneGraph() noexcept;
 
         expected<TprComponent, TprResult> createComponent(uint32_t componentSize) noexcept;
@@ -76,7 +76,7 @@ class SceneGraph {
 
         Logger mLogger;
         Settings& mrSettings;
-        FileRegistry& mrFileReg;
+        Filesystem& mrFileSys;
 
         uint32_t mChunkSize;
         uint32_t mChunkCounter = 0;

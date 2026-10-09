@@ -5,7 +5,7 @@
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
 #include "tempor.h"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "settings.hpp"
 #include "windowing.hpp"
 #include "scene_graph.hpp"
@@ -30,11 +30,11 @@
 // registring graphics device backend
 GraphicsDeviceBackendInfo backendInfo {
     [](
-        Logger logger, FileRegistry& rFileReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+        Logger logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
         Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
     ) {
         return PGraphicsDevice(std::make_unique<VulkanBackend>(
-            logger, rFileReg, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
+            logger, rFileSys, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
         ));
     },
     "Standard Vulkan Backend", GraphicsAPI::Vulkan
@@ -43,9 +43,9 @@ static_registry<GraphicsDeviceBackendInfo, 0>::registrar registrar(backendInfo);
 
 
 VulkanBackend::VulkanBackend(
-    Logger logger, FileRegistry& rResReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+    Logger logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
     Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
-) : mLogger(logger), mrFileReg(rResReg), mrWin(rWinMan), mrSett(rSettings), mrScGr(rScGr),
+) : mLogger(logger), mrFileSys(rFileSys), mrWin(rWinMan), mrSett(rSettings), mrScGr(rScGr),
     mrSched(rSched), mrAstr(rAstr), mrRunResult(rRunResult), mPackedEngineVersion(packedEngineVersion) {}
 
 TprResult VulkanBackend::init() {
@@ -441,7 +441,7 @@ TprResult VulkanBackend::init() {
     if (!vertexBufferSizeExp && vertexBufferSizeExp.error() == TPR_PANIC) return TPR_PANIC;
     mVertexBufferSize = bounded_or(vertexBufferSizeExp.value_or(16777216), 0, INT64_MAX, 16777216);
 
-    auto fetchRenderableFileExp = mrFileReg.createMemoryFile();
+    auto fetchRenderableFileExp = mrFileSys.createMemoryFile();
     if (!fetchRenderableFileExp.has_value()) return fetchRenderableFileExp.error();
     mFetchRenderableFile = fetchRenderableFileExp.value();
 
@@ -1253,14 +1253,14 @@ TprResult VulkanBackend::ensureSwapchain(WindowEntry& ctx) {
             VkShaderModule vertShader = VK_NULL_HANDLE;
             
             try {
-                auto fragExp = mrFileReg.openFile("shaders/vulkan/basic.frag.spv");
+                auto fragExp = mrFileSys.openFile("shaders/vulkan/basic.frag.spv");
                 if (!fragExp.has_value()) return fragExp.error();
                 TprFile fragFile = fragExp.value();
-                if (auto r = mrFileReg.seek(fragFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
-                auto fragTellExp = mrFileReg.tell(fragFile);
+                if (auto r = mrFileSys.seek(fragFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
+                auto fragTellExp = mrFileSys.tell(fragFile);
                 if (!fragTellExp.has_value()) return fragTellExp.error();
                 std::vector<uint32_t> fragData(fragTellExp.value() / sizeof(uint32_t));
-                if (auto r = mrFileReg.readAt(fragFile, 0, fragTellExp.value(), reinterpret_cast<std::byte*>(fragData.data())); r != TPR_SUCCESS) return r;
+                if (auto r = mrFileSys.readAt(fragFile, 0, fragTellExp.value(), reinterpret_cast<std::byte*>(fragData.data())); r != TPR_SUCCESS) return r;
                 VkShaderModuleCreateInfo fragModuleCreateInfo{};
                 fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 fragModuleCreateInfo.codeSize = fragData.size() * sizeof(uint32_t);
@@ -1277,23 +1277,23 @@ TprResult VulkanBackend::ensureSwapchain(WindowEntry& ctx) {
                 fragStage.module = fragShader;
                 fragStage.pName = "main";
 
-                auto vertExp = mrFileReg.openFile("shaders/vulkan/basic.vert.spv");
+                auto vertExp = mrFileSys.openFile("shaders/vulkan/basic.vert.spv");
                 if (!vertExp.has_value()) {
                     mLoader.vkDestroyShaderModule()(mDevice, fragShader, nullptr);
                     return vertExp.error();
                 }
                 TprFile vertFile = vertExp.value();
-                if (auto r = mrFileReg.seek(vertFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) {
+                if (auto r = mrFileSys.seek(vertFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) {
                     mLoader.vkDestroyShaderModule()(mDevice, fragShader, nullptr);
                     return r;
                 }
-                auto vertTellExp = mrFileReg.tell(vertFile);
+                auto vertTellExp = mrFileSys.tell(vertFile);
                 if (!vertTellExp.has_value()) {
                     mLoader.vkDestroyShaderModule()(mDevice, fragShader, nullptr);
                     return vertTellExp.error();
                 }
                 std::vector<uint32_t> vertData(vertTellExp.value() / sizeof(uint32_t));
-                if (auto r = mrFileReg.readAt(vertFile, 0, vertTellExp.value(), reinterpret_cast<std::byte*>(vertData.data())); r != TPR_SUCCESS) return r;
+                if (auto r = mrFileSys.readAt(vertFile, 0, vertTellExp.value(), reinterpret_cast<std::byte*>(vertData.data())); r != TPR_SUCCESS) return r;
                 VkShaderModuleCreateInfo vertModuleCreateInfo{};
                 vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 vertModuleCreateInfo.codeSize = vertData.size() * sizeof(uint32_t);

@@ -243,6 +243,7 @@ TprResult Filesystem::reset(TprFile file, uint64_t pos, uint64_t n) noexcept {
         auto& overlay = std::get<OverlaySource>(handle.entry->source);
         if (pos + n >= overlay.size) return TPR_ERROR_OUT_OF_RANGE;
         overlay.data -= interval<size_t>(pos, pos + n);
+        *overlay.data.begin() = {};
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();

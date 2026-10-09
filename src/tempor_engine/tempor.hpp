@@ -13,7 +13,7 @@
 #include "scene_graph.hpp"
 #include "logger.hpp"
 #include "windowing.hpp"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "i_graphics_device.hpp"
 #include "asset_store.hpp"
 #include "settings.hpp"
@@ -302,7 +302,7 @@ class TemporEngine {
         void runtimeShutdown();
 
         service_singleton_holder<
-            OutputSink, FileRegistry, Settings, Windowing, PGraphicsDevice,
+            OutputSink, Filesystem, Settings, Windowing, PGraphicsDevice,
             AssetStore, SceneGraph, PluginLoader, Scheduler
         > mServHolder;
 
@@ -312,7 +312,7 @@ class TemporEngine {
         bool mAllowTermColour;
         TprLogLevel mTermLevel;
 
-        FileRegistry* mpFileReg = nullptr;
+        Filesystem* mpFileSys = nullptr;
         Windowing* mpWindowing = nullptr;
         IGraphicsDevice* mpGDev = nullptr;
         AssetStore* mpAssetStore = nullptr;

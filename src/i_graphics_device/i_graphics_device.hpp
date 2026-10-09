@@ -19,7 +19,7 @@
 class Windowing;
 
 // from "file_registry.hpp"
-class FileRegistry;
+class Filesystem;
 
 // from "logger.hpp"
 class Logger;
@@ -80,7 +80,7 @@ REGISTER_TYPE_NAME_S(PGraphicsDevice, "GDev");
 
 struct GraphicsDeviceBackendInfo {
     std::function<PGraphicsDevice(
-        Logger logger, FileRegistry& rResReg, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
+        Logger logger, Filesystem& rFileSys, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
         Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
     )> factory;
     std::string name;

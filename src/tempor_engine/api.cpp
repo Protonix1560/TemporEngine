@@ -112,95 +112,95 @@
 #pragma region fs
     TprResult TemporEngine::fs_openFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileReg->openFile(path, flags);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->openFile(path, flags);
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::fs_createMemoryFile(TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileReg->createMemoryFile();
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->createMemoryFile();
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::fs_forkFile(TprFile file, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileReg->forkFile(file);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->forkFile(file);
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::fs_createFileCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileReg->createFileCapability(file, mask);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->createFileCapability(file, mask);
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
     void TemporEngine::fs_closeFile(TprFile file) noexcept {
-        if (!mpFileReg) return;
-        mpFileReg->closeFile(file);
+        if (!mpFileSys) return;
+        mpFileSys->closeFile(file);
     }
     TprResult TemporEngine::fs_seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->seek(file, offset, whence);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->seek(file, offset, whence);
     }
     TprResult TemporEngine::fs_tell(TprFile file, uint32_t* pPos) noexcept {
         if (!pPos) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileReg->tell(file);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->tell(file);
         if (!exp.has_value()) return exp.error();
         *pPos = exp.value();
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::fs_read(TprFile file, uint32_t n, char* pData) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->read(file, n, reinterpret_cast<std::byte*>(pData));
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->read(file, n, reinterpret_cast<std::byte*>(pData));
     }
     TprResult TemporEngine::fs_readAt(TprFile file, uint32_t pos, uint32_t n, char* pData) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->readAt(file, pos, n, reinterpret_cast<std::byte*>(pData));
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->readAt(file, pos, n, reinterpret_cast<std::byte*>(pData));
     }
     TprResult TemporEngine::fs_resize(TprFile file, uint32_t newSize) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->resize(file, newSize);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->resize(file, newSize);
     }
     TprResult TemporEngine::fs_write(TprFile file, uint32_t n, const char* pData) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->write(file, n, reinterpret_cast<const std::byte*>(pData));
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->write(file, n, reinterpret_cast<const std::byte*>(pData));
     }
     TprResult TemporEngine::fs_writeAt(TprFile file, uint32_t pos, uint32_t n, const char* pData) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->writeAt(file, pos, n, reinterpret_cast<const std::byte*>(pData));
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->writeAt(file, pos, n, reinterpret_cast<const std::byte*>(pData));
     }
     TprResult TemporEngine::fs_pathType(const char* path, TprPathType* pType) noexcept {
         if (!pType) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileReg->pathType(path);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->pathType(path);
         if (!exp.has_value()) return exp.error();
         *pType = exp.value();
         return TPR_SUCCESS;
     }
     TprResult TemporEngine::fs_createDirectory(const char* path, TprCreateDirectoryFlags flags) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->createDirectory(path, flags);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->createDirectory(path, flags);
     }
     TprResult TemporEngine::fs_touchFile(const char* path, TprTouchFileFlags flags) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->touchFile(path, flags);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->touchFile(path, flags);
     }
     TprResult TemporEngine::fs_remove(const char* path) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->remove(path);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->remove(path);
     }
     TprResult TemporEngine::fs_move(const char* path, const char* newPath) noexcept {
-        if (!mpFileReg) return TPR_ERROR_NOT_LOADED;
-        return mpFileReg->move(path, newPath);
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->move(path, newPath);
     }
 #pragma endregion  // fs
 

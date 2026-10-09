@@ -28,7 +28,7 @@
 
 
 // from "file_registry.hpp"
-class FileRegistry;
+class Filesystem;
 
 // from "window_manager.hpp"
 class Windowing;
@@ -129,7 +129,7 @@ struct Buffer : private BufferResources {
 class VulkanBackend : public IGraphicsDevice {
     public:
         VulkanBackend(
-            Logger logger, FileRegistry& rResReg, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+            Logger logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
             Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
         );
         ~VulkanBackend() noexcept;
@@ -580,7 +580,7 @@ class VulkanBackend : public IGraphicsDevice {
         TprResult render() noexcept;
 
         Logger mLogger;
-        FileRegistry& mrFileReg;
+        Filesystem& mrFileSys;
         Windowing& mrWin;
         Scheduler& mrSched;
         Settings& mrSett;

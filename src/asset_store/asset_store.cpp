@@ -5,7 +5,7 @@
 #include "core.hpp"
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "log_entry.hpp"
 #include "scope_guard.hpp"
 
@@ -18,8 +18,8 @@
 
 
 
-AssetStore::AssetStore(Logger logger, FileRegistry& rFileReg, std::atomic<TprResult>& rRunResult)
-    : mLogger(logger), mrFileReg(rFileReg), mrRunResult(rRunResult) {}
+AssetStore::AssetStore(Logger logger, Filesystem& rFileSys, std::atomic<TprResult>& rRunResult)
+    : mLogger(logger), mrFileSys(rFileSys), mrRunResult(rRunResult) {}
 
 TprResult AssetStore::init(IGraphicsDevice* pGDev) {
     std::lock_guard<std::mutex> lock(mMutex);
@@ -36,13 +36,13 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo& inf
     std::lock_guard<std::mutex> lock(mMutex);
     assert(mInitialised);
     try {
-        if (auto r = mrFileReg.seek(info.data, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return unexpected(r);
-        auto tellExp = mrFileReg.tell(info.data);
+        if (auto r = mrFileSys.seek(info.data, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return unexpected(r);
+        auto tellExp = mrFileSys.tell(info.data);
         if (!tellExp.has_value()) return unexpected(tellExp.error());
         auto size = tellExp.value();
         if (size == 0) { return unexpected(TPR_ERROR_INVALID_VALUE); }
         std::vector<std::byte> data(size);
-        if (auto r = mrFileReg.readAt(info.data, 0, data.size(), data.data()); r != TPR_SUCCESS) return unexpected(r);
+        if (auto r = mrFileSys.readAt(info.data, 0, data.size(), data.data()); r != TPR_SUCCESS) return unexpected(r);
 
         auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(data.data(), data.size());
         if (gltfDataExp.error() != fastgltf::Error::None) {

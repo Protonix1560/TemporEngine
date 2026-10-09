@@ -26,7 +26,7 @@ add_library(
 add_dependencies(vulkan_backend vulkan_shaders)
 target_link_libraries(
     vulkan_backend PRIVATE
-    logger windowing scheduler scene_graph common file_registry settings scheduler asset_store
+    logger windowing scheduler scene_graph common filesystem settings scheduler asset_store
 )
 target_compile_definitions(
     vulkan_backend PRIVATE

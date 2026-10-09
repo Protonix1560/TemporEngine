@@ -6,15 +6,15 @@
 #include "tempor.h"
 #include "plugin_core_extender.hpp"
 #include "settings.hpp"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "log_entry.hpp"
 
 #include <cstdint>
 
 
 
-SceneGraph::SceneGraph(Logger logger, Settings& rSettings, FileRegistry& rFileReg)
-    : mLogger(logger), mrSettings(rSettings), mrFileReg(rFileReg) {
+SceneGraph::SceneGraph(Logger logger, Settings& rSettings, Filesystem& rFileSys)
+    : mLogger(logger), mrSettings(rSettings), mrFileSys(rFileSys) {
     auto size = mrSettings.createSettingIntegerOr(mrSettings.getRoot(), "ECS.componentChunkSize", 1024);
     if (size < 0) size = 1024;
     if (size > UINT32_MAX) size = 1024;
@@ -350,9 +350,9 @@ TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprFile f
             }
         }
         TprResult result;
-        result = mrFileReg.resize(file, handles.size() * sizeof(TprComponentChunk));
+        result = mrFileSys.resize(file, handles.size() * sizeof(TprComponentChunk));
         if (result != TPR_SUCCESS) return result;
-        result = mrFileReg.writeAt(file, 0, handles.size() * sizeof(TprComponentChunk), reinterpret_cast<const std::byte*>(handles.data()));
+        result = mrFileSys.writeAt(file, 0, handles.size() * sizeof(TprComponentChunk), reinterpret_cast<const std::byte*>(handles.data()));
 
     } catch (...) {
         return TPR_UNKNOWN_ERROR;

@@ -65,7 +65,7 @@ endif()
 # adding services
 add_subdirectory(src/i_graphics_device)
 add_subdirectory(src/logger)
-add_subdirectory(src/file_registry)
+add_subdirectory(src/filesystem)
 add_subdirectory(src/plugin_loader)
 add_subdirectory(src/windowing)
 add_subdirectory(src/scene_graph)

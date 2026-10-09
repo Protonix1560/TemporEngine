@@ -7,7 +7,7 @@
 #include "tempor.h"
 #include "asset_store.hpp"
 #include "scene_graph.hpp"
-#include "file_registry.hpp"
+#include "filesystem.hpp"
 #include "linalg_packed.hpp"
 #include "windowing.hpp"
 #include "log_entry.hpp"
@@ -46,8 +46,8 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         auto buffer = bufferWeak.lock();
         if (!buffer) continue;  // must not happen
         for (const auto& mem : buffer->free.data()) {
-            if (mem.size() >= indexByteSize && mem.first_included() && !mem.last_included()) {
-                mesh.indexSpace = {mem.begin(), mem.begin() + indexByteSize};
+            if (mem.length() >= indexByteSize && mem.first_included() && !mem.last_included()) {
+                mesh.indexSpace = {mem.set_begin(), mem.set_begin() + indexByteSize};
                 mesh.indexBuffer = buffer;
                 break;
             }
@@ -71,8 +71,8 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         auto buffer = bufferWeak.lock();
         if (!buffer) continue;  // must not happen
         for (const auto& mem : buffer->free.data()) {
-            if (mem.size() >= vertexByteSize && mem.first_included() && !mem.last_included()) {
-                mesh.vertexSpace = {mem.begin(), mem.begin() + vertexByteSize};
+            if (mem.length() >= vertexByteSize && mem.first_included() && !mem.last_included()) {
+                mesh.vertexSpace = {mem.set_begin(), mem.set_begin() + vertexByteSize};
                 mesh.vertexBuffer = buffer;
                 break;
             }
@@ -102,7 +102,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         MeshData::Index src;
         std::memcpy(&src, data->data.data() + data->header.indexOffset + i * sizeof(src), sizeof(src));
         uint32_t idx = static_cast<uint32_t>(src);
-        std::memcpy(reinterpret_cast<std::byte*>(indexData) + mesh.indexSpace.begin() + i * sizeof(idx), &idx, sizeof(idx));
+        std::memcpy(reinterpret_cast<std::byte*>(indexData) + mesh.indexSpace.set_begin() + i * sizeof(idx), &idx, sizeof(idx));
     }
     if (indexData) mLoader.vkUnmapMemory()(mDevice, mesh.indexBuffer->alloc.memory);
 
@@ -117,7 +117,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         std::memcpy(&src, data->data.data() + data->header.vertexOffset + i * sizeof(src), sizeof(src));
         packed_vec3 pos{src.x, src.y, src.z};
         std::memcpy(
-            reinterpret_cast<std::byte*>(vertexData) + mesh.vertexSpace.begin() + i * Vertex::perfectPackSize,
+            reinterpret_cast<std::byte*>(vertexData) + mesh.vertexSpace.set_begin() + i * Vertex::perfectPackSize,
             pos.data(), packed_vec3::size * sizeof(packed_vec3::value_type)
         );
     }
@@ -145,12 +145,12 @@ TprResult VulkanBackend::unloadMesh(MeshIdentity id) {
             auto image = imageWeak.lock();
             if (image) image->mesh = nullptr;
         }
-        mesh.indexBuffer->free += mesh.indexSpace;
-        if (mesh.indexBuffer->free.data().size() == 1 && mesh.indexBuffer->free.data().back().size() == mesh.indexBuffer->byteSize) {
+        mesh.indexBuffer->free |= mesh.indexSpace;
+        if (mesh.indexBuffer->free.data().size() == 1 && mesh.indexBuffer->free.data().back().length() == mesh.indexBuffer->byteSize) {
             mIndexBuffers.erase(mesh.indexBuffer);
         }
-        mesh.vertexBuffer->free += mesh.indexSpace;
-        if (mesh.vertexBuffer->free.data().size() == 1 && mesh.vertexBuffer->free.data().back().size() == mesh.vertexBuffer->byteSize) {
+        mesh.vertexBuffer->free |= mesh.indexSpace;
+        if (mesh.vertexBuffer->free.data().size() == 1 && mesh.vertexBuffer->free.data().back().length() == mesh.vertexBuffer->byteSize) {
             mVertexBuffers.erase(mesh.vertexBuffer);
         }
     }
@@ -177,12 +177,12 @@ TprResult VulkanBackend::render() noexcept {
     uint32_t totalSize = 0;
     
     if (auto r = mrScGr.getComponentChunkHandles(mComponentRenderable, mFetchRenderableFile); r != TPR_SUCCESS) return r;
-    if (auto r = mrFileReg.seek(mFetchRenderableFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
-    auto chunkCountExp = mrFileReg.tell(mFetchRenderableFile);
+    if (auto r = mrFileSys.seek(mFetchRenderableFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
+    auto chunkCountExp = mrFileSys.tell(mFetchRenderableFile);
     if (!chunkCountExp.has_value()) return chunkCountExp.error();
     for (size_t readPos = 0; readPos < chunkCountExp.value(); readPos += sizeof(TprComponentChunk)) {
         TprComponentChunk renderableChunk;
-        if (auto r = mrFileReg.readAt(
+        if (auto r = mrFileSys.readAt(
             mFetchRenderableFile, readPos, sizeof(TprComponentChunk), reinterpret_cast<std::byte*>(&renderableChunk)
         ); r != TPR_SUCCESS) return r;
         auto sizeExp = mrScGr.getComponentChunkElementCount(renderableChunk);
@@ -302,9 +302,9 @@ TprResult VulkanBackend::render() noexcept {
             uint32_t i = 0;
             for (const auto& draw : draws) {
                 VkDrawIndexedIndirectCommand command{};
-                command.firstIndex = draw.mesh->indexSpace.begin() / 4;
-                command.indexCount = draw.mesh->indexSpace.size() / 4;
-                command.vertexOffset = draw.mesh->vertexSpace.begin() / Vertex::perfectPackSize;
+                command.firstIndex = draw.mesh->indexSpace.set_begin() / 4;
+                command.indexCount = draw.mesh->indexSpace.length() / 4;
+                command.vertexOffset = draw.mesh->vertexSpace.set_begin() / Vertex::perfectPackSize;
                 command.firstInstance = draw.offset;
                 command.instanceCount = draw.count;
                 memcpy(reinterpret_cast<std::byte*>(map) + i * sizeof(VkDrawIndexedIndirectCommand), &command, sizeof(VkDrawIndexedIndirectCommand));

@@ -15,7 +15,7 @@
 
 
 // from "file_registy.hpp"
-class FileRegistry;
+class Filesystem;
 
 // from "i_graphics_device.hpp"
 class IGraphicsDevice;
@@ -35,7 +35,7 @@ struct MeshHandle {
 
 class AssetStore {
     public:
-        AssetStore(Logger logger, FileRegistry& rFileReg, std::atomic<TprResult>& rRunResult);
+        AssetStore(Logger logger, Filesystem& rFileSys, std::atomic<TprResult>& rRunResult);
         TprResult init(IGraphicsDevice* pGDev);
         ~AssetStore() noexcept;
 
@@ -54,7 +54,7 @@ class AssetStore {
         TprResult unloadMesh(MeshEntry& entry);
 
         Logger mLogger;
-        FileRegistry& mrFileReg;
+        Filesystem& mrFileSys;
         IGraphicsDevice* mpGDev;
         std::atomic<TprResult>& mrRunResult;
 

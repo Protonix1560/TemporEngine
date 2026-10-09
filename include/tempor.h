@@ -432,6 +432,17 @@ typedef enum TprJobCapabilityFlagBits {
 } TprJobCapabilityFlagBits;
 typedef _TprFlag_T TprJobCapabilityFlags;
 
+typedef enum TprForkFileFlagBits {
+    TPR_FORK_FILE_COW_REGIONS_FLAG_BIT = 0x1,
+    _TPR_FORK_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprForkFileFlagBits;
+typedef _TprFlag_T TprForkFileFlags;
+
+typedef enum TprCreateMemoryFileFlagBits {
+    _TPR_CREATE_MEMORY_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+} TprCreateMemoryFileFlagBits;
+typedef _TprFlag_T TprCreateMemoryFileFlags;
+
 
 // handles
 

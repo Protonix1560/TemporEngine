@@ -47,7 +47,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         if (!buffer) continue;  // must not happen
         for (const auto& mem : buffer->free.data()) {
             if (mem.length() >= indexByteSize && mem.first_included() && !mem.last_included()) {
-                mesh.indexSpace = {mem.begin(), mem.begin() + indexByteSize};
+                mesh.indexSpace = {mem.set_begin(), mem.set_begin() + indexByteSize};
                 mesh.indexBuffer = buffer;
                 break;
             }
@@ -72,7 +72,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         if (!buffer) continue;  // must not happen
         for (const auto& mem : buffer->free.data()) {
             if (mem.length() >= vertexByteSize && mem.first_included() && !mem.last_included()) {
-                mesh.vertexSpace = {mem.begin(), mem.begin() + vertexByteSize};
+                mesh.vertexSpace = {mem.set_begin(), mem.set_begin() + vertexByteSize};
                 mesh.vertexBuffer = buffer;
                 break;
             }
@@ -102,7 +102,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         MeshData::Index src;
         std::memcpy(&src, data->data.data() + data->header.indexOffset + i * sizeof(src), sizeof(src));
         uint32_t idx = static_cast<uint32_t>(src);
-        std::memcpy(reinterpret_cast<std::byte*>(indexData) + mesh.indexSpace.begin() + i * sizeof(idx), &idx, sizeof(idx));
+        std::memcpy(reinterpret_cast<std::byte*>(indexData) + mesh.indexSpace.set_begin() + i * sizeof(idx), &idx, sizeof(idx));
     }
     if (indexData) mLoader.vkUnmapMemory()(mDevice, mesh.indexBuffer->alloc.memory);
 
@@ -117,7 +117,7 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         std::memcpy(&src, data->data.data() + data->header.vertexOffset + i * sizeof(src), sizeof(src));
         packed_vec3 pos{src.x, src.y, src.z};
         std::memcpy(
-            reinterpret_cast<std::byte*>(vertexData) + mesh.vertexSpace.begin() + i * Vertex::perfectPackSize,
+            reinterpret_cast<std::byte*>(vertexData) + mesh.vertexSpace.set_begin() + i * Vertex::perfectPackSize,
             pos.data(), packed_vec3::size * sizeof(packed_vec3::value_type)
         );
     }
@@ -302,9 +302,9 @@ TprResult VulkanBackend::render() noexcept {
             uint32_t i = 0;
             for (const auto& draw : draws) {
                 VkDrawIndexedIndirectCommand command{};
-                command.firstIndex = draw.mesh->indexSpace.begin() / 4;
+                command.firstIndex = draw.mesh->indexSpace.set_begin() / 4;
                 command.indexCount = draw.mesh->indexSpace.length() / 4;
-                command.vertexOffset = draw.mesh->vertexSpace.begin() / Vertex::perfectPackSize;
+                command.vertexOffset = draw.mesh->vertexSpace.set_begin() / Vertex::perfectPackSize;
                 command.firstInstance = draw.offset;
                 command.instanceCount = draw.count;
                 memcpy(reinterpret_cast<std::byte*>(map) + i * sizeof(VkDrawIndexedIndirectCommand), &command, sizeof(VkDrawIndexedIndirectCommand));

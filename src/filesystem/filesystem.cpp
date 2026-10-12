@@ -1,6 +1,7 @@
 
 #include "filesystem.hpp"
 #include "core.hpp"
+#include "interval_union.hpp"
 #include "tempor.h"
 #include "log_entry.hpp"
 
@@ -384,7 +385,11 @@ TprResult Filesystem::write(TprFile file, uint64_t pos, uint64_t n, const void* 
                 std::memcpy(src.data.data() + pos, pData, n);
             },
             [pData, n, pos](OverlaySource& src) {
-                #error ITODO
+                src.data |= view_interval<const std::byte>(
+                    reinterpret_cast<const std::byte*>(pData),
+                    reinterpret_cast<const std::byte*>(pData) + n,
+                    pos
+                );
             }
         }, handle.entry->source);
         return TPR_SUCCESS;

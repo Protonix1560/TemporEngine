@@ -32,29 +32,29 @@ class interval {
             assert(end >= begin);
         }
 
-        constexpr B begin() const noexcept { return m_begin; }
-        constexpr B end() const noexcept { return m_end; }
+        constexpr B set_begin() const noexcept { return m_begin; }
+        constexpr B set_end() const noexcept { return m_end; }
         constexpr bool first_included() const noexcept { return m_first_included; }
         constexpr bool last_included() const noexcept { return m_last_included; }
-        constexpr bool empty() const noexcept { return begin() == end() && !(first_included() && last_included()); }
-        constexpr B length() const noexcept { return end() - begin(); }
+        constexpr bool empty() const noexcept { return set_begin() == set_end() && !(first_included() && last_included()); }
+        constexpr B length() const noexcept { return set_end() - set_begin(); }
         constexpr bool equivalent(const interval<B>& other) const noexcept {
             if (empty() || other.empty()) return empty() && other.empty();
             return (
-                begin() == other.begin() && end() == other.end() &&
+                set_begin() == other.set_begin() && set_end() == other.set_end() &&
                 first_included() == other.first_included() && last_included() == other.last_included()
             );
         }
         constexpr bool strictly_before(const interval<B>& other) const noexcept {
             if (empty() || other.empty()) return false;
-            if (end() < other.begin()) return true;
-            if (end() > other.begin()) return false;
+            if (set_end() < other.set_begin()) return true;
+            if (set_end() > other.set_begin()) return false;
             return !(last_included() && other.first_included());
         }
         constexpr bool strictly_after(const interval<B>& other) const noexcept {
             if (empty() || other.empty()) return false;
-            if (begin() > other.end()) return true;
-            if (begin() < other.end()) return false;
+            if (set_begin() > other.set_end()) return true;
+            if (set_begin() < other.set_end()) return false;
             return !(first_included() && other.last_included());
         }
         constexpr bool intersects(const interval<B>& other) const noexcept {
@@ -65,16 +65,16 @@ class interval {
             if (empty() || other.empty()) return true;
             if (intersects(other)) return true;
             return (
-                (end() == other.begin() && (last_included() || other.first_included())) ||
-                (begin() == other.end() && (first_included() || other.last_included()))
+                (set_end() == other.set_begin() && (last_included() || other.first_included())) ||
+                (set_begin() == other.set_end() && (first_included() || other.last_included()))
             );
         }
         constexpr bool is_subinterval_of(const interval<B>& other) const noexcept {
             if (empty()) return true;
             if (other.empty()) return false;
             return (
-                (begin() > other.begin() || (begin() == other.begin() && other.first_included() >= first_included())) &&
-                (end() < other.end() || (end() == other.end() && other.last_included() >= last_included()))
+                (set_begin() > other.set_begin() || (set_begin() == other.set_begin() && other.first_included() >= first_included())) &&
+                (set_end() < other.set_end() || (set_end() == other.set_end() && other.last_included() >= last_included()))
             );
         }
 
@@ -98,16 +98,16 @@ class interval {
                 return *this;
             }
             assert(mergeable(other));
-            if (other.begin() < begin()) {
-                m_begin = other.begin();
+            if (other.set_begin() < set_begin()) {
+                m_begin = other.set_begin();
                 m_first_included = other.first_included();
-            } else if (other.begin() == begin()) {
+            } else if (other.set_begin() == set_begin()) {
                 m_first_included = other.first_included() || first_included();
             }
-            if (other.end() > end()) {
-                m_end = other.end();
+            if (other.set_end() > set_end()) {
+                m_end = other.set_end();
                 m_last_included = other.last_included();
-            } else if (other.end() == end()) {
+            } else if (other.set_end() == set_end()) {
                 m_last_included = other.last_included() || last_included();
             }
             return *this;
@@ -124,16 +124,16 @@ class interval {
                 *this = {};
                 return *this;
             }
-            if (begin() < other.begin()) {
-                m_begin = other.begin();
+            if (set_begin() < other.set_begin()) {
+                m_begin = other.set_begin();
                 m_first_included = other.first_included();
-            } else if (other.begin() == begin()) {
+            } else if (other.set_begin() == set_begin()) {
                 m_first_included = first_included() && other.first_included();
             }
-            if (end() > other.end()) {
-                m_end = other.end();
+            if (set_end() > other.set_end()) {
+                m_end = other.set_end();
                 m_last_included = other.last_included();
-            } else if (other.end() == end()) {
+            } else if (other.set_end() == set_end()) {
                 m_last_included = last_included() && other.last_included();
             }
             return *this;
@@ -155,8 +155,8 @@ class interval {
             interval<B> m = *this | other;
             interval<B> i = *this & other;
             return {
-                {m.begin(), i.begin(), m.first_included(), !i.first_included()},
-                {i.end(), m.end(), !i.last_included(), m.last_included()}
+                {m.set_begin(), i.set_begin(), m.first_included(), !i.first_included()},
+                {i.set_end(), m.set_end(), !i.last_included(), m.last_included()}
             };
         }
 
@@ -165,8 +165,8 @@ class interval {
             const interval<B> i = *this & other;
             interval<B> left{};
             interval<B> right{};
-            if (begin() < i.begin()) left = {begin(), i.begin(), first_included(), !i.first_included()};
-            if (i.end() < end()) right = {i.end(), end(), !i.last_included(), last_included()};
+            if (set_begin() < i.set_begin()) left = {set_begin(), i.set_begin(), first_included(), !i.first_included()};
+            if (i.set_end() < set_end()) right = {i.set_end(), set_end(), !i.last_included(), last_included()};
             return {left, right};
         }
 };
@@ -210,11 +210,11 @@ class interval_union {
         constexpr bool empty() const noexcept { return m_data.empty(); }
         constexpr B set_begin() const noexcept {
             assert(!m_data.empty());
-            return m_data.front().begin();
+            return m_data.front().set_begin();
         }
         constexpr B set_end() const noexcept {
             assert(!m_data.empty());
-            return m_data.back().begin();
+            return m_data.back().set_end();
         }
         constexpr bool first_included() const noexcept {
             assert(!m_data.empty());
@@ -222,7 +222,7 @@ class interval_union {
         }
         constexpr bool last_included() const noexcept {
             assert(!m_data.empty());
-            return m_data.front().last_included();
+            return m_data.back().last_included();
         }
 
         constexpr auto begin() noexcept { return m_data.begin(); }
@@ -362,7 +362,15 @@ class view_interval {
 
         constexpr view_interval() noexcept = default;
         constexpr view_interval(std::span<T> data, size_t begin = 0) : m_begin(begin), m_data(data) {
-            assert(m_container.size() <= std::numeric_limits<size_t>::max() - begin());
+            assert(m_data.size() <= std::numeric_limits<size_t>::max() - begin());
+        }
+        template <typename It>
+        constexpr view_interval(It begin, It end, size_t set_begin = 0) : m_begin(set_begin), m_data(begin, end) {
+            assert(m_data.size() <= std::numeric_limits<size_t>::max() - begin());
+        }
+
+        constexpr operator view_interval<const T>() const noexcept {
+            return view_interval<const T>(m_data.begin(), m_data.end());
         }
 
         constexpr auto begin() noexcept { return m_data.begin(); }
@@ -391,20 +399,20 @@ class view_interval {
         constexpr bool equivalent(const interval<size_t>& other) const noexcept {
             if (empty() || other.empty()) return empty() && other.empty();
             return (
-                set_begin() == other.begin() && set_end() == other.end() &&
+                set_begin() == other.set_begin() && set_end() == other.set_end() &&
                 first_included() == other.first_included() && last_included() == other.last_included()
             );
         }
         constexpr bool strictly_before(const interval<size_t>& other) const noexcept {
             if (empty() || other.empty()) return false;
-            if (set_end() < other.begin()) return true;
-            if (set_end() > other.begin()) return false;
+            if (set_end() < other.set_begin()) return true;
+            if (set_end() > other.set_begin()) return false;
             return !(last_included() && other.first_included());
         }
         constexpr bool strictly_after(const interval<size_t>& other) const noexcept {
             if (empty() || other.empty()) return false;
-            if (set_begin() > other.end()) return true;
-            if (set_begin() < other.end()) return false;
+            if (set_begin() > other.set_end()) return true;
+            if (set_begin() < other.set_end()) return false;
             return !(first_included() && other.last_included());
         }
         constexpr bool intersects(const interval<size_t>& other) const noexcept {
@@ -415,8 +423,8 @@ class view_interval {
             if (empty() || other.empty()) return true;
             if (intersects(other)) return true;
             return (
-                (set_end() == other.begin() && (last_included() || other.first_included())) ||
-                (set_begin() == other.end() && (first_included() || other.last_included()))
+                (set_end() == other.set_begin() && (last_included() || other.first_included())) ||
+                (set_begin() == other.set_end() && (first_included() || other.last_included()))
             );
         }
         constexpr bool contains(size_t index) const noexcept {
@@ -427,8 +435,8 @@ class view_interval {
             if (empty()) return true;
             if (other.empty()) return false;
             return (
-                (set_begin() > other.begin() || (set_begin() == other.begin() && other.first_included() >= first_included())) &&
-                (set_end() < other.end() || (set_end() == other.end() && other.last_included() >= last_included()))
+                (set_begin() > other.set_begin() || (set_begin() == other.set_begin() && other.first_included() >= first_included())) &&
+                (set_end() < other.set_end() || (set_end() == other.set_end() && other.last_included() >= last_included()))
             );
         }
 
@@ -468,11 +476,22 @@ class data_interval {
         constexpr static data_interval<T, C> empty_set() noexcept { return data_interval<T, C>{}; }
 
         constexpr data_interval() noexcept = default;
+        constexpr data_interval(const view_interval<const T>& view) : m_container(view.begin(), view.end()) {}
         constexpr data_interval(const C& container, size_t begin = 0) : m_begin(begin), m_container(container) {
             assert(m_container.size() <= std::numeric_limits<size_t>::max() - begin());
         }
         constexpr data_interval(C&& container, size_t begin = 0) : m_begin(begin), m_container(std::move(container)) {
             assert(m_container.size() <= std::numeric_limits<size_t>::max() - begin());
+        }
+
+        constexpr operator interval<size_t>() const noexcept {
+            return interval<size_t>{set_begin(), set_end()};
+        }
+        constexpr operator view_interval<T>() noexcept {
+            return view_interval<T>{m_container.begin(), m_container.end(), set_begin()};
+        }
+        constexpr operator view_interval<const T>() const noexcept {
+            return view_interval<const T>{m_container.begin(), m_container.end(), set_begin()};
         }
 
         constexpr const C& container() const noexcept { return m_container; }
@@ -497,26 +516,23 @@ class data_interval {
         constexpr bool last_included() const noexcept { return false; }
         constexpr bool empty() const noexcept { return m_container.empty(); }
         constexpr size_t length() const noexcept { return m_container.size(); }
-        constexpr operator interval<size_t>() const noexcept {
-            return interval<size_t>{set_begin(), set_end()};
-        }
         constexpr bool equivalent(const interval<size_t>& other) const noexcept {
             if (empty() || other.empty()) return empty() && other.empty();
             return (
-                set_begin() == other.begin() && set_end() == other.end() &&
+                set_begin() == other.set_begin() && set_end() == other.set_end() &&
                 first_included() == other.first_included() && last_included() == other.last_included()
             );
         }
         constexpr bool strictly_before(const interval<size_t>& other) const noexcept {
             if (empty() || other.empty()) return false;
-            if (set_end() < other.begin()) return true;
-            if (set_end() > other.begin()) return false;
+            if (set_end() < other.set_begin()) return true;
+            if (set_end() > other.set_begin()) return false;
             return !(last_included() && other.first_included());
         }
         constexpr bool strictly_after(const interval<size_t>& other) const noexcept {
             if (empty() || other.empty()) return false;
-            if (set_begin() > other.end()) return true;
-            if (set_begin() < other.end()) return false;
+            if (set_begin() > other.set_end()) return true;
+            if (set_begin() < other.set_end()) return false;
             return !(first_included() && other.last_included());
         }
         constexpr bool intersects(const interval<size_t>& other) const noexcept {
@@ -527,8 +543,8 @@ class data_interval {
             if (empty() || other.empty()) return true;
             if (intersects(other)) return true;
             return (
-                (set_end() == other.begin() && (last_included() || other.first_included())) ||
-                (set_begin() == other.end() && (first_included() || other.last_included()))
+                (set_end() == other.set_begin() && (last_included() || other.first_included())) ||
+                (set_begin() == other.set_end() && (first_included() || other.last_included()))
             );
         }
         constexpr bool contains(size_t index) const noexcept {
@@ -539,8 +555,8 @@ class data_interval {
             if (empty()) return true;
             if (other.empty()) return false;
             return (
-                (set_begin() > other.begin() || (set_begin() == other.begin() && other.first_included() >= first_included())) &&
-                (set_end() < other.end() || (set_end() == other.end() && other.last_included() >= last_included()))
+                (set_begin() > other.set_begin() || (set_begin() == other.set_begin() && other.first_included() >= first_included())) &&
+                (set_end() < other.set_end() || (set_end() == other.set_end() && other.last_included() >= last_included()))
             );
         }
         
@@ -564,7 +580,7 @@ class data_interval {
             return *this;
         }
 
-        constexpr data_interval<T, C>& operator|=(const data_interval<T, C>& other) {
+        constexpr data_interval<T, C>& operator|=(const view_interval<const T>& other) {
             if (other.empty()) return *this;
             if (empty()) {
                 *this = other;
@@ -577,25 +593,25 @@ class data_interval {
             new_container.resize(new_interval.length());
             if (!left.empty()) {
                 std::move(
-                    container().begin() + (left.begin() - set_begin()),
-                    container().begin() + (left.end() - set_begin()),
-                    new_container.begin() + (left.begin() - new_interval.begin())
+                    begin() + (left.set_begin() - set_begin()),
+                    begin() + (left.set_end() - set_begin()),
+                    new_container.begin() + (left.set_begin() - new_interval.set_begin())
                 );
             }
             if (!right.empty()) {
                 std::move(
-                    container().begin() + (right.begin() - set_begin()),
-                    container().begin() + (right.end() - set_begin()),
-                    new_container.begin() + (right.begin() - new_interval.begin())
+                    begin() + (right.set_begin() - set_begin()),
+                    begin() + (right.set_end() - set_begin()),
+                    new_container.begin() + (right.set_begin() - new_interval.set_begin())
                 );
             }
-            std::copy(other.container().begin(), other.container().end(), new_container.begin() + (other.set_begin() - new_interval.begin()));
+            std::copy(other.begin(), other.end(), new_container.begin() + (other.set_begin() - new_interval.set_begin()));
             m_container = std::move(new_container);
-            m_begin = new_interval.begin();
+            m_begin = new_interval.set_begin();
             return *this;
         }
 
-        constexpr data_interval<T, C> operator|(const data_interval<T, C>& other) const {
+        constexpr data_interval<T, C> operator|(const view_interval<const T>& other) const {
             data_interval<T, C> inter = *this;
             inter |= other;
             return inter;
@@ -607,22 +623,22 @@ class data_interval {
                 *this = {};
                 return *this;
             }
-            if (!mask.first_included()) mask = {mask.begin() + 1, mask.end()};
-            if (!mask.last_included()) mask = {mask.begin(), mask.end() + 1};
+            if (!mask.first_included()) mask = {mask.set_begin() + 1, mask.set_end()};
+            if (!mask.last_included()) mask = {mask.set_begin(), mask.set_end() + 1};
             auto new_interval = interval<size_t>(*this) & interval<size_t>(mask);
             if (new_interval.empty()) {
                 *this = {};
                 return *this;
             }
-            if (new_interval.begin() != set_begin()) {
+            if (new_interval.set_begin() != set_begin()) {
                 std::move(
-                    container().begin() + (new_interval.begin() - set_begin()),
-                    container().begin() + (new_interval.end() - set_begin()),
+                    begin() + (new_interval.set_begin() - set_begin()),
+                    begin() + (new_interval.set_end() - set_begin()),
                     m_container.begin()
                 );
             }
             m_container.resize(new_interval.length());
-            m_begin = new_interval.begin();
+            m_begin = new_interval.set_begin();
             return *this;
         }
 
@@ -632,7 +648,7 @@ class data_interval {
             return inter;
         }
 
-        constexpr std::pair<data_interval<T, C>, data_interval<T, C>> operator^(const data_interval<T, C>& other) const {
+        constexpr std::pair<data_interval<T, C>, data_interval<T, C>> operator^(const view_interval<const T>& other) const {
             if (empty()) return {other, *this};
             if (other.empty()) return {*this, other};
             if (!intersects(other)) {
@@ -640,36 +656,36 @@ class data_interval {
                 return {other, *this};
             }
             auto [left_interval, right_interval] = interval<size_t>(*this) ^ interval<size_t>(other);
-            data_interval<T, C> left{left_interval.begin(), {}};
-            data_interval<T, C> right{right_interval.begin(), {}};
+            data_interval<T, C> left{left_interval.set_begin(), {}};
+            data_interval<T, C> right{right_interval.set_begin(), {}};
             if (!left_interval.empty()) {
-                left.container().resize(left_interval.length());
+                left->resize(left_interval.length());
                 if (intersects(left_interval)) {
                     std::copy(
-                        container().begin() + (left_interval.begin() - set_begin()),
-                        container().begin() + (left_interval.end() - set_begin()),
+                        begin() + (left_interval.set_begin() - set_begin()),
+                        begin() + (left_interval.set_end() - set_begin()),
                         left.m_container.begin()
                     );
                 } else {
                     std::copy(
-                        other.container().begin() + (left_interval.begin() - other.set_begin()),
-                        other.container().begin() + (left_interval.end() - other.set_begin()),
-                        left.m_container().begin()
+                        other.begin() + (left_interval.set_begin() - other.set_begin()),
+                        other.begin() + (left_interval.set_end() - other.set_begin()),
+                        left.m_container.begin()
                     );
                 }
             }
             if (!right_interval.empty()) {
-                right.container().resize(right_interval.length());
+                right->resize(right_interval.length());
                 if (intersects(right_interval)) {
                     std::copy(
-                        container().begin() + (right_interval.begin() - set_begin()),
-                        container().begin() + (right_interval.end() - set_begin()),
+                        begin() + (right_interval.set_begin() - set_begin()),
+                        begin() + (right_interval.set_end() - set_begin()),
                         right.m_container.begin()
                     );
                 } else {
                     std::copy(
-                        other.container().begin() + (right_interval.begin() - other.set_begin()),
-                        other.container().begin() + (right_interval.end() - other.set_begin()),
+                        other.begin() + (right_interval.set_begin() - other.set_begin()),
+                        other.begin() + (right_interval.set_end() - other.set_begin()),
                         right.m_container.begin()
                     );
                 }
@@ -680,24 +696,24 @@ class data_interval {
         constexpr std::pair<data_interval<T, C>, data_interval<T, C>> operator-(const interval<size_t>& inter) const {
             interval<size_t> mask = inter;
             if (empty() || mask.empty() || !intersects(mask)) return {*this, {}};
-            if (!mask.first_included()) mask = {mask.begin() + 1, mask.end()};
-            if (mask.last_included()) mask = {mask.begin(), mask.end() + 1};
+            if (!mask.first_included()) mask = {mask.set_begin() + 1, mask.set_end()};
+            if (mask.last_included()) mask = {mask.set_begin(), mask.set_end() + 1};
             auto [left_interval, right_interval] = interval<size_t>(*this) - mask;
-            data_interval<T, C> left{{}, left_interval.begin()};
-            data_interval<T, C> right{{}, right_interval.begin()};
+            data_interval<T, C> left{{}, left_interval.set_begin()};
+            data_interval<T, C> right{{}, right_interval.set_begin()};
             if (!left_interval.empty()) {
                 left.m_container.resize(left_interval.length());
                 std::copy(
-                    container().begin() + (left_interval.begin() - set_begin()),
-                    container().begin() + (left_interval.end() - set_begin()),
+                    container().begin() + (left_interval.set_begin() - set_begin()),
+                    container().begin() + (left_interval.set_end() - set_begin()),
                     left.m_container.begin()
                 );
             }
             if (!right_interval.empty()) {
                 right.m_container.resize(right_interval.length());
                 std::copy(
-                    container().begin() + (right_interval.begin() - set_begin()),
-                    container().begin() + (right_interval.end() - set_begin()),
+                    container().begin() + (right_interval.set_begin() - set_begin()),
+                    container().begin() + (right_interval.set_end() - set_begin()),
                     right.m_container.begin()
                 );
             }
@@ -713,45 +729,17 @@ class data_interval_union {
         struct holder {
             private:
                 data_interval<T, C> m_data{};
-                constexpr holder(holder&& other) = default;
-                constexpr holder() noexcept = default;
+                constexpr data_interval<T, C>& data() noexcept { return m_data; }
+                constexpr holder() = default;
+                constexpr holder(data_interval<T, C>&& data) : m_data(data) {}
+                constexpr holder(const data_interval<T, C>& data) : m_data(data) {}
                 friend class data_interval_union<T, C>;
-
             public:
-                constexpr holder(const data_interval<T, C>& interval) : m_data(interval) {}
-                constexpr holder(data_interval<T, C>&& interval) : m_data(std::move(interval)) {}
-                constexpr holder(const C& container, size_t begin = 0) : m_data(container, begin) {}
-                constexpr holder(C&& container, size_t begin = 0) : m_data(std::move(container), begin) {}
-
-                constexpr const C& container() const noexcept { return m_data.container(); }
-                constexpr auto container_begin() noexcept { return m_data.begin(); }
-                constexpr auto container_begin() const noexcept { return m_data.end(); }
-                constexpr auto container_cbegin() const noexcept { return m_data.cbegin(); }
-                constexpr auto container_rbegin() noexcept { return m_data.rbegin(); }
-                constexpr auto container_rbegin() const noexcept { return m_data.rbegin(); }
-                constexpr auto container_crbegin() const noexcept { return m_data.crbegin(); }
-                constexpr auto container_end() noexcept { return m_data.end(); }
-                constexpr auto container_end() const noexcept { return m_data.end(); }
-                constexpr auto container_cend() const noexcept { return m_data.cend(); }
-                constexpr auto container_rend() noexcept { return m_data.rend(); }
-                constexpr auto container_rend() const noexcept { return m_data.rend(); }
-                constexpr auto container_crend() const noexcept { return m_data.crend(); }
-                constexpr size_t begin() const noexcept { return m_data.set_begin(); }
-                constexpr size_t end() const noexcept { return m_data.set_end(); }
-                constexpr bool first_included() const noexcept { return m_data.first_included(); }
-                constexpr bool last_included() const noexcept { return m_data.last_included(); }
-                constexpr bool empty() const noexcept { return m_data.empty(); }
-                constexpr size_t length() const noexcept { return m_data.length(); }
-                constexpr operator interval<size_t>() const noexcept { return interval<size_t>(m_data); }
-                constexpr bool equivalent(const interval<size_t>& other) const noexcept { return m_data.equivalent(other); }
-                constexpr bool strictly_before(const interval<size_t>& other) const noexcept { return m_data.strictly_before(other); }
-                constexpr bool strictly_after(const interval<size_t>& other) const noexcept { return m_data.strictly_after(other); }
-                constexpr bool intersects(const interval<size_t>& other) const noexcept { return m_data.intersects(other); }
-                constexpr bool mergeable(const interval<size_t>& other) const noexcept { return m_data.mergeable(other); }
-                constexpr bool contains(size_t index) const noexcept { return m_data.contains(index); }
-                constexpr bool is_subinterval_of(const interval<size_t>& other) const noexcept { return m_data.is_subinterval_of(other); }
-                constexpr T& operator[](size_t index) noexcept { return m_data[index]; }
-                constexpr const T& operator[](size_t index) const noexcept { return m_data[index]; }
+                constexpr holder(const holder& other) = default;
+                constexpr holder& operator=(const holder& other) = default;
+                constexpr const data_interval<T, C>& data() const noexcept { return m_data; }
+                constexpr view_interval<T> view() noexcept { return view_interval<T>(m_data); }
+                constexpr view_interval<const T> view() const noexcept { return view_interval<const T>(m_data); }
         };
 
     private:
@@ -760,6 +748,8 @@ class data_interval_union {
     public:
         using interval_type = data_interval<T, C>;
         using value_type = holder;
+
+        constexpr data_interval_union<T, C> empty_set() const noexcept { return data_interval_union<T, C>{}; }
 
         constexpr data_interval_union() noexcept = default;
         constexpr data_interval_union(const data_interval<T, C>& inter) { if (!inter.empty()) m_data.push_back(inter); }
@@ -777,30 +767,36 @@ class data_interval_union {
         constexpr bool empty() const noexcept { return m_data.empty(); }
         constexpr size_t set_begin() const noexcept {
             assert(!m_data.empty());
-            return m_data.front().begin();
+            return m_data.front().set_begin();
         }
         constexpr size_t set_end() const noexcept {
             assert(!m_data.empty());
-            return m_data.back().begin();
+            return m_data.back().set_end();
         }
-        constexpr bool first_included() const noexcept { return true; }
-        constexpr bool last_included() const noexcept { return false; }
+        constexpr bool first_included() const noexcept {
+            assert(!m_data.empty());
+            return m_data.front().first_included();
+        }
+        constexpr bool last_included() const noexcept {
+            assert(!m_data.empty());
+            return m_data.back().last_included();
+        }
 
         constexpr auto begin() noexcept { return m_data.begin(); }
-        constexpr auto begin() const noexcept { return m_data.begin(); }
-        constexpr auto cbegin() noexcept { return m_data.cbegin(); }
+        constexpr auto begin() const noexcept { return m_data.cbegin(); }
+        constexpr auto cbegin() const noexcept { return m_data.cbegin(); }
         constexpr auto rbegin() noexcept { return m_data.rbegin(); }
-        constexpr auto rbegin() const noexcept { return m_data.rbegin(); }
-        constexpr auto crbegin() noexcept { return m_data.crbegin(); }
+        constexpr auto rbegin() const noexcept { return m_data.crbegin(); }
+        constexpr auto crbegin() const noexcept { return m_data.crbegin(); }
 
         constexpr auto end() noexcept { return m_data.end(); }
-        constexpr auto end() const noexcept { return m_data.end(); }
-        constexpr auto cend() noexcept { return m_data.cend(); }
+        constexpr auto end() const noexcept { return m_data.cend(); }
+        constexpr auto cend() const noexcept { return m_data.cend(); }
         constexpr auto rend() noexcept { return m_data.rend(); }
-        constexpr auto rend() const noexcept { return m_data.rend(); }
-        constexpr auto crend() noexcept { return m_data.crend(); }
+        constexpr auto rend() const noexcept { return m_data.crend(); }
+        constexpr auto crend() const noexcept { return m_data.crend(); }
 
-        explicit constexpr operator interval_union<size_t>() const noexcept {
+        constexpr operator interval_union<size_t>() const noexcept {
             interval_union<size_t> un;
             for (const auto& inter : *this) {
                 un |= interval<size_t>(inter);
@@ -832,27 +828,27 @@ class data_interval_union {
             }
         }
 
-        constexpr data_interval_union<T, C>& operator|=(const data_interval<T, C>& inter) {
+        constexpr data_interval_union<T, C>& operator|=(const view_interval<const T>& inter) {
             if (inter.empty()) return *this;
             data_interval<T, C> merged = inter;
             auto first = m_data.begin();
-            for (; first != m_data.end() && first->strictly_before(merged); first++) {}
+            for (; first != m_data.end() && first->data().strictly_before(merged); first++) {}
             if (first != m_data.begin()) {
                 auto prev = std::prev(first);
-                if (prev->mergeable(merged)) first = prev;
+                if (prev->data().mergeable(merged)) first = prev;
             }
             auto last = first;
-            for (; last != m_data.end() && last->mergeable(merged); last++) merged |= *last;
+            for (; last != m_data.end() && last->data().mergeable(merged); last++) merged |= last->data();
             auto pos = m_data.erase(first, last);
             m_data.insert(pos, merged);
             return *this;
         }
         constexpr data_interval_union<T, C>& operator|=(const data_interval_union<T, C>& un) {
             if (&un == this) return *this;
-            for (const data_interval<T, C>& inter : *this) *this |= inter;
+            for (const auto& inter : *this) *this |= inter.data();
             return *this;
         }
-        constexpr data_interval_union<T, C> operator|(const data_interval<T, C>& inter) const {
+        constexpr data_interval_union<T, C> operator|(const view_interval<const T>& inter) const {
             data_interval_union<T, C> m = *this;
             m |= inter;
             return m;
@@ -867,11 +863,11 @@ class data_interval_union {
 
         constexpr data_interval_union<T, C>& operator-=(const interval<size_t>& inter) {
             for (auto it = m_data.begin(); it != m_data.end();) {
-                if (!it->intersects(inter)) {
+                if (!it->data().intersects(inter)) {
                     it++;
                     continue;
                 }
-                auto [left, right] = *it - inter;
+                auto [left, right] = it->data() - inter;
                 it = m_data.erase(it);
                 if (!left.empty()) it = std::next(m_data.insert(it, left));
                 if (!right.empty()) it = std::next(m_data.insert(it, right));
@@ -896,7 +892,7 @@ class data_interval_union {
 
         constexpr data_interval_union<T, C>& operator&=(const interval<size_t>& inter) {
             for (auto it = m_data.begin(); it != m_data.end();) {
-                auto result = *it & inter;
+                auto result = it->data() & inter;
                 it = m_data.erase(it);
                 if (!result.empty()) it = std::next(m_data.insert(it, result));
             }
@@ -923,7 +919,7 @@ class data_interval_union {
             auto src_it = begin();
             auto req_it = un.begin();
             while (src_it != end() && req_it != un.end()) {
-                const auto& src = *src_it;
+                const auto& src = src_it->data();
                 const auto& req = *req_it;
                 if (src.strictly_before(req)) {
                     src_it++;
@@ -933,12 +929,12 @@ class data_interval_union {
                     const interval<size_t> intersection = interval<size_t>(src) & req;
                     if (!intersection.empty()) {
                         std::copy(
-                            src.container_begin() + (intersection.begin() - src.begin()),
-                            src.container_begin() + (intersection.end() - src.begin()),
-                            dst + (intersection.begin() - un.set_begin())
+                            src.begin() + (intersection.set_begin() - src.set_begin()),
+                            src.begin() + (intersection.set_end() - src.set_begin()),
+                            dst + (intersection.set_begin() - un.set_begin())
                         );
                     }
-                    if (src.end() < req.end()) {
+                    if (src.set_end() < req.set_end()) {
                         src_it++;
                     } else {
                         req_it++;

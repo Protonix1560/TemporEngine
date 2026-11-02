@@ -13,13 +13,17 @@
 #include "asset_store.hpp"
 #include "log_entry.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <iterator>
 #include <mutex>
 #include <vector>
 #include <memory>
+#include <atomic>
+#include <utility>
 
 #include <vulkan/vulkan.h>
 
@@ -30,12 +34,12 @@
 // registring graphics device backend
 GraphicsDeviceBackendInfo backendInfo {
     [](
-        Logger logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+        Logger&& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
         Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
-    ) {
-        return PGraphicsDevice(std::make_unique<VulkanBackend>(
-            logger, rFileSys, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
-        ));
+    ) -> PGraphicsDevice {
+        return std::make_unique<VulkanBackend>(
+            std::move(logger), rFileSys, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
+        );
     },
     "Standard Vulkan Backend", GraphicsAPI::Vulkan
 };
@@ -43,9 +47,9 @@ static_registry<GraphicsDeviceBackendInfo, 0>::registrar registrar(backendInfo);
 
 
 VulkanBackend::VulkanBackend(
-    Logger logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+    Logger&& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
     Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
-) : mLogger(logger), mrFileSys(rFileSys), mrWin(rWinMan), mrSett(rSettings), mrScGr(rScGr),
+) : mLogger(std::move(logger)), mrFileSys(rFileSys), mrWin(rWinMan), mrSett(rSettings), mrScGr(rScGr),
     mrSched(rSched), mrAstr(rAstr), mrRunResult(rRunResult), mPackedEngineVersion(packedEngineVersion) {}
 
 TprResult VulkanBackend::init() {
@@ -1253,7 +1257,7 @@ TprResult VulkanBackend::ensureSwapchain(WindowEntry& ctx) {
             VkShaderModule vertShader = VK_NULL_HANDLE;
             
             try {
-                auto fragExp = mrFileSys.openFile("shaders/vulkan/basic.frag.spv");
+                auto fragExp = mrFileSys.openPathFile("shaders/vulkan/basic.frag.spv");
                 if (!fragExp.has_value()) return fragExp.error();
                 TprFile fragFile = fragExp.value();
                 if (auto r = mrFileSys.seek(fragFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
@@ -1277,7 +1281,7 @@ TprResult VulkanBackend::ensureSwapchain(WindowEntry& ctx) {
                 fragStage.module = fragShader;
                 fragStage.pName = "main";
 
-                auto vertExp = mrFileSys.openFile("shaders/vulkan/basic.vert.spv");
+                auto vertExp = mrFileSys.openPathFile("shaders/vulkan/basic.vert.spv");
                 if (!vertExp.has_value()) {
                     mLoader.vkDestroyShaderModule()(mDevice, fragShader, nullptr);
                     return vertExp.error();

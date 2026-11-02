@@ -1,0 +1,9 @@
+Documentation:
+  CommentFormat: Doxygen
+# Diagnostics:
+#   ClangTidy:
+#     Add: [bugprone-*, performance-*]
+#     Remove:
+#       - bugprone-throwing-static-initialization
+#   UnusedIncludes: Strict
+#   MissingIncludes: Strict

@@ -7,11 +7,14 @@
 #include "tempor.h"
 #include "i_graphics_device.hpp"
 #include "logger.hpp"
-#include "interval_union.hpp"
 #include "hash.hpp"
 #include "scope_guard.hpp"
 #include "linalg_packed.hpp"
+#include "asset_store_common.hpp"
 
+#include <mat/interval_union.hpp>
+
+#include <cassert>
 #include <limits>
 #include <memory>
 #include <set>
@@ -20,6 +23,12 @@
 #include <mutex>
 #include <array>
 #include <source_location>
+#include <atomic>
+#include <cstdint>
+#include <cstddef>
+#include <optional>
+#include <utility>
+#include <functional>
 
 #include <glm/fwd.hpp>
 
@@ -129,7 +138,7 @@ struct Buffer : private BufferResources {
 class VulkanBackend : public IGraphicsDevice {
     public:
         VulkanBackend(
-            Logger logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+            Logger&& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
             Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
         );
         ~VulkanBackend() noexcept;
@@ -173,6 +182,7 @@ class VulkanBackend : public IGraphicsDevice {
                     attribs[0].location = 0;
                     attribs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
                     attribs[0].offset = 0;
+
                     attribs[1].binding = 0;
                     attribs[1].location = 1;
                     attribs[1].format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -304,7 +314,7 @@ class VulkanBackend : public IGraphicsDevice {
                 VkBuffer buffer = VK_NULL_HANDLE;
                 uint64_t byteSize;
                 Allocation alloc;
-                interval_union<uint64_t> free;
+                mat::interval_union<uint64_t> free;
                 scope_guard guard;
             };
 
@@ -409,7 +419,7 @@ class VulkanBackend : public IGraphicsDevice {
 
                 RenderTargetEntry() = default;
                 RenderTargetEntry(
-                    std::weak_ptr<DepthDomainEntry> depthDomain, WindowEntry* windowContext, FullBuffer&& indirectDrawBuffer,
+                    const std::weak_ptr<DepthDomainEntry>& depthDomain, WindowEntry* windowContext, FullBuffer&& indirectDrawBuffer,
                     TprViewport viewport, TprScissor scissor
                 ) : depthDomain(depthDomain), windowContext(windowContext), indirectDrawBuffer(std::move(indirectDrawBuffer)),
                     viewport(viewport), scissor(scissor) {}
@@ -434,6 +444,7 @@ class VulkanBackend : public IGraphicsDevice {
                 std::weak_ptr<RenderTargetSetEntry> renderTargetSet;
                 struct hash {
                     size_t operator()(const ChunkConfig& conf) const {
+                        static_assert(sizeof(size_t) == sizeof(XXH64_hash_t) || sizeof(size_t) == sizeof(XXH32_hash_t), "Unsupported architecture");
                         if constexpr (sizeof(size_t) == sizeof(XXH64_hash_t)) {
                             thread_local static xxhash64_holder state;
                             XXH64_reset(state.state(), 0);
@@ -452,8 +463,6 @@ class VulkanBackend : public IGraphicsDevice {
                             XXH32_update(state.state(), &renderTargetSetHash, sizeof(renderTargetSetHash));
                             return XXH32_digest(state.state());
                             
-                        } else {
-                            throw "Unsupported architecture";
                         }
                     }
                 };
@@ -473,6 +482,7 @@ class VulkanBackend : public IGraphicsDevice {
                 EntityData data;
                 struct hash {
                     size_t operator()(const EntityConfig& conf) const {
+                        static_assert(sizeof(size_t) == sizeof(XXH64_hash_t) || sizeof(size_t) == sizeof(XXH32_hash_t), "Unsupported architecture");
                         if constexpr (sizeof(size_t) == sizeof(XXH64_hash_t)) {
                             thread_local static xxhash64_holder state;
                             XXH64_reset(state.state(), 0);
@@ -523,8 +533,6 @@ class VulkanBackend : public IGraphicsDevice {
                             XXH32_update(state.state(), &conf.data.transform[3][3], sizeof(decltype(conf.data.transform)::value_type));
                             return XXH32_digest(state.state());
                             
-                        } else {
-                            throw "Unsupported architecture";
                         }
                     }
                 };
@@ -533,9 +541,9 @@ class VulkanBackend : public IGraphicsDevice {
 
             struct MeshEntry {
                 std::shared_ptr<PartialBuffer> indexBuffer;
-                interval<uint64_t> indexSpace;
+                mat::interval<uint64_t> indexSpace;
                 std::shared_ptr<PartialBuffer> vertexBuffer;
-                interval<uint64_t> vertexSpace;
+                mat::interval<uint64_t> vertexSpace;
                 std::vector<std::weak_ptr<EntityImageEntry>> entityImages;
             };
         #pragma endregion  // structs

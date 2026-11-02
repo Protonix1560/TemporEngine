@@ -1,7 +1,9 @@
 
 #include "tempor.h"
 #include "tempor.hpp"
+
 #include <cassert>
+#include <cstdint>
 
 
 namespace {
@@ -75,41 +77,44 @@ namespace api {
     }
 
     namespace fs {
-        TprResult openFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
-            assert(gEngine); return gEngine->fs_openFile(path, flags, pFile);
+        TprResult openPathFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_openPathFile(path, flags, pFile);
         }
-        TprResult createMemoryFile(TprFile* pFile) noexcept {
-            assert(gEngine); return gEngine->fs_createMemoryFile(pFile);
+        TprResult createMemoryFile(TprCreateMemoryFileFlags flags, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_createMemoryFile(flags, pFile);
         }
-        TprResult forkFile(TprFile file, TprFile* pFile) noexcept {
-            assert(gEngine); return gEngine->fs_forkFile(file, pFile);
+        TprResult cloneFileCapability(TprFile file, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_cloneFileCapability(file, pFile);
         }
-        TprResult createFileCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
-            assert(gEngine); return gEngine->fs_createFileCapability(file, mask, pFile);
+        TprResult attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept {
+            assert(gEngine); return gEngine->fs_attenuateFileCapability(file, mask);
         }
-        void closeFile(TprFile file) noexcept {
-            assert(gEngine); return gEngine->fs_closeFile(file);
+        void destroyFile(TprFile file) noexcept {
+            assert(gEngine); return gEngine->fs_destroyFile(file);
         }
-        TprResult seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept {
-            assert(gEngine); return gEngine->fs_seek(file, offset, whence);
+        TprResult cloneFile(TprFile file, TprForkFileFlags flags, TprFile* pFile) noexcept {
+            assert(gEngine); return gEngine->fs_cloneFile(file, flags, pFile);
         }
-        TprResult tell(TprFile file, uint32_t* pPos) noexcept {
-            assert(gEngine); return gEngine->fs_tell(file, pPos);
+        TprResult snapshotCommitable(TprFile snapshot, TprBool8* pValue) noexcept {
+            assert(gEngine); return gEngine->fs_snapshotCommitable(snapshot, pValue);
         }
-        TprResult read(TprFile file, uint32_t n, char* pData) noexcept {
-            assert(gEngine); return gEngine->fs_read(file, n, pData);
+        TprResult commitSnapshot(TprFile snapshot) noexcept {
+            assert(gEngine); return gEngine->fs_commitSnapshot(snapshot);
         }
-        TprResult readAt(TprFile file, uint32_t pos, uint32_t n, char* pData) noexcept {
-            assert(gEngine); return gEngine->fs_readAt(file, pos, n, pData);
+        TprResult resetSnapshot(TprFile file, uint64_t pos, uint64_t n) noexcept {
+            assert(gEngine); return gEngine->fs_resetSnapshot(file, pos, n);
         }
-        TprResult resize(TprFile file, uint32_t newSize) noexcept {
-            assert(gEngine); return gEngine->fs_resize(file, newSize);
+        TprResult resizeFile(TprFile file, uint64_t newSize) noexcept {
+            assert(gEngine); return gEngine->fs_resizeFile(file, newSize);
         }
-        TprResult write(TprFile file, uint32_t n, const char* pData) noexcept {
-            assert(gEngine); return gEngine->fs_write(file, n, pData);
+        TprResult readFile(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept {
+            assert(gEngine); return gEngine->fs_readFile(file, pos, n, pData);
         }
-        TprResult writeAt(TprFile file, uint32_t pos, uint32_t n, const char* pData) noexcept {
-            assert(gEngine); return gEngine->fs_writeAt(file, pos, n, pData);
+        TprResult writeFile(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept {
+            assert(gEngine); return gEngine->fs_writeFile(file, pos, n, pData);
+        }
+        TprResult fileSize(TprFile file, uint64_t* pSize) noexcept {
+            assert(gEngine); return gEngine->fs_fileSize(file, pSize);
         }
         TprResult pathType(const char* path, TprPathType* pType) noexcept {
             assert(gEngine); return gEngine->fs_pathType(path, pType);
@@ -366,18 +371,19 @@ void TemporEngine::registerAPI() {
     mOutAPI.writeTokenSequence = api::log::writeTokenSequence;
     mOutAPI.writeMachineData = api::log::writeMachineData;
     // vfs
-    mFSAPI.openFile = api::fs::openFile;
+    mFSAPI.openPathFile = api::fs::openPathFile;
     mFSAPI.createMemoryFile = api::fs::createMemoryFile;
-    mFSAPI.forkFile = api::fs::forkFile;
-    mFSAPI.createFileCapability = api::fs::createFileCapability;
-    mFSAPI.closeFile = api::fs::closeFile;
-    mFSAPI.seek = api::fs::seek;
-    mFSAPI.tell = api::fs::tell;
-    mFSAPI.read = api::fs::read;
-    mFSAPI.readAt = api::fs::readAt;
-    mFSAPI.resize = api::fs::resize;
-    mFSAPI.write = api::fs::write;
-    mFSAPI.writeAt = api::fs::writeAt;
+    mFSAPI.cloneFileCapability = api::fs::cloneFileCapability;
+    mFSAPI.attenuateFileCapability = api::fs::attenuateFileCapability;
+    mFSAPI.destroyFile = api::fs::destroyFile;
+    mFSAPI.cloneFile = api::fs::cloneFile;
+    mFSAPI.snapshotCommitable = api::fs::snapshotCommitable;
+    mFSAPI.commitSnapshot = api::fs::commitSnapshot;
+    mFSAPI.resetSnapshot = api::fs::resetSnapshot;
+    mFSAPI.resizeFile = api::fs::resizeFile;
+    mFSAPI.readFile = api::fs::readFile;
+    mFSAPI.writeFile = api::fs::writeFile;
+    mFSAPI.fileSize = api::fs::fileSize;
     mFSAPI.pathType = api::fs::pathType;
     mFSAPI.createDirectory = api::fs::createDirectory;
     mFSAPI.touchFile = api::fs::touchFile;

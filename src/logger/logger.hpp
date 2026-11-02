@@ -2,7 +2,6 @@
 #ifndef LOGGER_LOGGER_HPP_
 #define LOGGER_LOGGER_HPP_
 
-
 #include "tempor.h"
 
 #include <algorithm>
@@ -14,6 +13,9 @@
 #include <type_traits>
 #include <variant>
 #include <vector>
+#include <utility>
+#include <ostream>
+#include <string>
 
 
 enum class format_marker_id {
@@ -211,7 +213,7 @@ class basic_format_sequence {
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
                 }
             );
         }
@@ -221,7 +223,7 @@ class basic_format_sequence {
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
                 }
             );
         }
@@ -232,7 +234,7 @@ class basic_format_sequence {
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
                 }
             );
             other.clear();
@@ -243,7 +245,7 @@ class basic_format_sequence {
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
                 }
             );
             other.clear();
@@ -317,14 +319,15 @@ class Logger {
 
         Logger(const Logger& other) : mpSink(other.mpSink), mPrefix(other.mPrefix) {}
         Logger& operator=(const Logger& other) {
+            if (&other == this) return *this;
             mpSink = other.mpSink;
             mPrefix = other.mPrefix;
             return *this;
         }
 
-        Logger(Logger&& other) : mpSink(std::move(other.mpSink)), mPrefix(std::move(other.mPrefix)) {}
-        Logger& operator=(Logger&& other) {
-            mpSink = std::move(other.mpSink);
+        Logger(Logger&& other) noexcept : mpSink(other.mpSink), mPrefix(std::move(other.mPrefix)) {}
+        Logger& operator=(Logger&& other) noexcept {
+            mpSink = other.mpSink;
             mPrefix = std::move(other.mPrefix);
             return *this;
         }

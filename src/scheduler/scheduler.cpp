@@ -6,6 +6,7 @@
 #include "settings.hpp"
 #include "log_entry.hpp"
 #include "thread_info.hpp"
+#include "format-fix.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -21,6 +22,7 @@
 #include <string_view>
 #include <thread>
 #include <cmath>
+#include <charconv>
 
 #ifdef POSIX
     #include "pthread.h"
@@ -187,7 +189,7 @@ Scheduler::~Scheduler() {
 
 
 void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept {
-    std::string name = std::format("short{}", thread->id);
+    std::string name = format::format("short{}", thread->id);
     #ifdef POSIX
         pthread_setname_np(pthread_self(), name.c_str());
     #endif
@@ -210,7 +212,7 @@ void Scheduler::shortThread(std::stop_token stop, std::shared_ptr<Thread> thread
 }
 
 void Scheduler::longThread(std::stop_token stop, std::shared_ptr<Thread> thread) noexcept {
-    std::string name = std::format("long{}", thread->id);
+    std::string name = format::format("long{}", thread->id);
     #ifdef POSIX
         pthread_setname_np(pthread_self(), name.c_str());
     #endif

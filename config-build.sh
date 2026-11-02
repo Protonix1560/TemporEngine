@@ -9,13 +9,13 @@ fi
 
 # tempor build
 if [[ COMPILE_ENGINE -eq 1 ]]; then
-    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=test \
+    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=dist \
         -B build/tempor -S . -G "Unix Makefiles" || exit 1
 fi
 
 # test plugin build
 if [[ COMPILE_TEST_PLUGIN -eq 1 ]]; then
-    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=test \
+    cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=dist \
         -B build/plugins/test -S plugins/test/ -G "Unix Makefiles" || exit 1
 fi
 

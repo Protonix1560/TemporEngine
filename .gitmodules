@@ -1,3 +1,8 @@
 [submodule "3rd_party/fastgltf"]
 	path = 3rd_party/fastgltf
 	url = https://github.com/spnda/fastgltf
+	branch = v0.9.x
+[submodule "3rd_party/mio"]
+	path = 3rd_party/mio
+	url = https://github.com/maxtek6/mio.git
+	branch = mio-1-2-0

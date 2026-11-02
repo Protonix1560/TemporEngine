@@ -26,6 +26,10 @@
 #include <optional>
 #include <stdexcept>
 #include <cassert>
+#include <type_traits>
+#include <filesystem>
+#include <cstddef>
+#include <cstdint>
 
 
 template <typename T>
@@ -173,18 +177,19 @@ class TemporEngine {
             TprResult scene_copyComponentChunkData(TprComponentChunk chunk, uint32_t offset, uint32_t n, char* pData) noexcept;
             TprResult scene_writeComponentChunkData(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) noexcept;
             // fs
-            TprResult fs_openFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept;
-            TprResult fs_createMemoryFile(TprFile* pFile) noexcept;
-            TprResult fs_forkFile(TprFile file, TprFile* pFile) noexcept;
-            TprResult fs_createFileCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept;
-            void fs_closeFile(TprFile file) noexcept;
-            TprResult fs_seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept;
-            TprResult fs_tell(TprFile file, uint32_t* pPos) noexcept;
-            TprResult fs_read(TprFile file, uint32_t n, char* pData) noexcept;
-            TprResult fs_readAt(TprFile file, uint32_t pos, uint32_t n, char* pData) noexcept;
-            TprResult fs_resize(TprFile file, uint32_t newSize) noexcept;
-            TprResult fs_write(TprFile file, uint32_t n, const char* pData) noexcept;
-            TprResult fs_writeAt(TprFile file, uint32_t pos, uint32_t n, const char* pData) noexcept;
+            TprResult fs_openPathFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept;
+            TprResult fs_createMemoryFile(TprCreateMemoryFileFlags flags, TprFile* pFile) noexcept;
+            TprResult fs_cloneFileCapability(TprFile file, TprFile* pFile) noexcept;
+            TprResult fs_attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
+            void fs_destroyFile(TprFile file) noexcept;
+            TprResult fs_cloneFile(TprFile file, TprForkFileFlags flags, TprFile* pFile) noexcept;
+            TprResult fs_snapshotCommitable(TprFile snapshot, TprBool8* pValue) noexcept;
+            TprResult fs_commitSnapshot(TprFile snapshot) noexcept;
+            TprResult fs_resetSnapshot(TprFile file, uint64_t pos, uint64_t n) noexcept;
+            TprResult fs_resizeFile(TprFile file, uint64_t newSize) noexcept;
+            TprResult fs_readFile(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept;
+            TprResult fs_writeFile(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept;
+            TprResult fs_fileSize(TprFile file, uint64_t* pSize) noexcept;
             TprResult fs_pathType(const char* path, TprPathType* pType) noexcept;
             TprResult fs_createDirectory(const char* path, TprCreateDirectoryFlags flags) noexcept;
             TprResult fs_touchFile(const char* path, TprTouchFileFlags flags) noexcept;
@@ -266,7 +271,7 @@ class TemporEngine {
 
     private:
         TprOutputAPI mOutAPI{};
-        TprFileSystemAPI mFSAPI{};
+        TprFilesystemAPI mFSAPI{};
         TprSceneAPI mSceneAPI{};
         TprGeometryAPI mGeoAPI{};
         TprWindowingAPI mWinAPI{};
@@ -326,7 +331,7 @@ class TemporEngine {
         atomic_counter<bool> mPluginsFinishedLoading = false;
 
         volatile sig_atomic_t mSignal = 0;
-        std::atomic<TprResult> mRunResult = _TPR_RESULT_MAX_ENUM;
+        std::atomic<TprResult> mRunResult = TPR_RESULT_MAX_ENUM;
 
         std::optional<Logger> mLogger;
 

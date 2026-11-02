@@ -350,7 +350,7 @@ TprResult SceneGraph::getComponentChunkHandles(TprComponent component, TprFile f
             }
         }
         TprResult result;
-        result = mrFileSys.resize(file, handles.size() * sizeof(TprComponentChunk));
+        result = mrFileSys.resizeFile(file, handles.size() * sizeof(TprComponentChunk));
         if (result != TPR_SUCCESS) return result;
         result = mrFileSys.writeAt(file, 0, handles.size() * sizeof(TprComponentChunk), reinterpret_cast<const std::byte*>(handles.data()));
 

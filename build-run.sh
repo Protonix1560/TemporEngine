@@ -11,8 +11,8 @@ echo -e "\033[92m    //// BUILD ////\033[0m\n"
 ./build.sh && {
     printf '\n%.0s' $(seq 1 $(tput lines))
     tput cup 0 0
-    echo -e "\033[92m    //// TEST ////\033[0m\n"
-    cd test
+    echo -e "\033[92m    //// RUN ////\033[0m\n"
+    cd dist
     ./launch.sh || exit 1
     cd ..
     echo

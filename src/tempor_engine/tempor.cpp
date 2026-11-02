@@ -218,7 +218,7 @@ TprResult TemporEngine::runtimeInit() {
 TprResult TemporEngine::runtimeRun() {
     sleep_clock clock{200.0};
     mpWindowing->eventLoopStarted();
-    while (mRunResult.load() == _TPR_RESULT_MAX_ENUM) {
+    while (mRunResult.load() == TPR_RESULT_MAX_ENUM) {
         clock.tick();
         if (auto r = mpWindowing->update(); r != TPR_SUCCESS) {
             mLogger->error() << "Failed to update Windowing [" << r << "]";
@@ -237,7 +237,7 @@ TprResult TemporEngine::runtimeRun() {
     auto runResult = mRunResult.load();
     if (runResult == TPR_PANIC) {
         mLogger->panic(TPR_LOG_STYLE_TIMESTAMP1) << "Engine panicked!";
-    } else if (runResult != TPR_SUCCESS && runResult != _TPR_RESULT_MAX_ENUM) {
+    } else if (runResult != TPR_SUCCESS && runResult != TPR_RESULT_MAX_ENUM) {
         mLogger->error(TPR_LOG_STYLE_TIMESTAMP1) << "Engine runtime failed [" << runResult << "]";
     }
 

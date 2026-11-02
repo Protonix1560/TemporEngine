@@ -17,6 +17,7 @@
 #include <mutex>
 #include <set>
 #include <vector>
+#include <span>
 
 #include <vulkan/vulkan.h>
 

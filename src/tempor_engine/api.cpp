@@ -6,6 +6,8 @@
 #include "tempor.hpp"
 #include "thread_info.hpp"
 
+#include <cstdint>
+
 #pragma region log
     void TemporEngine::out_log(TprLogLevel logLevel, const char* message) noexcept {
         mpOutSink->writeLog(basic_format_sequence(message), logLevel);
@@ -110,73 +112,76 @@
 #pragma endregion  // log
 
 #pragma region fs
-    TprResult TemporEngine::fs_openFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
+    TprResult TemporEngine::fs_openPathFile(const char* path, TprOpenFileFlags flags, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileSys->openFile(path, flags);
+        auto exp = mpFileSys->openPathFile(path, flags);
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::fs_createMemoryFile(TprFile* pFile) noexcept {
+    TprResult TemporEngine::fs_createMemoryFile(TprCreateMemoryFileFlags flags, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileSys->createMemoryFile();
+        auto exp = mpFileSys->createMemoryFile(flags);
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::fs_forkFile(TprFile file, TprFile* pFile) noexcept {
+    TprResult TemporEngine::fs_cloneFileCapability(TprFile file, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileSys->forkFile(file);
+        auto exp = mpFileSys->cloneFileCapability(file);
         if (!exp.has_value()) return exp.error();
         *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::fs_createFileCapability(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) noexcept {
-        if (!pFile) return TPR_ERROR_INVALID_VALUE;
+    TprResult TemporEngine::fs_attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept {
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileSys->createFileCapability(file, mask);
-        if (!exp.has_value()) return exp.error();
-        *pFile = exp.value();
-        return TPR_SUCCESS;
+        return mpFileSys->attenuateFileCapability(file, mask);
     }
-    void TemporEngine::fs_closeFile(TprFile file) noexcept {
+    void TemporEngine::fs_destroyFile(TprFile file) noexcept {
         if (!mpFileSys) return;
-        mpFileSys->closeFile(file);
+        mpFileSys->destroyFile(file);
     }
-    TprResult TemporEngine::fs_seek(TprFile file, int32_t offset, TprSeekWhence whence) noexcept {
+    TprResult TemporEngine::fs_cloneFile(TprFile file, TprForkFileFlags flags, TprFile* pFile) noexcept {
+        if (!pFile) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        return mpFileSys->seek(file, offset, whence);
-    }
-    TprResult TemporEngine::fs_tell(TprFile file, uint32_t* pPos) noexcept {
-        if (!pPos) return TPR_ERROR_INVALID_VALUE;
-        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        auto exp = mpFileSys->tell(file);
+        auto exp = mpFileSys->cloneFile(file, flags);
         if (!exp.has_value()) return exp.error();
-        *pPos = exp.value();
+        *pFile = exp.value();
         return TPR_SUCCESS;
     }
-    TprResult TemporEngine::fs_read(TprFile file, uint32_t n, char* pData) noexcept {
+    TprResult TemporEngine::fs_snapshotCommitable(TprFile snapshot, TprBool8* pValue) noexcept {
+        if (!pValue) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        return mpFileSys->read(file, n, reinterpret_cast<std::byte*>(pData));
+        auto exp = mpFileSys->snapshotCommitable(snapshot);
+        if (!exp.has_value()) return exp.error();
+        *pValue = exp.value() ? TPR_TRUE : TPR_FALSE;
+        return TPR_SUCCESS;
     }
-    TprResult TemporEngine::fs_readAt(TprFile file, uint32_t pos, uint32_t n, char* pData) noexcept {
+    TprResult TemporEngine::fs_commitSnapshot(TprFile snapshot) noexcept {
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        return mpFileSys->readAt(file, pos, n, reinterpret_cast<std::byte*>(pData));
+        return mpFileSys->commitSnapshot(snapshot);
     }
-    TprResult TemporEngine::fs_resize(TprFile file, uint32_t newSize) noexcept {
+    TprResult TemporEngine::fs_resetSnapshot(TprFile file, uint64_t pos, uint64_t n) noexcept {
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        return mpFileSys->resize(file, newSize);
+        return mpFileSys->resetSnapshot(file, pos, n);
     }
-    TprResult TemporEngine::fs_write(TprFile file, uint32_t n, const char* pData) noexcept {
+    TprResult TemporEngine::fs_resizeFile(TprFile file, uint64_t newSize) noexcept {
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        return mpFileSys->write(file, n, reinterpret_cast<const std::byte*>(pData));
+        return mpFileSys->resizeFile(file, newSize);
     }
-    TprResult TemporEngine::fs_writeAt(TprFile file, uint32_t pos, uint32_t n, const char* pData) noexcept {
+    TprResult TemporEngine::fs_readFile(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept {
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
-        return mpFileSys->writeAt(file, pos, n, reinterpret_cast<const std::byte*>(pData));
+        return mpFileSys->readFile(file, pos, n, pData);
+    }
+    TprResult TemporEngine::fs_writeFile(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept {
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        return mpFileSys->writeFile(file, pos, n, pData);
+    }
+    TprResult TemporEngine::fs_fileSize(TprFile file, uint64_t* pSize) noexcept {
+
     }
     TprResult TemporEngine::fs_pathType(const char* path, TprPathType* pType) noexcept {
         if (!pType) return TPR_ERROR_INVALID_VALUE;

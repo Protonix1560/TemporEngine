@@ -1,72 +1,59 @@
 
 #include "filesystem.hpp"
 #include "core.hpp"
-#include "interval_union.hpp"
 #include "tempor.h"
 #include "log_entry.hpp"
+#include "logger.hpp"
 
-#include <cerrno>
+#include <mat/interval_union.hpp>
+#include <fio/fio.hpp>
+
 #include <cstring>
 #include <exception>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <system_error>
+#include <utility>
 #include <variant>
+#include <cstdio>
+#include <vector>
+#include <atomic>
+#include <cstdint>
+#include <cstddef>
+#include <new>
+
+#include <mio/mmap.hpp>
+#include <mio/page.hpp>
 
 
-Filesystem::Filesystem(Logger logger, std::atomic<TprResult>& rRunResult) : mLogger(logger), mrRunResult(rRunResult) {}
-
+Filesystem::Filesystem(Logger logger, std::atomic<TprResult>& rRunResult) : mLogger(std::move(logger)), mrRunResult(rRunResult) {}
 Filesystem::~Filesystem() {}
 
 
-expected<TprFile, TprResult> Filesystem::openFile(std::filesystem::path path, TprOpenFileFlags flags) noexcept {
+expected<TprFile, TprResult> Filesystem::openPathFile(const std::filesystem::path& path, TprOpenFileFlags flags) noexcept {
     if (path.empty()) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
-        std::filesystem::path normPath = std::filesystem::path(path);
         if (
             (flags & TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT) ||
-            ((flags & TPR_OPEN_FILE_NEW_IF_NONE_FLAG_BIT) && !std::filesystem::exists(normPath))
+            ((flags & TPR_OPEN_FILE_NEW_IF_NONE_FLAG_BIT) && !std::filesystem::exists(path))
         ) {
-            errno = 0;
-            FILE* file = std::fopen(normPath.c_str(), "wb");
-            if (!file) throw std::system_error(errno, std::generic_category(), "fopen failed");
-            std::fclose(file);
+            auto file = fio::zero(path);
+            if (!file) return unexpected(file.error());
+            std::fclose(file.value());
         }
-        const char* modes = (flags & TPR_OPEN_FILE_SYNC_FLAG_BIT) ? "rb+" : "rb";
-        FILE* file;
-        errno = 0;
-        file = std::fopen(normPath.c_str(), modes);
-        if (!file) mLogger.error() << "fopen failed: " << std::strerror(errno);
-        if (!file) {
-            switch (errno) {
-                case ENOMEM:
-                case EMFILE:
-                case EOVERFLOW:
-                    return unexpected(TPR_ERROR_OUT_OF_MEMORY);
-                case EACCES:
-                case EPERM:
-                    return unexpected(TPR_ERROR_NOT_PERMITTED);
-                case EISDIR:
-                case ENOENT:
-                case ENOTDIR:
-                    return unexpected(TPR_ERROR_DOESNT_EXIST);
-                default:
-                    mLogger.panic() << "Unexpected errno: " << errno;
-                    mrRunResult.store(TPR_PANIC);
-                    return unexpected(TPR_PANIC);
-            }
-        }
+        auto fileExp = fio::open(path, flags & TPR_OPEN_FILE_PERSISTENT_FLAG_BIT, flags & TPR_OPEN_FILE_TEXT_BIT);
+        if (!fileExp.has_value()) return unexpected(fileExp.error());
+        auto file = fileExp.value();
         FileHandle handle{};
-        if (!(flags & TPR_OPEN_FILE_SYNC_FLAG_BIT)) handle.capability &= ~TPR_FILE_CAPABILITY_WRITE_FLAG_BIT;
-        handle.entry = std::make_shared<FileEntry>(FileSource{file, flags});
+        if (!(flags & TPR_OPEN_FILE_PERSISTENT_FLAG_BIT)) handle.capability &= ~TPR_FILE_CAPABILITY_WRITE_FLAG_BIT;
+        handle.entry = std::make_shared<FileSource>(file, flags);
         mFiles.insert_or_assign(mFileCounter, handle);
-        mLogger.debug() << "Created File " << mFileCounter << " for file " << path;
+        mLogger.debug() << "Created File " << mFileCounter << " for \"" << path.string() << "\"";
         auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
         mFileCounter++;
         return h;
-
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -82,13 +69,12 @@ expected<TprFile, TprResult> Filesystem::createMemoryFile(TprCreateMemoryFileFla
     std::lock_guard<std::mutex> lock(mMutex);
     try {
         FileHandle handle{};
-        handle.entry = std::make_shared<FileEntry>(MemorySource{});
+        handle.entry = std::make_shared<MemorySource>();
         mFiles.insert_or_assign(mFileCounter, handle);
-        mLogger.debug() << "Created memory File " << mFileCounter;
+        mLogger.debug() << "Created Memory File " << mFileCounter;
         auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
         mFileCounter++;
         return h;
-
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -100,21 +86,18 @@ expected<TprFile, TprResult> Filesystem::createMemoryFile(TprCreateMemoryFileFla
     }
 }
 
-expected<TprFile, TprResult> Filesystem::createFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept {
+expected<TprFile, TprResult> Filesystem::cloneFileCapability(TprFile file) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
         auto handleIt = mFiles.find(get_basic_handle_index(file));
         if (handleIt == mFiles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-        FileHandle handle{};
-        handle.capability = mask & handleIt->second.capability;
-        handle.entry = handleIt->second.entry;
+        FileHandle handle{handleIt->second.entry, handleIt->second.capability};
         mFiles.insert_or_assign(mFileCounter, handle);
         mLogger.debug() << "Created File capability " << mFileCounter << " for File " << get_basic_handle_index(file);
         auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
         mFileCounter++;
         return h;
-
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -126,21 +109,81 @@ expected<TprFile, TprResult> Filesystem::createFileCapability(TprFile file, TprF
     }
 }
 
-void Filesystem::closeFile(TprFile file) noexcept {
+TprResult Filesystem::attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept {
+    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        handleIt->second.capability &= mask;
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+void Filesystem::destroyFile(TprFile file) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return;
     std::lock_guard<std::mutex> lock(mMutex);
     try {
         auto handleIt = mFiles.find(get_basic_handle_index(file));
         if (handleIt == mFiles.end()) return;
-        auto source = handleIt->second.entry;
+        auto entry = handleIt->second.entry;
         mFiles.erase(handleIt);
-        if (source.use_count() == 1 && std::holds_alternative<OverlaySource>(source->source)) {
-            auto& overlay = std::get<OverlaySource>(source->source);
-            auto entry = overlay.overlayed.lock();
-            if (entry) entry->overlays.erase(source);
+        if (std::holds_alternative<std::shared_ptr<SnapshotSource>>(entry)) {
+            auto snapshot = std::get<std::shared_ptr<SnapshotSource>>(entry);
+            if (snapshot.use_count() == 1) {
+                auto origin = variant_cast_to<std::weak_ptr<FileEntry>>(snapshot->origin).lock();
+                if (origin) origin->snapshots.erase(snapshot);
+            }
+        }
+        auto& snapshots = variant_cast_to<std::shared_ptr<FileEntry>>(entry)->snapshots;
+        for (auto it = snapshots.begin(); it != snapshots.end();) {
+            if (auto snapshot = it->lock()) {
+                auto save = mat::interval_union<size_t>{mat::interval<size_t>{0, snapshot->size}} - snapshot->data.set();
+                if (save.empty()) continue;
+                auto saveResult = std::visit(overload{
+                    [&snapshot, save](const std::shared_ptr<FileSource>& src) {
+                        for (const auto& el : save) {
+                            auto exp = fio::read<std::byte>(src->file, el);
+                            if (!exp) return exp.error();
+                            auto inter = mat::data_interval<std::byte>{std::move(exp.value()), el.set_begin()};
+                            snapshot->data.merge_with(std::move(inter));
+                        }
+                        return TPR_SUCCESS;
+                    },
+                    [&snapshot, save](const std::shared_ptr<MemorySource>& src) {
+                        for (const auto& el : save) {
+                            mat::view_interval<std::byte> d{
+                                src->data.begin() + static_cast<std::vector<std::byte>::difference_type>(el.set_begin()),
+                                src->data.begin() + static_cast<std::vector<std::byte>::difference_type>(el.set_end()),
+                                el.set_begin()
+                            };
+                            snapshot->data.merge_with(d);
+                        }
+                        return TPR_SUCCESS;
+                    },
+                    [&snapshot, save](const std::shared_ptr<SnapshotSource>& src) {
+                        snapshot->data.merge_with(std::move(src->data & save));
+                        return TPR_SUCCESS;
+                    }
+                }, entry);
+                if (!saveResult) {
+                    mLogger.warn() << "Failed to write to a snapshot [" << to_underlying(saveResult) << "]";
+                }
+                it++;
+            } else {
+                mLogger.warn() << "File " << get_basic_handle_index(file) << " had an invalid pointer to snapshot. Removing it";
+                it = snapshots.erase(it);
+            }
         }
         mLogger.debug() << "Destroyed File " << get_basic_handle_index(file);
-
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
         mrRunResult.store(TPR_PANIC);
@@ -152,246 +195,359 @@ void Filesystem::closeFile(TprFile file) noexcept {
     }
 }
 
-expected<TprFile, TprResult> Filesystem::forkFile(TprFile file, TprForkFileFlags flags) noexcept {
+expected<TprFile, TprResult> Filesystem::cloneFile(TprFile file, TprForkFileFlags flags) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
         auto handleIt = mFiles.find(get_basic_handle_index(file));
         if (handleIt == mFiles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
-        auto& srcEntry = handleIt->second.entry;
+        auto& origin = handleIt->second.entry;
 
-        std::shared_ptr<FileEntry> entry;
+        if (flags & TPR_FORK_FILE_SNAPSHOT_FLAG_BIT) {
+            auto snapshot = std::make_shared<SnapshotSource>();
+            snapshot->origin = variant_cast<weakFileVariant>(origin);
+            snapshot->size = std::visit(overload{
+                [](const std::shared_ptr<FileSource>& src) { return fio::size(src->file); },
+                [](const std::shared_ptr<MemorySource>& src) { return src->data.size(); },
+                [](const std::shared_ptr<SnapshotSource>& src) { return src->size; }
+            }, origin);
+            FileHandle handle{snapshot};
+            mFiles.insert_or_assign(mFileCounter, handle);
+            mLogger.debug() << "Forked to Snapshot File " << mFileCounter << " from File " << get_basic_handle_index(file);
+            auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
+            mFileCounter++;
+            return h;
+
+        } else {
+            auto dataExp = std::visit(overload{
+                [this](const std::shared_ptr<FileSource>& src) -> expected<sharedFileVariant, TprResult> {
+                    auto dataExp = fio::read<std::byte>(src->file, mat::interval<size_t>(0, SIZE_MAX));
+                    if (!dataExp.has_value()) return unexpected(dataExp.error());
+                    return sharedFileVariant(std::make_shared<MemorySource>(std::move(dataExp.value())));
+                },
+                [](const std::shared_ptr<MemorySource>& src) -> expected<sharedFileVariant, TprResult> {
+                    return sharedFileVariant(std::make_shared<MemorySource>(*src));
+                },
+                [&origin, this](const std::shared_ptr<SnapshotSource>& src) -> expected<sharedFileVariant, TprResult> {
+                    auto snapshot = std::make_shared<SnapshotSource>(*src);
+                    auto origin = variant_cast_to<std::weak_ptr<FileEntry>>(src->origin).lock();
+                    if (origin) origin->snapshots.insert(snapshot);
+                    return sharedFileVariant(snapshot);
+                }
+            }, origin);
+            if (!dataExp) return unexpected(dataExp.error());
+            FileHandle handle{dataExp.value()};
+            mFiles.insert_or_assign(mFileCounter, handle);
+            mLogger.debug() << "Forked to File " << mFileCounter << " from File " << get_basic_handle_index(file);
+            auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
+            mFileCounter++;
+            return h;
+        }
+    } catch (const std::bad_alloc& e) {
+        return unexpected(TPR_ERROR_BAD_ALLOC);
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return unexpected(TPR_PANIC);
+    }
+}
+
+bool Filesystem::isSnapshotCommitable(SnapshotSource& snapshot) {
+    return (snapshot.conflict & (snapshot.data.set() | snapshot.read)).empty();
+}
+
+
+expected<bool, TprResult> Filesystem::snapshotCommitable(TprFile handle) noexcept {
+    if (get_basic_handle_type(handle) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(handle));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto& handle = handleIt->second;
+        if (!std::holds_alternative<std::shared_ptr<SnapshotSource>>(handle.entry)) return TPR_ERROR_INVALID_OPERATION;
+        return isSnapshotCommitable(*std::get<std::shared_ptr<SnapshotSource>>(handle.entry).get());
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Filesystem::commitSnapshot(TprFile handle) noexcept {
+    if (get_basic_handle_type(handle) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(handle));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto& handle = handleIt->second;
+        if (!std::holds_alternative<std::shared_ptr<SnapshotSource>>(handle.entry)) return TPR_ERROR_INVALID_OPERATION;
+        auto snapshot = std::get<std::shared_ptr<SnapshotSource>>(handle.entry);
+        if (!isSnapshotCommitable(*snapshot.get())) return TPR_ERROR_INVALID_OPERATION;
+        auto commitResult = std::visit(overload{
+            [&snapshot](const std::weak_ptr<FileSource>& dstWeak) -> TprResult {
+                auto dst = dstWeak.lock();
+                if (!dst) return TPR_ERROR_DOESNT_EXIST;
+                std::fflush(dst->file);
+                fio::resize(dst->file, snapshot->data.set_end());
+                mio::file_handle_type handle = fio::mio_handle(dst->file);
+                mio::basic_mmap_sink<std::byte> mmap(handle);
+                snapshot->data.copy_subset(mat::interval<size_t>{0, mmap.size()}, mmap.begin());
+                snapshot->data.clear();
+                return TPR_SUCCESS;
+            },
+            [&snapshot](const std::weak_ptr<MemorySource>& dstWeak) -> TprResult {
+                auto dst = dstWeak.lock();
+                if (!dst) return TPR_ERROR_DOESNT_EXIST;
+                snapshot->data.copy_subset(mat::interval<size_t>(0, snapshot->data.set_end()), dst->data.begin());
+                return TPR_SUCCESS;
+            },
+            [&snapshot](const std::weak_ptr<SnapshotSource>& dstWeak) -> TprResult {
+                auto dst = dstWeak.lock();
+                if (!dst) return TPR_ERROR_DOESNT_EXIST;
+                dst->data.merge_with(snapshot->data);
+                return TPR_SUCCESS;
+            }
+        }, snapshot->origin);
+        if (!commitResult) return commitResult;
+        snapshot->data.clear();
+        snapshot->read.clear();
+        snapshot->conflict.clear();
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Filesystem::resetSnapshot(TprFile handle, uint64_t pos, uint64_t n) noexcept {
+    if (get_basic_handle_type(handle) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    if (pos > INT64_MAX || n > INT64_MAX) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(handle));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto& handle = handleIt->second;
+        if (!std::holds_alternative<std::shared_ptr<SnapshotSource>>(handle.entry)) return TPR_ERROR_INVALID_OPERATION;
+        auto snapshot = std::get<std::shared_ptr<SnapshotSource>>(handle.entry);
+        if (pos + n >= snapshot->size) return TPR_ERROR_OUT_OF_RANGE;
+        snapshot->data -= mat::interval<size_t>(pos, pos + n);
+        snapshot->read -= mat::interval<size_t>(pos, pos + n);
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+
+TprResult Filesystem::resizeFile(TprFile file, uint64_t newSize) noexcept {
+    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    if (newSize > INT64_MAX) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto& handle = handleIt->second;
+        uint64_t oldSize = std::visit(overload{
+            [](std::shared_ptr<FileSource>& src) { return fio::size_destructive(src->file); },
+            [](std::shared_ptr<MemorySource>& src) { return src->data.size(); },
+            [](std::shared_ptr<SnapshotSource>& src) { return src->size; }
+        }, handle.entry);
+        if (oldSize == newSize) return TPR_SUCCESS;
         std::visit(overload{
-            [&entry](FileSource& src) {
-                errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
-                errno = 0;
-                long len = ftell(src.file);
-                if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
-                MemorySource source{};
-                source.data.resize(len);
-                rewind(src.file);
-                errno = 0;
-                auto n = fread(source.data.data(), 1, len, src.file);
-                if (n != len) throw std::system_error(errno, std::generic_category(), "fread failed");
-                entry = std::make_shared<FileEntry>(source);
+            [newSize](const std::shared_ptr<FileSource>& src) { fio::resize(src->file, newSize); },
+            [newSize](const std::shared_ptr<MemorySource>& src) { src->data.resize(newSize); },
+            [newSize](const std::shared_ptr<SnapshotSource>& src) { src->data &= mat::interval<size_t>(0, newSize); src->size = newSize; }
+        }, handle.entry);
+        auto& snapshots = variant_cast_to<std::shared_ptr<FileEntry>>(handle.entry)->snapshots;
+        for (auto it = snapshots.begin(); it != snapshots.end();) {
+            if (auto snapshot = it->lock()) {
+                if (oldSize > newSize) snapshot->conflict |= mat::interval<size_t>{newSize, oldSize};
+                else snapshot->conflict |= mat::interval<size_t>{oldSize, newSize};
+                it++;
+            } else {
+                mLogger.warn() << "File " << get_basic_handle_index(file) << " had an invalid pointer to snapshot. Removing it";
+                it = snapshots.erase(it);
+            }
+        }
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Filesystem::readFile(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept {
+    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    if (pos > INT64_MAX || n > INT64_MAX) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto& handle = handleIt->second;
+        uint64_t size = std::visit(overload{
+            [](std::shared_ptr<FileSource>& src) { return fio::size_destructive(src->file); },
+            [](std::shared_ptr<MemorySource>& src) { return src->data.size(); },
+            [](std::shared_ptr<SnapshotSource>& src) { return src->size; }
+        }, handle.entry);
+        if (pos + n > size) return TPR_ERROR_OUT_OF_RANGE;
+        auto readResult = std::visit(overload{
+            [pData, n, pos](const std::shared_ptr<FileSource>& src) {
+                return fio::read(src->file, mat::interval<size_t>{pos, pos + n}, pData);
             },
-            [&entry](MemorySource& src) {
-                MemorySource source{};
-                source.data.resize(src.data.size());
-                std::ranges::copy(src.data, source.data.begin());
-                entry = std::make_shared<FileEntry>(source);
+            [pData, n, pos](const std::shared_ptr<MemorySource>& src) {
+                std::memcpy(pData, src->data.data() + pos, n);
+                return TPR_SUCCESS;
             },
-            [&entry, &srcEntry, this](OverlaySource& src) {
-                OverlaySource source{};
-                source.overlayed = srcEntry;
-                std::visit(overload{
-                    [&size = source.size](FileSource& src) {
-                        errno = 0;
-                        if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
-                        errno = 0;
-                        long len = ftell(src.file);
-                        if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
-                        size = len;
+            [pData, n, pos](const std::shared_ptr<SnapshotSource>& src) {
+                src->read |= mat::interval<size_t>(pos, pos + n);
+                std::shared_ptr<SnapshotSource> curr = src;
+                mat::interval_union<size_t> copy{{pos, pos + n}};
+                while (!copy.empty() && curr) {
+                    auto origin = curr->origin;
+                    auto nextExp = std::visit(overload{
+                        [&copy, pData](const std::weak_ptr<FileSource>& srcWeak) -> expected<std::shared_ptr<SnapshotSource>, TprResult> {
+                            auto src = srcWeak.lock();
+                            if (!src) return std::shared_ptr<SnapshotSource>(nullptr);
+                            for (const auto& el : copy) {
+                                fio::read(src->file, el, reinterpret_cast<std::byte*>(pData) + el.set_begin());
+                            }
+                            copy.clear();
+                            return std::shared_ptr<SnapshotSource>(nullptr);
+                        },
+                        [&copy, pData](const std::weak_ptr<MemorySource>& srcWeak) -> expected<std::shared_ptr<SnapshotSource>, TprResult> {
+                            auto src = srcWeak.lock();
+                            if (!src) return std::shared_ptr<SnapshotSource>(nullptr);
+                            for (const auto& el : copy) {
+                                std::memcpy(
+                                    reinterpret_cast<std::byte*>(pData) + el.set_begin(),
+                                    src->data.data() + el.set_begin(), el.length()
+                                );
+                            }
+                            copy.clear();
+                            return std::shared_ptr<SnapshotSource>(nullptr);
+                        },
+                        [&copy, pData](const std::weak_ptr<SnapshotSource>& srcWeak) -> expected<std::shared_ptr<SnapshotSource>, TprResult> {
+                            auto src = srcWeak.lock();
+                            if (!src) return std::shared_ptr<SnapshotSource>(nullptr);
+                            src->data.copy_subset(copy, reinterpret_cast<std::byte*>(pData) + copy.set_begin());
+                            copy -= src->data.set();
+                            return src;
+                        }
+                    }, origin);
+                    if (!nextExp) return nextExp.error();
+                    curr = nextExp.value();
+                }
+                return TPR_SUCCESS;
+            }
+        }, handle.entry);
+        if (!readResult) return readResult;
+        return TPR_SUCCESS;
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Filesystem::writeFile(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept {
+    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
+    if (pos > INT64_MAX || n > INT64_MAX) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
+        auto& handle = handleIt->second;
+        auto view = mat::view_interval<const std::byte>(
+            reinterpret_cast<const std::byte*>(pData),
+            reinterpret_cast<const std::byte*>(pData) + n,
+            pos
+        );
+        auto size = std::visit(overload{
+            [](const std::shared_ptr<FileSource>& src) -> size_t { return fio::size_destructive(src->file); },
+            [](const std::shared_ptr<MemorySource>& src) -> size_t { return src->data.size(); },
+            [](const std::shared_ptr<SnapshotSource>& src) -> size_t { return src->size; }
+        }, handle.entry);
+        if (view.set_end() > size) return TPR_ERROR_OUT_OF_RANGE;
+        auto& snapshots = variant_cast_to<std::shared_ptr<FileEntry>>(handle.entry)->snapshots;
+        for (auto it = snapshots.begin(); it != snapshots.end();) {
+            if (auto snapshot = it->lock()) {
+                auto save =
+                    mat::interval_union<size_t>(view.set() & mat::interval<size_t>{0, snapshot->size}) - snapshot->data.set();
+                if (save.empty()) continue;
+                auto saveResult = std::visit(overload{
+                    [&snapshot, save](const std::shared_ptr<FileSource>& src) {
+                        for (const auto& el : save) {
+                            auto exp = fio::read<std::byte>(src->file, el);
+                            if (!exp) return exp.error();
+                            auto inter = mat::data_interval<std::byte>{std::move(exp.value()), el.set_begin()};
+                            snapshot->data.merge_with(std::move(inter));
+                        }
+                        return TPR_SUCCESS;
                     },
-                    [&size = source.size](MemorySource& src) {
-                        size = src.data.size();
+                    [&snapshot, save](const std::shared_ptr<MemorySource>& src) {
+                        for (const auto& el : save) {
+                            mat::view_interval<std::byte> d{
+                                src->data.begin() + static_cast<std::vector<std::byte>::difference_type>(el.set_begin()),
+                                src->data.begin() + static_cast<std::vector<std::byte>::difference_type>(el.set_end()),
+                                el.set_begin()
+                            };
+                            snapshot->data.merge_with(d);
+                        }
+                        return TPR_SUCCESS;
                     },
-                    [&size = source.size](OverlaySource& src) {
-                        size = src.size;
+                    [&snapshot, save](const std::shared_ptr<SnapshotSource>& src) {
+                        snapshot->data.merge_with(std::move(src->data & save));
+                        return TPR_SUCCESS;
                     }
-                }, srcEntry->source);
-                entry = std::make_shared<FileEntry>(source);
-                srcEntry->overlays.insert(entry);
+                }, handle.entry);
+                if (!saveResult) return saveResult;
+                snapshot->conflict |= save;
+                it++;
+            } else {
+                mLogger.warn() << "File " << get_basic_handle_index(file) << " had an invalid pointer to snapshot. Removing it";
+                it = snapshots.erase(it);
             }
-        }, srcEntry->source);
-
-        FileHandle handle{entry};
-        mFiles.insert_or_assign(mFileCounter, handle);
-        mLogger.debug() << "Forked to File " << mFileCounter << " from File " << get_basic_handle_index(file);
-        auto h = construct_basic_handle<TprFile>(mFileCounter, 0, handle_type::file);
-        mFileCounter++;
-        return h;
-
-    } catch (const std::exception& e) {
-        mLogger.panic() << "Exception: " << e.what();
-        mrRunResult.store(TPR_PANIC);
-        return unexpected(TPR_PANIC);
-    } catch (...) {
-        mLogger.panic() << "Unknown exception";
-        mrRunResult.store(TPR_PANIC);
-        return unexpected(TPR_PANIC);
-    }
-}
-
-expected<TprBool8, TprResult> Filesystem::fileJoinable(TprFile file) noexcept {
-
-}
-
-TprResult Filesystem::joinFile(TprFile file) noexcept {
-
-}
-
-
-TprResult Filesystem::reset(TprFile file, uint64_t pos, uint64_t n) noexcept {
-    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
-    std::lock_guard<std::mutex> lock(mMutex);
-    try {
-        auto handleIt = mFiles.find(get_basic_handle_index(file));
-        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
-        auto& handle = handleIt->second;
-        if (!std::holds_alternative<OverlaySource>(handle.entry->source)) return TPR_ERROR_INVALID_OPERATION;
-        auto& overlay = std::get<OverlaySource>(handle.entry->source);
-        if (pos + n >= overlay.size) return TPR_ERROR_OUT_OF_RANGE;
-        overlay.data -= interval<size_t>(pos, pos + n);
-        return TPR_SUCCESS;
-    } catch (const std::exception& e) {
-        mLogger.panic() << "Exception: " << e.what();
-        mrRunResult.store(TPR_PANIC);
-        return TPR_PANIC;
-    } catch (...) {
-        mLogger.panic() << "Unknown exception";
-        mrRunResult.store(TPR_PANIC);
-        return TPR_PANIC;
-    }
-}
-
-TprResult Filesystem::resize(TprFile file, uint64_t newSize) noexcept {
-    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
-    std::lock_guard<std::mutex> lock(mMutex);
-    try {
-        auto handleIt = mFiles.find(get_basic_handle_index(file));
-        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
-        auto& handle = handleIt->second;
-        std::visit(overload{
-            [newSize](FileSource& src) {
-                #ifdef POSIX
-                    int fd = fileno(src.file);
-                    errno = 0;
-                    if (ftruncate(fd, newSize) == -1) throw std::system_error(errno, std::generic_category(), "ftruncate failed");
-                #endif
-                #ifdef WINDOWS
-                    int fd = _fileno(src.file);
-                    errno = 0;
-                    if (_chsize(fd, newSize) == -1) throw std::system_error(errno, std::generic_category(), "_chsize failed");
-                #endif
+        }
+        auto writeResult = std::visit(overload{
+            [view](const std::shared_ptr<FileSource>& src) {
+                return fio::write(src->file, view);
             },
-            [newSize](MemorySource& src) {
-                src.data.resize(newSize);
+            [view](const std::shared_ptr<MemorySource>& src) {
+                std::memcpy(src->data.data() + view.set_begin(), view.data(), view.length()); return TPR_SUCCESS;
             },
-            [newSize](OverlaySource& src) {
-                src.data &= interval<size_t>(0, newSize);
-                src.size = newSize;
+            [view](const std::shared_ptr<SnapshotSource>& src) {
+                src->data.merge_with(view); return TPR_SUCCESS;
             }
-        }, handle.entry->source);
-        return TPR_SUCCESS;
-    } catch (const std::exception& e) {
-        mLogger.panic() << "Exception: " << e.what();
-        mrRunResult.store(TPR_PANIC);
-        return TPR_PANIC;
-    } catch (...) {
-        mLogger.panic() << "Unknown exception";
-        mrRunResult.store(TPR_PANIC);
-        return TPR_PANIC;
-    }
-}
-
-TprResult Filesystem::read(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept {
-    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
-    std::lock_guard<std::mutex> lock(mMutex);
-    try {
-        auto handleIt = mFiles.find(get_basic_handle_index(file));
-        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
-        auto& handle = handleIt->second;
-        uint64_t size;
-        std::visit(overload{
-            [&size](FileSource& src) {
-                errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
-                errno = 0;
-                long len = ftell(src.file);
-                if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
-                size = len;
-            },
-            [&size](MemorySource& src) {
-                size = src.data.size();
-            },
-            [&size](OverlaySource& src) {
-                size = src.size;
-            }
-        }, handle.entry->source);
-        if (pos + n > size) return TPR_ERROR_OUT_OF_RANGE;
-        std::visit(overload{
-            [pData, n, pos](FileSource& src) {
-                errno = 0;
-                if (fseek(src.file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
-                errno = 0;
-                auto s = fread(pData, 1, n, src.file);
-                if (s != n) throw std::system_error(errno, std::generic_category(), "fread failed");
-            },
-            [pData, n, pos](MemorySource& src) {
-                std::memcpy(pData, src.data.data() + pos, n);
-            },
-            [pData, n, pos](OverlaySource& src) {
-                src.data.copy_subset(interval<size_t>(pos, pos + n), reinterpret_cast<std::byte*>(pData));
-            }
-        }, handle.entry->source);
-        return TPR_SUCCESS;
-    } catch (const std::exception& e) {
-        mLogger.panic() << "Exception: " << e.what();
-        mrRunResult.store(TPR_PANIC);
-        return TPR_PANIC;
-    } catch (...) {
-        mLogger.panic() << "Unknown exception";
-        mrRunResult.store(TPR_PANIC);
-        return TPR_PANIC;
-    }
-}
-
-TprResult Filesystem::write(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept {
-    if (get_basic_handle_type(file) != handle_type::file) return TPR_ERROR_INVALID_VALUE;
-    std::lock_guard<std::mutex> lock(mMutex);
-    try {
-        auto handleIt = mFiles.find(get_basic_handle_index(file));
-        if (handleIt == mFiles.end()) return TPR_ERROR_INVALID_VALUE;
-        auto& handle = handleIt->second;
-        uint64_t size;
-        std::visit(overload{
-            [&size](FileSource& src) {
-                errno = 0;
-                if (fseek(src.file, 0, SEEK_END)) throw std::system_error(errno, std::generic_category(), "fseek failed");
-                errno = 0;
-                long len = ftell(src.file);
-                if (len < 0) throw std::system_error(errno, std::generic_category(), "ftell failed");
-                size = len;
-            },
-            [&size](MemorySource& src) {
-                size = src.data.size();
-            },
-            [&size](OverlaySource& src) {
-                size = src.size;
-            }
-        }, handle.entry->source);
-        if (pos + n > size) return TPR_ERROR_OUT_OF_RANGE;
-        std::visit(overload{
-            [pData, n, pos](FileSource& src) {
-                errno = 0;
-                if (fseek(src.file, pos, SEEK_SET)) throw std::system_error(errno, std::generic_category(), "fseek failed");
-                errno = 0;
-                auto s = fwrite(pData, 1, n, src.file);
-                if (s != n) throw std::system_error(errno, std::generic_category(), "fwrite failed");
-            },
-            [pData, n, pos](MemorySource& src) {
-                std::memcpy(src.data.data() + pos, pData, n);
-            },
-            [pData, n, pos](OverlaySource& src) {
-                src.data |= view_interval<const std::byte>(
-                    reinterpret_cast<const std::byte*>(pData),
-                    reinterpret_cast<const std::byte*>(pData) + n,
-                    pos
-                );
-            }
-        }, handle.entry->source);
+        }, handle.entry);
+        if (!writeResult) return writeResult;
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
@@ -405,7 +561,8 @@ TprResult Filesystem::write(TprFile file, uint64_t pos, uint64_t n, const void* 
 }
 
 
-expected<TprPathType, TprResult> Filesystem::pathType(std::filesystem::path path) noexcept {
+
+expected<TprPathType, TprResult> Filesystem::pathType(const std::filesystem::path& path) noexcept {
     try {
         std::error_code ec;
         auto canonical = std::filesystem::canonical(path, ec);
@@ -424,7 +581,7 @@ expected<TprPathType, TprResult> Filesystem::pathType(std::filesystem::path path
     }
 }
 
-TprResult Filesystem::createDirectory(std::filesystem::path path, TprCreateDirectoryFlags flags) noexcept {
+TprResult Filesystem::createDirectory(const std::filesystem::path& path, TprCreateDirectoryFlags flags) noexcept {
     try {
         std::filesystem::create_directory(path);
         return TPR_SUCCESS;
@@ -439,12 +596,17 @@ TprResult Filesystem::createDirectory(std::filesystem::path path, TprCreateDirec
     }
 }
 
-TprResult Filesystem::touchFile(std::filesystem::path path, TprTouchFileFlags flags) noexcept {
+TprResult Filesystem::touchFile(const std::filesystem::path& path, TprTouchFileFlags flags) noexcept {
     try {
-        errno = 0;
-        FILE* f = std::fopen(path.c_str(), "wb");
-        if (!f) throw std::system_error(errno, std::generic_category(), "fopen failed");
-        std::fclose(f);
+        if (flags & TPR_TOUCH_FILE_CLEAR_FLAG_BIT) {
+            auto file = fio::zero(path.c_str());
+            if (!file) return file.error();
+            std::fclose(file.value());
+        } else {
+            auto file = fio::assure(path.c_str());
+            if (!file) return file.error();
+            std::fclose(file.value());
+        }
         return TPR_SUCCESS;
     } catch (const std::exception& e) {
         mLogger.panic() << "Exception: " << e.what();
@@ -457,7 +619,7 @@ TprResult Filesystem::touchFile(std::filesystem::path path, TprTouchFileFlags fl
     }
 }
 
-TprResult Filesystem::remove(std::filesystem::path path) noexcept {
+TprResult Filesystem::remove(const std::filesystem::path& path) noexcept {
     try {
         std::filesystem::remove_all(path);
         return TPR_SUCCESS;
@@ -472,7 +634,7 @@ TprResult Filesystem::remove(std::filesystem::path path) noexcept {
     }
 }
 
-TprResult Filesystem::move(std::filesystem::path path, std::filesystem::path newPath) noexcept {
+TprResult Filesystem::move(const std::filesystem::path& path, const std::filesystem::path& newPath) noexcept {
     try {
         if (!std::filesystem::exists(path)) return TPR_ERROR_DOESNT_EXIST;
         if (std::filesystem::exists(newPath)) std::filesystem::remove_all(newPath);

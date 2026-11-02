@@ -4,10 +4,11 @@
 
 
 #include "core.hpp"
-#include "interval_union.hpp"
 #include "logger.hpp"
 #include "tempor.h"
 #include "hash.hpp"
+
+#include <mat/interval_union.hpp>
 
 #include <atomic>
 #include <limits>
@@ -15,14 +16,22 @@
 #include <memory>
 #include <system_error>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <mutex>
 #include <cstdio>
 #include <unordered_set>
+#include <functional>
+#include <cerrno>
+#include <cstdint>
+#include <vector>
+#include <cstddef>
+#include <stdio.h>
 
 
 #ifdef POSIX
     #include <sys/stat.h>
+    #include <sys/types.h>
 #endif
 
 #ifdef WINDOWS
@@ -46,10 +55,12 @@ struct file_identity {
     public:
         file_identity(FILE* file) {
             #ifdef POSIX
+                errno = 0;
                 int fd = fileno(file);
+                if (fd == -1) throw std::system_error(errno, std::generic_category(), "fileno failed");
                 errno = 0;
                 struct stat st;
-                if (fstat(fd, &st) == -1) throw std::system_error(errno, std::generic_category(), "fileno failed");
+                if (fstat(fd, &st) == -1) throw std::system_error(errno, std::generic_category(), "fstat failed");
                 m_ino = st.st_ino;
                 m_dev = st.st_dev;
             #endif
@@ -84,6 +95,7 @@ template <>
 class std::hash<file_identity> {
     public:
         size_t operator()(const file_identity& id) const noexcept {
+            static_assert(sizeof(size_t) == sizeof(XXH64_hash_t) || sizeof(size_t) == sizeof(XXH32_hash_t));
             if constexpr (sizeof(size_t) == sizeof(XXH64_hash_t)) {
                 thread_local static xxhash64_holder state;
                 XXH64_reset(state.state(), 0);
@@ -112,9 +124,7 @@ class std::hash<file_identity> {
                 #endif
                 return XXH32_digest(state.state());
 
-            } else {
-                throw "Unsupported architecture";
-            }
+            };
         }
 };
 
@@ -124,31 +134,37 @@ class Filesystem {
         Filesystem(Logger logger, std::atomic<TprResult>& rRunResult);
         ~Filesystem();
 
-        expected<TprFile, TprResult> openFile(std::filesystem::path path, TprOpenFileFlags flags = 0) noexcept;
+        expected<TprFile, TprResult> openPathFile(const std::filesystem::path& path, TprOpenFileFlags flags = 0) noexcept;
         expected<TprFile, TprResult> createMemoryFile(TprCreateMemoryFileFlags flags = 0) noexcept;
-        expected<TprFile, TprResult> createFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
-        void closeFile(TprFile file) noexcept;
-        expected<TprFile, TprResult> forkFile(TprFile file, TprForkFileFlags flags = 0) noexcept;
-        expected<TprBool8, TprResult> fileJoinable(TprFile file) noexcept;
-        TprResult joinFile(TprFile file) noexcept;
+        expected<TprFile, TprResult> cloneFileCapability(TprFile file) noexcept;
+        TprResult attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
+        void destroyFile(TprFile file) noexcept;
+        expected<TprFile, TprResult> cloneFile(TprFile file, TprForkFileFlags flags = 0) noexcept;
 
-        TprResult reset(TprFile file, uint64_t pos, uint64_t n) noexcept;
-        TprResult resize(TprFile file, uint64_t newSize) noexcept;
-        TprResult read(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept;
-        TprResult write(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept;
+        expected<bool, TprResult> snapshotCommitable(TprFile snapshot) noexcept;
+        TprResult commitSnapshot(TprFile snapshot) noexcept;
+        TprResult resetSnapshot(TprFile snapshot, uint64_t pos, uint64_t n) noexcept;
+
+        TprResult resizeFile(TprFile file, uint64_t newSize) noexcept;
+        TprResult readFile(TprFile file, uint64_t pos, uint64_t n, void* pData) noexcept;
+        TprResult writeFile(TprFile file, uint64_t pos, uint64_t n, const void* pData) noexcept;
         expected<uint64_t, TprResult> fileSize(TprFile file) noexcept;
 
-        expected<TprPathType, TprResult> pathType(std::filesystem::path path) noexcept;
-        TprResult createDirectory(std::filesystem::path path, TprCreateDirectoryFlags flags = 0) noexcept;
-        TprResult touchFile(std::filesystem::path path, TprTouchFileFlags flags = 0) noexcept;
-        TprResult remove(std::filesystem::path path) noexcept;
-        TprResult move(std::filesystem::path path, std::filesystem::path newPath) noexcept;
+        expected<TprPathType, TprResult> pathType(const std::filesystem::path& path) noexcept;
+        TprResult createDirectory(const std::filesystem::path& path, TprCreateDirectoryFlags flags = 0) noexcept;
+        TprResult touchFile(const std::filesystem::path& path, TprTouchFileFlags flags = 0) noexcept;
+        TprResult remove(const std::filesystem::path& path) noexcept;
+        TprResult move(const std::filesystem::path& path, const std::filesystem::path& newPath) noexcept;
 
     private:
-        struct FileEntry;
-        struct Source {};
 
-        struct FileSource : Source {
+        struct SnapshotSource;
+
+        struct FileEntry {
+            std::unordered_set<std::weak_ptr<SnapshotSource>, std::owner_less<std::weak_ptr<SnapshotSource>>> snapshots;
+        };
+
+        struct FileSource : FileEntry {
             FILE* file = nullptr;
             TprOpenFileFlags flags;
             FileSource(FILE* file, TprOpenFileFlags flags) : file(file), flags(flags) {}
@@ -157,26 +173,30 @@ class Filesystem {
             }
         };
 
-        struct MemorySource : Source {
+        struct MemorySource : FileEntry {
             std::vector<std::byte> data;
+            MemorySource() = default;
+            MemorySource(const std::vector<std::byte>& data) : data(data) {}
+            MemorySource(std::vector<std::byte>&& data) : data(std::move(data)) {}
         };
 
-        struct OverlaySource : Source {
-            data_interval_union<std::byte> data;
+        using weakFileVariant = std::variant<std::weak_ptr<FileSource>, std::weak_ptr<MemorySource>, std::weak_ptr<SnapshotSource>>;
+        using sharedFileVariant = std::variant<std::shared_ptr<FileSource>, std::shared_ptr<MemorySource>, std::shared_ptr<SnapshotSource>>;
+
+        struct SnapshotSource : FileEntry {
+            mat::data_interval_union<std::byte> data;
+            mat::interval_union<size_t> read;
+            mat::interval_union<size_t> conflict;
             size_t size;
-            std::weak_ptr<FileEntry> overlayed;
-        };
-
-        struct FileEntry {
-            std::variant<FileSource, MemorySource, OverlaySource> source;
-            std::unordered_set<std::weak_ptr<FileEntry>, std::owner_less<std::weak_ptr<FileEntry>>> overlays;
+            weakFileVariant origin;
         };
 
         struct FileHandle {
-            std::shared_ptr<FileEntry> entry;
+            sharedFileVariant entry;
             TprFileCapabilityFlags capability = std::numeric_limits<TprFileCapabilityFlags>::max();
         };
 
+        bool isSnapshotCommitable(SnapshotSource& overlay);
 
         Logger mLogger;
         std::atomic<TprResult>& mrRunResult;

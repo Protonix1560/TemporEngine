@@ -8,11 +8,14 @@
 #include "tempor.h"
 #include "asset_store/asset_store_common.hpp"
 
-#include <atomic>
 #include <glm/glm.hpp>
 
 #include <memory>
-#include <string>
+#include <string_view>
+#include <functional>
+#include <cstdint>
+#include <atomic>
+#include <utility>
 
 
 // from "window_manager.hpp"
@@ -79,11 +82,12 @@ REGISTER_TYPE_NAME_S(PGraphicsDevice, "GDev");
 
 
 struct GraphicsDeviceBackendInfo {
-    std::function<PGraphicsDevice(
-        Logger logger, Filesystem& rFileSys, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
+    using factoryType = std::function<PGraphicsDevice(
+        Logger&& logger, Filesystem& rFileSys, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
         Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
-    )> factory;
-    std::string name;
+    )>;
+    factoryType factory;
+    std::string_view name;
     GraphicsAPI graphics;
 };
 

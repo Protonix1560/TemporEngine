@@ -5,6 +5,7 @@
 #include "filesystem.hpp"
 #include "logger.hpp"
 #include "log_entry.hpp"
+#include "format-fix.hpp"
 
 #include <exception>
 #include <mutex>
@@ -59,7 +60,7 @@ TprResult Settings::openConfig() {
         return TPR_SUCCESS;
     }
     TprFile config = openExp.value();
-    scope_exit closeConfig([&]() { mrFileSys.closeFile(config); });
+    scope_exit closeConfig([&]() { mrFileSys.destroyFile(config); });
 
     TprResult result;
     result = mrFileSys.seek(config, 0, TPR_SEEK_WHENCE_END);
@@ -215,7 +216,7 @@ expected<TprSetting, TprResult> Settings::createSetting(TprSetting baseSetting, 
         try {
             settingIt = std::ranges::find_if(base.elements, [baseIt, name, this](uint32_t value) {
                 auto it = mSettings.find(value);
-                if (it == mSettings.end()) throw std::runtime_error(std::format(
+                if (it == mSettings.end()) throw std::runtime_error(format::format(
                     "Corrupted internal structures: Setting[{}] from {} does not appear in mSettings",
                     value, baseIt->second.name
                 ));
@@ -321,7 +322,7 @@ expected<TprSetting, TprResult> Settings::readSetting(TprSetting baseSetting, st
         try {
             settingIt = std::ranges::find_if(base.elements, [baseIt, name, this](uint32_t value) {
                 auto it = mSettings.find(value);
-                if (it == mSettings.end()) throw std::runtime_error(std::format(
+                if (it == mSettings.end()) throw std::runtime_error(format::format(
                     "Corrupted internal structures: Setting[{}] from {} does not appear in mSettings",
                     value, baseIt->second.name
                 ));
@@ -416,7 +417,7 @@ void Settings::printSettingValue(LogEntry& log, const Setting& setting) {
             for (auto it = value.elements.begin(); it != value.elements.end(); it++) {
                 if (it != value.elements.begin()) log << ", ";
                 auto f = mSettings.find(*it);
-                if (f == mSettings.end()) throw std::runtime_error(std::format(
+                if (f == mSettings.end()) throw std::runtime_error(format::format(
                     "Corrupted internal structures: Setting[{}] from {} does not appear in mSettings",
                     *it, setting.name
                 ));
@@ -1111,13 +1112,13 @@ TprResult Settings::flush() {
     TprResult result;
     mLogger.debug() << "Writing config file to \"" << mConfPath.string() << "\"\n";
 
-    auto openExp = mrFileSys.openFile(mConfPath, TPR_OPEN_FILE_SYNC_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
+    auto openExp = mrFileSys.openFile(mConfPath, TPR_OPEN_FILE_PERSISTENT_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
     if (!openExp.has_value()) {
         mLogger.error() << "Failed to open config file [" << openExp.error() << "]\n";
         return TPR_SUCCESS;
     }
     TprFile config = openExp.value();
-    scope_exit closeConfig([&]() { mrFileSys.closeFile(config); });
+    scope_exit closeConfig([&]() { mrFileSys.destroyFile(config); });
 
     std::ostringstream data;
     auto rootIt = mSettings.find(get_basic_handle_index(mRootSetting));
@@ -1129,7 +1130,7 @@ TprResult Settings::flush() {
     writeSetting(data, 0, rootIt->second);
     std::string string = data.str();
 
-    result = mrFileSys.resize(config, string.size());
+    result = mrFileSys.resizeFile(config, string.size());
     switch (result) {
         case TPR_SUCCESS:
             break;
@@ -1140,7 +1141,7 @@ TprResult Settings::flush() {
             return TPR_SUCCESS;
     }
 
-    result = mrFileSys.write(config, string.size(), reinterpret_cast<const std::byte*>(string.c_str()));
+    result = mrFileSys.writeFile(config, string.size(), reinterpret_cast<const std::byte*>(string.c_str()));
     switch (result) {
         case TPR_SUCCESS:
             break;

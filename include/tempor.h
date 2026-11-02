@@ -8,25 +8,25 @@
 // defs
 
 #if defined(__cplusplus) && __cplusplus >= 201703L
-    #define _TPR_NOEXCEPT_ATTR noexcept
+    #define TPR_NOEXCEPT_ATTR noexcept
 #else
-    #define _TPR_NOEXCEPT_ATTR
+    #define TPR_NOEXCEPT_ATTR
 #endif
 
 #if defined(__cplusplus)
-    #define _TPR_NOEXCEPT noexcept
+    #define TPR_NOEXCEPT noexcept
 #else
-    #define _TPR_NOEXCEPT
+    #define TPR_NOEXCEPT
 #endif
 
-typedef uint32_t _TprFlag_T;
-#define _TPR_MAX_ENUM INT32_MAX
+typedef uint32_t TprFlag_T;
+#define TPR_MAX_ENUM INT32_MAX
 
 typedef uint8_t TprBool8;
-#define TPR_TRUE 1
 #define TPR_FALSE 0
+#define TPR_TRUE 1
 
-#define TPR_VERSION 0
+#define TPR_STABLE_API_VERSION 0
 
 
 // enums
@@ -42,7 +42,7 @@ typedef enum TprLogStyle {
     TPR_LOG_STYLE_STARTSTAMP1 = 7,
     TPR_LOG_STYLE_6IDENT = 8,
     TPR_LOG_STYLE_PANIC1 = 9,
-    _TPR_LOG_STYLE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_LOG_STYLE_MAX_ENUM = TPR_MAX_ENUM
 } TprLogStyle;
 
 typedef enum TprLogLevel {
@@ -52,24 +52,24 @@ typedef enum TprLogLevel {
     TPR_LOG_LEVEL_INFO = 4,
     TPR_LOG_LEVEL_DEBUG = 5,
     TPR_LOG_LEVEL_TRACE = 6,
-    _TPR_LOG_LEVEL_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_LOG_LEVEL_MAX_ENUM = TPR_MAX_ENUM
 } TprLogLevel;
 
 typedef enum TprResult {
     TPR_SUCCESS = 0,
     TPR_PANIC = -1,
+    TPR_UNKNOWN_ERROR = -2,
 
-    TPR_ERROR_NOT_LOADED = -2,
-    TPR_ERROR_INVALID_VALUE = -3,
-    TPR_ERROR_INVALID_OPERATION = -4,
-    TPR_ERROR_DOESNT_EXIST = -5,
-    TPR_ERROR_NOT_PERMITTED = -6,
-    TPR_ERROR_WRONG_TYPE = -7,
-    TPR_ERROR_OUT_OF_RANGE = -8,
-    TPR_ERROR_OUT_OF_MEMORY = -9,
+    TPR_ERROR_NOT_LOADED = -3,
+    TPR_ERROR_INVALID_VALUE = -4,
+    TPR_ERROR_INVALID_OPERATION = -5,
+    TPR_ERROR_DOESNT_EXIST = -6,
+    TPR_ERROR_NOT_PERMITTED = -7,
+    TPR_ERROR_WRONG_TYPE = -8,
+    TPR_ERROR_OUT_OF_RANGE = -9,
+    TPR_ERROR_BAD_ALLOC = -10,
+    TPR_ERROR_COUNT_OVERFLOW = -11,
 
-    TPR_COUNT_OVERFLOW = -10,
-    TPR_UNKNOWN_ERROR = -11,
     TPR_INSUFFICIENT_INIT = -12,
     TPR_BAD_ALLOC = -13,
     TPR_PARSE_ERROR = -14,
@@ -78,7 +78,7 @@ typedef enum TprResult {
     TPR_ALREADY_EXISTS = -17,
     TPR_VERSION_MISMATCH = -18,
 
-    _TPR_RESULT_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_RESULT_MAX_ENUM = TPR_MAX_ENUM
 } TprResult;
 
 typedef enum TprInputDevice {
@@ -199,7 +199,7 @@ typedef enum TprInputDevice {
 
     TPR_WINDOW_SIZE = 4001,
 
-    _TPR_INPUT_DEVICE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_INPUT_DEVICE_MAX_ENUM = TPR_MAX_ENUM
 } TprInputDevice;
 
 typedef enum TprSettingType {
@@ -211,39 +211,39 @@ typedef enum TprSettingType {
     TPR_SETTING_TYPE_NULL = 5,
     TPR_SETTING_TYPE_ARRAY = 6,
     TPR_SETTING_TYPE_STRUCT = 7,
-    _TPR_SETTING_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_SETTING_TYPE_MAX_ENUM = TPR_MAX_ENUM
 } TprSettingType;
 
 typedef enum TprSeekWhence {
     TPR_SEEK_WHENCE_BEGIN = 0,
     TPR_SEEK_WHENCE_CURRENT = 1,
     TPR_SEEK_WHENCE_END = 2,
-    _TPR_SEEK_WHENCE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_SEEK_WHENCE_MAX_ENUM = TPR_MAX_ENUM
 } TprSeekWhence;
 
 typedef enum TprPathType {
     TPR_PATH_TYPE_FILE = 0,
     TPR_PATH_TYPE_DIRECTORY = 1,
-    _TPR_PATH_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_PATH_TYPE_MAX_ENUM = TPR_MAX_ENUM
 } TprPathType;
 
 typedef enum TprJobDuration {
     TPR_JOB_DURATION_LONG = 0,
     TPR_JOB_DURATION_SHORT = 1,
-    _TPR_JOB_DURATION_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_JOB_DURATION_MAX_ENUM = TPR_MAX_ENUM
 } TprJobDuration;
 
 typedef enum TprJobTriggerType {
     TPR_JOB_TRIGGER_TYPE_SCHEDULE = 0,
     TPR_JOB_TRIGGER_TYPE_DEPENDENCIES = 1,
-    _TPR_JOB_TRIGGER_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_JOB_TRIGGER_TYPE_MAX_ENUM = TPR_MAX_ENUM
 } TprJobTriggerType;
 
 typedef enum TprActionValueMode {
     TPR_ACTION_VALUE_MODE_ABSOLUTE = 0,
     TPR_ACTION_VALUE_MODE_DIFFERENCE = 1,
     TPR_ACTION_VALUE_MODE_DERIVATIVE = 2,
-    _TPR_ACTION_VALUE_MODE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_ACTION_VALUE_MODE_MAX_ENUM = TPR_MAX_ENUM
 } TprActionValueMode;
 
 typedef enum TprTokenType {
@@ -297,7 +297,7 @@ typedef enum TprTokenType {
     TPR_TOKEN_TYPE_NO_INVERSE = 47,
     TPR_TOKEN_TYPE_STRIKETHROUGH = 48,
     TPR_TOKEN_TYPE_NO_STRIKETHROUGH = 49,
-    _TPR_TOKEN_TYPE_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_TOKEN_TYPE_MAX_ENUM = TPR_MAX_ENUM
 } TprTokenType;
 
 
@@ -306,142 +306,142 @@ typedef enum TprTokenType {
 typedef enum TprCreateWindowFlagBits {
     TPR_CREATE_WINDOW_HIDDEN_FLAG_BIT = 0x1,
     TPR_CREATE_WINDOW_UNRESIZEABLE_FLAG_BIT = 0x2,
-    _TPR_CREATE_WINDOW_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_WINDOW_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateWindowFlagBits;
-typedef _TprFlag_T TprCreateWindowFlags;
+typedef TprFlag_T TprCreateWindowFlags;
 
 typedef enum TprWindowCapabilityFlagBits {
-    _TPR_WINDOW_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_WINDOW_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprWindowCapabilityFlagBits;
-typedef _TprFlag_T TprWindowCapabilityFlags;
+typedef TprFlag_T TprWindowCapabilityFlags;
 
 
 typedef enum TprCreateActionFlagBits {
-    _TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_ACTION_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateActionFlagBits;
-typedef _TprFlag_T TprCreateActionFlags;
+typedef TprFlag_T TprCreateActionFlags;
 
 typedef enum TprActionCapabilityFlagBits {
-    _TPR_ACTION_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_ACTION_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprActionCapabilityFlagBits;
-typedef _TprFlag_T TprActionCapabilityFlags;
+typedef TprFlag_T TprActionCapabilityFlags;
 
 
 typedef enum TprCreateDepthDomainFlagBits {
     TPR_CREATE_DEPTH_DOMAIN_BEFORE_ANCHOR_FLAG_BIT = 0x1,
-    _TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_DEPTH_DOMAIN_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateDepthDomainFlagBits;
-typedef _TprFlag_T TprCreateDepthDomainFlags;
+typedef TprFlag_T TprCreateDepthDomainFlags;
 
 typedef enum TprDepthDomainCapabilityFlagBits {
-    _TPR_DEPTH_DOMAIN_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_DEPTH_DOMAIN_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprDepthDomainCapabilityFlagBits;
-typedef _TprFlag_T TprDepthDomainCapabilityFlags;
+typedef TprFlag_T TprDepthDomainCapabilityFlags;
 
 
 typedef enum TprCreateMeshFlagBits {
-    _TPR_CREATE_MESH_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_MESH_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateMeshFlagBits;
-typedef _TprFlag_T TprCreateMeshFlags;
+typedef TprFlag_T TprCreateMeshFlags;
 
 typedef enum TprMeshCapabilityFlagBits {
-    _TPR_MESH_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_MESH_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprMeshCapabilityFlagBits;
-typedef _TprFlag_T TprMeshCapabilityFlags;
+typedef TprFlag_T TprMeshCapabilityFlags;
 
 
 typedef enum TprCreateRenderTargetFlagBits {
-    _TPR_CREATE_RENDER_TARGET_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_RENDER_TARGET_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateRenderTargetFlagBits;
-typedef _TprFlag_T TprCreateRenderTargetFlags;
+typedef TprFlag_T TprCreateRenderTargetFlags;
 
 typedef enum TprRenderTargetCapabilityFlagBits {
-    _TPR_RENDER_TARGET_CAPAIBILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_RENDER_TARGET_CAPAIBILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprRenderTargetCapabilityFlagBits;
-typedef _TprFlag_T TprRenderTargetCapabilityFlags;
+typedef TprFlag_T TprRenderTargetCapabilityFlags;
 
 
 typedef enum TprCreateRenderTargetSetFlagBits {
-    _TPR_CREATE_RENDER_TARGET_SET_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_RENDER_TARGET_SET_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateRenderTargetSetFlagBits;
-typedef _TprFlag_T TprCreateRenderTargetSetFlags;
+typedef TprFlag_T TprCreateRenderTargetSetFlags;
 
 typedef enum TprRenderTargetSetCapabilityFlagBits {
-    _TPR_RENDER_TARGET_SET_CAPAIBILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_RENDER_TARGET_SET_CAPAIBILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprRenderTargetSetCapabilityFlagBits;
-typedef _TprFlag_T TprRenderTargetSetCapabilityFlags;
+typedef TprFlag_T TprRenderTargetSetCapabilityFlags;
 
 
 typedef enum TprCreateEntityImageFlagBits {
-    _TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_OBJECT_IMAGE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateEntityImageFlagBits;
-typedef _TprFlag_T TprCreateEntityImageFlags;
+typedef TprFlag_T TprCreateEntityImageFlags;
 
 typedef enum TprEntityImageCapabilityFlagBits {
-    _TPR_ENTITY_IMAGE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_ENTITY_IMAGE_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprEntityImageCapabilityFlagBits;
-typedef _TprFlag_T TprEntityImageCapabilityFlags;
+typedef TprFlag_T TprEntityImageCapabilityFlags;
 
 
 // typedef enum TprCreateSettingFlagBits {
-//     _TPR_CREATE_SETTING_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+//     _TPR_CREATE_SETTING_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 // } TprCreateSettingFlagBits;
-// typedef _TprFlag_T TprCreateSettingFlags;
+// typedef TprFlag_T TprCreateSettingFlags;
 
 typedef enum TprSettingCapabilityFlagBits {
     TPR_SETTING_CAPABILITY_MODIFY_FLAG_BIT = 0x1,
-    _TPR_SETTING_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_SETTING_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprSettingCapabilityFlagBits;
-typedef _TprFlag_T TprSettingCapabilityFlags;
+typedef TprFlag_T TprSettingCapabilityFlags;
 
 
 typedef enum TprOpenFileFlagBits {
-    TPR_OPEN_FILE_SYNC_FLAG_BIT = 0x1,
+    TPR_OPEN_FILE_PERSISTENT_FLAG_BIT = 0x1,
     TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT = 0x2,
     TPR_OPEN_FILE_NEW_IF_NONE_FLAG_BIT = 0x4,
-    _TPR_OPEN_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_OPEN_FILE_TEXT_BIT = 0x8,
+    TPR_OPEN_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprOpenFileFlagBits;
-typedef _TprFlag_T TprOpenFileFlags;
+typedef TprFlag_T TprOpenFileFlags;
 
 typedef enum TprFileCapabilityFlagBits {
     TPR_FILE_CAPABILITY_WRITE_FLAG_BIT = 0x1,
-    _TPR_FILE_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_FILE_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprFileCapabilityFlagBits;
-typedef _TprFlag_T TprFileCapabilityFlags;
+typedef TprFlag_T TprFileCapabilityFlags;
 
 typedef enum TprTouchFileFlagBits {
-    // TPR_CREATE_NEW_FILE_VFS_FLAG_BIT = 0x1,  // TODO: add proper VFS
-    _TPR_CREATE_NEW_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_TOUCH_FILE_CLEAR_FLAG_BIT = 0x1,
+    TPR_TOUCH_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprTouchFileFlagBits;
-typedef _TprFlag_T TprTouchFileFlags;
+typedef TprFlag_T TprTouchFileFlags;
 
 typedef enum TprCreateDirectoryFlagBits {
-    // TPR_CREATE_DIRECTORY_VFS_FLAG_BIT = 0x1,  // TODO: add proper VFS
-    _TPR_CREATE_DIRECTORY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_DIRECTORY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateDirectoryFlagBits;
-typedef _TprFlag_T TprCreateDirectoryFlags;
+typedef TprFlag_T TprCreateDirectoryFlags;
+
+typedef enum TprForkFileFlagBits {
+    TPR_FORK_FILE_SNAPSHOT_FLAG_BIT = 0x1,
+    TPR_FORK_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
+} TprForkFileFlagBits;
+typedef TprFlag_T TprForkFileFlags;
+
+typedef enum TprCreateMemoryFileFlagBits {
+    TPR_CREATE_MEMORY_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
+} TprCreateMemoryFileFlagBits;
+typedef TprFlag_T TprCreateMemoryFileFlags;
 
 
 typedef enum TprCreateJobFlagBits {
-    _TPR_CREATE_JOB_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_CREATE_JOB_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprCreateJobFlagBits;
-typedef _TprFlag_T TprCreateJobFlags;
+typedef TprFlag_T TprCreateJobFlags;
 
 typedef enum TprJobCapabilityFlagBits {
-    _TPR_JOB_CAPABILITY_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
+    TPR_JOB_CAPABILITY_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
 } TprJobCapabilityFlagBits;
-typedef _TprFlag_T TprJobCapabilityFlags;
-
-typedef enum TprForkFileFlagBits {
-    TPR_FORK_FILE_COW_REGIONS_FLAG_BIT = 0x1,
-    _TPR_FORK_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
-} TprForkFileFlagBits;
-typedef _TprFlag_T TprForkFileFlags;
-
-typedef enum TprCreateMemoryFileFlagBits {
-    _TPR_CREATE_MEMORY_FILE_FLAG_BITS_MAX_ENUM = _TPR_MAX_ENUM
-} TprCreateMemoryFileFlagBits;
-typedef _TprFlag_T TprCreateMemoryFileFlags;
+typedef TprFlag_T TprJobCapabilityFlags;
 
 
 // handles
@@ -581,178 +581,179 @@ typedef struct TprJobCreateInfo {
 // API
 
 typedef struct TprEngineOutputAPI {
-    void(*log)(TprLogLevel logLevel, const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*info)(const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*warn)(const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*error)(const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*debug)(const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*trace)(const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*log)(TprLogLevel logLevel, const char* message) TPR_NOEXCEPT_ATTR;
+    void(*info)(const char* message) TPR_NOEXCEPT_ATTR;
+    void(*warn)(const char* message) TPR_NOEXCEPT_ATTR;
+    void(*error)(const char* message) TPR_NOEXCEPT_ATTR;
+    void(*debug)(const char* message) TPR_NOEXCEPT_ATTR;
+    void(*trace)(const char* message) TPR_NOEXCEPT_ATTR;
 
-    void(*logStyled)(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*infoStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*warnStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*errorStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*debugStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
-    void(*traceStyled)(TprLogStyle logStyle, const char* message) _TPR_NOEXCEPT_ATTR;
+    void(*logStyled)(TprLogLevel logLevel, TprLogStyle logStyle, const char* message) TPR_NOEXCEPT_ATTR;
+    void(*infoStyled)(TprLogStyle logStyle, const char* message) TPR_NOEXCEPT_ATTR;
+    void(*warnStyled)(TprLogStyle logStyle, const char* message) TPR_NOEXCEPT_ATTR;
+    void(*errorStyled)(TprLogStyle logStyle, const char* message) TPR_NOEXCEPT_ATTR;
+    void(*debugStyled)(TprLogStyle logStyle, const char* message) TPR_NOEXCEPT_ATTR;
+    void(*traceStyled)(TprLogStyle logStyle, const char* message) TPR_NOEXCEPT_ATTR;
 
-    void(*writeTokenSequence)(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) _TPR_NOEXCEPT_ATTR;
+    void(*writeTokenSequence)(TprLogLevel level, TprLogStyle style, const TprToken* pTokens, uint32_t count) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*writeMachineData)(const char* pData, uint32_t size) _TPR_NOEXCEPT_ATTR;
+    TprResult(*writeMachineData)(const char* pData, uint32_t size) TPR_NOEXCEPT_ATTR;
 } TprOutputAPI;
 
 typedef struct TprEngineSceneAPI {
-    TprResult(*createComponent)(uint32_t componentSize, TprComponent* pComponent) _TPR_NOEXCEPT_ATTR;
-    void(*destroyComponent)(TprComponent component) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createComponent)(uint32_t componentSize, TprComponent* pComponent) TPR_NOEXCEPT_ATTR;
+    void(*destroyComponent)(TprComponent component) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*spawnEntity)(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) _TPR_NOEXCEPT_ATTR;
-    void(*killEntity)(TprEntity entity) _TPR_NOEXCEPT_ATTR;
+    TprResult(*spawnEntity)(const TprComponent* pComponents, uint32_t componentCount, TprEntity* pEntity) TPR_NOEXCEPT_ATTR;
+    void(*killEntity)(TprEntity entity) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*modifyEntityComponentSet)(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) _TPR_NOEXCEPT_ATTR;
+    TprResult(*modifyEntityComponentSet)(TprEntity entity, const TprComponent* pComponents, uint32_t componentCount) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*copyEntityComponentData)(TprEntity entity, TprComponent component, uint32_t start, uint32_t n, char* componentData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*writeEntityComponentData)(TprEntity entity, TprComponent component, const char* componentData, uint32_t start, uint32_t n) _TPR_NOEXCEPT_ATTR;
+    TprResult(*copyEntityComponentData)(TprEntity entity, TprComponent component, uint32_t start, uint32_t n, char* componentData) TPR_NOEXCEPT_ATTR;
+    TprResult(*writeEntityComponentData)(TprEntity entity, TprComponent component, const char* componentData, uint32_t start, uint32_t n) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*getComponentChunkHandles)(TprComponent component, TprFile resource) _TPR_NOEXCEPT_ATTR;
-    uint32_t(*getComponentChunkMaxElementCount)(void) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getComponentChunkElementCount)(TprComponentChunk chunk, uint32_t* pCount) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getComponentChunkVersion)(TprComponentChunk chunk, uint32_t* pVersion) _TPR_NOEXCEPT_ATTR;
-    TprResult(*copyComponentChunkData)(TprComponentChunk chunk, uint32_t offset, uint32_t n, char* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*writeComponentChunkData)(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getComponentChunkHandles)(TprComponent component, TprFile resource) TPR_NOEXCEPT_ATTR;
+    uint32_t(*getComponentChunkMaxElementCount)(void) TPR_NOEXCEPT_ATTR;
+    TprResult(*getComponentChunkElementCount)(TprComponentChunk chunk, uint32_t* pCount) TPR_NOEXCEPT_ATTR;
+    TprResult(*getComponentChunkVersion)(TprComponentChunk chunk, uint32_t* pVersion) TPR_NOEXCEPT_ATTR;
+    TprResult(*copyComponentChunkData)(TprComponentChunk chunk, uint32_t offset, uint32_t n, char* pData) TPR_NOEXCEPT_ATTR;
+    TprResult(*writeComponentChunkData)(TprComponentChunk chunk, uint32_t version, const char* pData, uint32_t offset, uint32_t n) TPR_NOEXCEPT_ATTR;
 } TprSceneAPI;
 
-typedef struct TprFileSystemAPI {
-    TprResult(*openFile)(const char* path, TprOpenFileFlags flags, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createMemoryFile)(TprFile* pFile) _TPR_NOEXCEPT_ATTR;
-    TprResult(*forkFile)(TprFile file, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createFileCapability)(TprFile file, TprFileCapabilityFlags mask, TprFile* pFile) _TPR_NOEXCEPT_ATTR;
-    void(*closeFile)(TprFile file) _TPR_NOEXCEPT_ATTR;
+typedef struct TprFilesystemAPI {
+    TprResult(*openPathFile)(const char* path, TprOpenFileFlags flags, TprFile* pFile) TPR_NOEXCEPT_ATTR;
+    TprResult(*createMemoryFile)(TprCreateMemoryFileFlags flags, TprFile* pFile) TPR_NOEXCEPT_ATTR;
+    TprResult(*cloneFileCapability)(TprFile file, TprFile* pFile) TPR_NOEXCEPT_ATTR;
+    TprResult(*attenuateFileCapability)(TprFile file, TprFileCapabilityFlags mask) TPR_NOEXCEPT_ATTR;
+    void(*destroyFile)(TprFile file) TPR_NOEXCEPT_ATTR;
+    TprResult(*cloneFile)(TprFile file, TprForkFileFlags flags, TprFile* pFile) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*seek)(TprFile file, int32_t offset, TprSeekWhence whence) _TPR_NOEXCEPT_ATTR;
-    TprResult(*tell)(TprFile file, uint32_t* pPos) _TPR_NOEXCEPT_ATTR;
-    TprResult(*read)(TprFile file, uint32_t n, char* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*readAt)(TprFile file, uint32_t pos, uint32_t n, char* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*resize)(TprFile file, uint32_t newSize) _TPR_NOEXCEPT_ATTR;
-    TprResult(*write)(TprFile file, uint32_t n, const char* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*writeAt)(TprFile file, uint32_t pos, uint32_t n, const char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*snapshotCommitable)(TprFile snapshot, TprBool8* pValue) TPR_NOEXCEPT_ATTR;
+    TprResult(*commitSnapshot)(TprFile snapshot) TPR_NOEXCEPT_ATTR;
+    TprResult(*resetSnapshot)(TprFile file, uint64_t pos, uint64_t n) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*pathType)(const char* path, TprPathType* pType) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createDirectory)(const char* path, TprCreateDirectoryFlags flags) _TPR_NOEXCEPT_ATTR;
-    TprResult(*touchFile)(const char* path, TprTouchFileFlags flags) _TPR_NOEXCEPT_ATTR;
-    TprResult(*remove)(const char* path) _TPR_NOEXCEPT_ATTR;
-    TprResult(*move)(const char* path, const char* newPath) _TPR_NOEXCEPT_ATTR;
-} TprFileSystemAPI;
+    TprResult(*resizeFile)(TprFile file, uint64_t newSize) TPR_NOEXCEPT_ATTR;
+    TprResult(*readFile)(TprFile file, uint64_t pos, uint64_t n, void* pData) TPR_NOEXCEPT_ATTR;
+    TprResult(*writeFile)(TprFile file, uint64_t pos, uint64_t n, const void* pData) TPR_NOEXCEPT_ATTR;
+    TprResult(*fileSize)(TprFile file, uint64_t* pSize) TPR_NOEXCEPT_ATTR;
+
+    TprResult(*pathType)(const char* path, TprPathType* pType) TPR_NOEXCEPT_ATTR;
+    TprResult(*createDirectory)(const char* path, TprCreateDirectoryFlags flags) TPR_NOEXCEPT_ATTR;
+    TprResult(*touchFile)(const char* path, TprTouchFileFlags flags) TPR_NOEXCEPT_ATTR;
+    TprResult(*remove)(const char* path) TPR_NOEXCEPT_ATTR;
+    TprResult(*move)(const char* path, const char* newPath) TPR_NOEXCEPT_ATTR;
+} TprFilesystemAPI;
 
 typedef struct TprWindowingAPI {
-    TprResult(*openWindow)(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createWindowCapability)(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) _TPR_NOEXCEPT_ATTR;
-    void(*closeWindow)(TprWindow window) _TPR_NOEXCEPT_ATTR;
+    TprResult(*openWindow)(const TprWindowCreateInfo* pInfo, TprWindow* pWindow) TPR_NOEXCEPT_ATTR;
+    TprResult(*createWindowCapability)(TprWindow window, TprWindowCapabilityFlags mask, TprWindow* pWindow) TPR_NOEXCEPT_ATTR;
+    void(*closeWindow)(TprWindow window) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*createAction)(const TprActionCreateInfo* pInfo, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
-    TprResult(*bindActionWindow)(TprAction action, TprWindow window) _TPR_NOEXCEPT_ATTR;
-    TprResult(*unbindActionWindow)(TprAction action, TprWindow window) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setActionProfile)(TprAction action, const TprActionProfile* pProfile) _TPR_NOEXCEPT_ATTR;
-    TprResult(*forkAction)(TprAction action, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createActionCapability)(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) _TPR_NOEXCEPT_ATTR;
-    void(*destroyAction)(TprAction action) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createAction)(const TprActionCreateInfo* pInfo, TprAction* pAction) TPR_NOEXCEPT_ATTR;
+    TprResult(*bindActionWindow)(TprAction action, TprWindow window) TPR_NOEXCEPT_ATTR;
+    TprResult(*unbindActionWindow)(TprAction action, TprWindow window) TPR_NOEXCEPT_ATTR;
+    TprResult(*setActionProfile)(TprAction action, const TprActionProfile* pProfile) TPR_NOEXCEPT_ATTR;
+    TprResult(*forkAction)(TprAction action, TprAction* pAction) TPR_NOEXCEPT_ATTR;
+    TprResult(*createActionCapability)(TprAction action, TprActionCapabilityFlags mask, TprAction* pAction) TPR_NOEXCEPT_ATTR;
+    void(*destroyAction)(TprAction action) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*getActionsHistorySize)(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
-    TprResult(*copyActionsHistory)(TprActionHistoryEntry* pEntries, uint32_t filterCount, const TprAction* pFilters) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getActionState)(TprAction action, TprActionState* pState) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getActionsHistorySize)(uint32_t filterCount, const TprAction* pFilters, uint32_t* pSize) TPR_NOEXCEPT_ATTR;
+    TprResult(*copyActionsHistory)(TprActionHistoryEntry* pEntries, uint32_t filterCount, const TprAction* pFilters) TPR_NOEXCEPT_ATTR;
+    TprResult(*getActionState)(TprAction action, TprActionState* pState) TPR_NOEXCEPT_ATTR;
 
-    TprJob(*getInputUpdateJob)(void) _TPR_NOEXCEPT_ATTR;
+    TprJob(*getInputUpdateJob)(void) TPR_NOEXCEPT_ATTR;
 } TprWindowingAPI;
 
 typedef struct TprGeometryAPI {
-    TprResult(*createMesh)(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createMeshCapability)(TprMesh mesh, TprMeshCapabilityFlags mask, TprMesh* pMesh) _TPR_NOEXCEPT_ATTR;
-    void(*destroyMesh)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createMesh)(const TprMeshCreateInfo* pInfo, TprMesh* pMesh) TPR_NOEXCEPT_ATTR;
+    TprResult(*createMeshCapability)(TprMesh mesh, TprMeshCapabilityFlags mask, TprMesh* pMesh) TPR_NOEXCEPT_ATTR;
+    void(*destroyMesh)(TprMesh mesh) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*requireMeshLoaded)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
-    TprResult(*unrequireMeshLoaded)(TprMesh mesh) _TPR_NOEXCEPT_ATTR;
+    TprResult(*requireMeshLoaded)(TprMesh mesh) TPR_NOEXCEPT_ATTR;
+    TprResult(*unrequireMeshLoaded)(TprMesh mesh) TPR_NOEXCEPT_ATTR;
 } TprGeometryAPI;
 
 typedef struct TprConfigurationAPI {
-    TprResult(*getRootSetting)(TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getRootSetting)(TprSetting* pSetting) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*createSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
-    TprResult(*readSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) _TPR_NOEXCEPT_ATTR;
-    void(*destroySetting)(TprSetting pSetting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) TPR_NOEXCEPT_ATTR;
+    TprResult(*readSetting)(TprSetting baseSetting, const char* name, TprSetting* pSetting) TPR_NOEXCEPT_ATTR;
+    void(*destroySetting)(TprSetting pSetting) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*getSettingType)(TprSetting setting, TprSettingType* pType) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getSettingDouble)(TprSetting setting, double* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getSettingInteger)(TprSetting setting, int64_t* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getSettingBool)(TprSetting setting, TprBool8* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingType)(TprSetting setting, TprSettingType* pType) TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingDouble)(TprSetting setting, double* pData) TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingInteger)(TprSetting setting, int64_t* pData) TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingBool)(TprSetting setting, TprBool8* pData) TPR_NOEXCEPT_ATTR;
 
-    double(*getSettingDoubleOr)(TprSetting setting, double fallback) _TPR_NOEXCEPT_ATTR;
-    int64_t(*getSettingIntegerOr)(TprSetting setting, int64_t fallback) _TPR_NOEXCEPT_ATTR;
-    TprBool8(*getSettingBoolOr)(TprSetting setting, TprBool8 fallback) _TPR_NOEXCEPT_ATTR;
+    double(*getSettingDoubleOr)(TprSetting setting, double fallback) TPR_NOEXCEPT_ATTR;
+    int64_t(*getSettingIntegerOr)(TprSetting setting, int64_t fallback) TPR_NOEXCEPT_ATTR;
+    TprBool8(*getSettingBoolOr)(TprSetting setting, TprBool8 fallback) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*getSettingStringSize)(TprSetting setting, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
-    TprResult(*copySettingString)(TprSetting setting, char* pData) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingStringSize)(TprSetting setting, uint32_t* pSize) TPR_NOEXCEPT_ATTR;
+    TprResult(*copySettingString)(TprSetting setting, char* pData) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*setSettingDouble)(TprSetting setting, double data) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setSettingInteger)(TprSetting setting, int64_t data) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setSettingBool)(TprSetting setting, TprBool8 data) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setSettingString)(TprSetting setting, const char* pData) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setSettingNull)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
-    TprResult(*unsetSetting)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setSettingStruct)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
-    TprResult(*setSettingArray)(TprSetting setting) _TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingDouble)(TprSetting setting, double data) TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingInteger)(TprSetting setting, int64_t data) TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingBool)(TprSetting setting, TprBool8 data) TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingString)(TprSetting setting, const char* pData) TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingNull)(TprSetting setting) TPR_NOEXCEPT_ATTR;
+    TprResult(*unsetSetting)(TprSetting setting) TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingStruct)(TprSetting setting) TPR_NOEXCEPT_ATTR;
+    TprResult(*setSettingArray)(TprSetting setting) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*getSettingArraySize)(TprSetting setting, uint32_t* pSize) _TPR_NOEXCEPT_ATTR;
-    TprResult(*getSettingArrayElement)(TprSetting setting, uint32_t index, TprSetting* pElement) _TPR_NOEXCEPT_ATTR;
-    TprResult(*resizeSettingArray)(TprSetting setting, uint32_t size) _TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingArraySize)(TprSetting setting, uint32_t* pSize) TPR_NOEXCEPT_ATTR;
+    TprResult(*getSettingArrayElement)(TprSetting setting, uint32_t index, TprSetting* pElement) TPR_NOEXCEPT_ATTR;
+    TprResult(*resizeSettingArray)(TprSetting setting, uint32_t size) TPR_NOEXCEPT_ATTR;
 } TprConfigurationAPI;
 
 typedef struct TprRenderAPI {
-    TprResult(*createDepthDomain)(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createDepthDomainCapability)(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask, TprDepthDomain* pDomain) _TPR_NOEXCEPT_ATTR;
-    void(*destroyDepthDomain)(TprDepthDomain domain) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createDepthDomain)(const TprDepthDomainCreateInfo* pInfo, TprDepthDomain* pDomain) TPR_NOEXCEPT_ATTR;
+    TprResult(*createDepthDomainCapability)(TprDepthDomain domain, TprDepthDomainCapabilityFlags mask, TprDepthDomain* pDomain) TPR_NOEXCEPT_ATTR;
+    void(*destroyDepthDomain)(TprDepthDomain domain) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*createRenderTarget)(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createRenderTargetCapability)(TprRenderTarget target, TprRenderTargetCapabilityFlags mask, TprRenderTarget* pTarget) _TPR_NOEXCEPT_ATTR;
-    void(*destroyRenderTarget)(TprRenderTarget target) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createRenderTarget)(const TprRenderTargetCreateInfo* pInfo, TprRenderTarget* pTarget) TPR_NOEXCEPT_ATTR;
+    TprResult(*createRenderTargetCapability)(TprRenderTarget target, TprRenderTargetCapabilityFlags mask, TprRenderTarget* pTarget) TPR_NOEXCEPT_ATTR;
+    void(*destroyRenderTarget)(TprRenderTarget target) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*createRenderTargetSet)(const TprRenderTargetSetCreateInfo* pInfo, TprRenderTargetSet* pSet) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createRenderTargetSetCapability)(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask, TprRenderTargetSet* pSet) _TPR_NOEXCEPT_ATTR;
-    void(*destroyRenderTargetSet)(TprRenderTargetSet set) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createRenderTargetSet)(const TprRenderTargetSetCreateInfo* pInfo, TprRenderTargetSet* pSet) TPR_NOEXCEPT_ATTR;
+    TprResult(*createRenderTargetSetCapability)(TprRenderTargetSet set, TprRenderTargetSetCapabilityFlags mask, TprRenderTargetSet* pSet) TPR_NOEXCEPT_ATTR;
+    void(*destroyRenderTargetSet)(TprRenderTargetSet set) TPR_NOEXCEPT_ATTR;
 
-    TprResult(*createEntityImage)(const TprEntityImageCreateInfo* pInfo, TprEntityImage* pImage) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createEntityImageCapability)(TprEntityImage image, TprEntityImageCapabilityFlags mask, TprEntityImage* pImage) _TPR_NOEXCEPT_ATTR;
-    void(*destroyEntityImage)(TprEntityImage image) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createEntityImage)(const TprEntityImageCreateInfo* pInfo, TprEntityImage* pImage) TPR_NOEXCEPT_ATTR;
+    TprResult(*createEntityImageCapability)(TprEntityImage image, TprEntityImageCapabilityFlags mask, TprEntityImage* pImage) TPR_NOEXCEPT_ATTR;
+    void(*destroyEntityImage)(TprEntityImage image) TPR_NOEXCEPT_ATTR;
 
-    TprJob(*getRenderJob)(void) _TPR_NOEXCEPT_ATTR;
-    TprJob(*getRenderSignalJob)(void) _TPR_NOEXCEPT_ATTR;
-    TprComponent(*getComponentRenderable)(void) _TPR_NOEXCEPT_ATTR;
+    TprJob(*getRenderJob)(void) TPR_NOEXCEPT_ATTR;
+    TprJob(*getRenderSignalJob)(void) TPR_NOEXCEPT_ATTR;
+    TprComponent(*getComponentRenderable)(void) TPR_NOEXCEPT_ATTR;
 } TprRenderAPI;
 
 typedef struct TprSchedulingAPI {
-    TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
-    TprResult(*createJobCapability)(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) _TPR_NOEXCEPT_ATTR;
-    TprResult(*scheduleJob)(TprJob job, uint64_t timepoint) _TPR_NOEXCEPT_ATTR;
-    void(*invalidateJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
-    void(*destroyJob)(TprJob job) _TPR_NOEXCEPT_ATTR;
+    TprResult(*createJob)(const TprJobCreateInfo* pInfo, TprJob* pJob) TPR_NOEXCEPT_ATTR;
+    TprResult(*createJobCapability)(TprJob job, TprJobCapabilityFlags mask, TprJob* pJob) TPR_NOEXCEPT_ATTR;
+    TprResult(*scheduleJob)(TprJob job, uint64_t timepoint) TPR_NOEXCEPT_ATTR;
+    void(*invalidateJob)(TprJob job) TPR_NOEXCEPT_ATTR;
+    void(*destroyJob)(TprJob job) TPR_NOEXCEPT_ATTR;
 
-    uint64_t(*now)(void) _TPR_NOEXCEPT_ATTR;
+    uint64_t(*now)(void) TPR_NOEXCEPT_ATTR;
 } TprSchedulingAPI;
 
 typedef struct TprLifetimeAPI {
-    TprJob(*getShutdownJob)(void) _TPR_NOEXCEPT_ATTR;
-    void(*shutdownReady)(void) _TPR_NOEXCEPT_ATTR;
+    TprJob(*getShutdownJob)(void) TPR_NOEXCEPT_ATTR;
+    void(*shutdownReady)(void) TPR_NOEXCEPT_ATTR;
 } TprLifetimeAPI;
 
 typedef struct TprEngineAPI {
-    uint32_t version = TPR_VERSION;
+    uint32_t stableAPIVersion = TPR_STABLE_API_VERSION;
     TprOutputAPI *out;
     TprSceneAPI *scene;
-    TprFileSystemAPI *fs;
+    TprFilesystemAPI *fs;
     TprWindowingAPI *win;
     TprGeometryAPI *geo;
     TprConfigurationAPI *conf;
     TprRenderAPI *render;
     TprSchedulingAPI *sched;
     TprLifetimeAPI *life;
-
 } TprEngineAPI;
 
 
@@ -760,7 +761,7 @@ typedef struct TprEngineAPI {
 extern "C" {
 #endif
 
-int32_t pluginInit(const TprEngineAPI* pAPI) _TPR_NOEXCEPT;
+    int32_t pluginInit(const TprEngineAPI* pAPI) TPR_NOEXCEPT;
 
 #ifdef __cplusplus
 }

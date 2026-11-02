@@ -13,8 +13,8 @@ echo removing build directories
 rm -rf build/tempor
 rm -rf build/plugins
 
-echo removing test directory
-rm -rf test
+echo removing dist directory
+rm -rf dist
 
 echo
 

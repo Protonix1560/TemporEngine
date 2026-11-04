@@ -77,6 +77,7 @@ struct JobHandle {
 struct JobLaunch {
     SharedJobMeta meta;
     std::chrono::steady_clock::time_point timepoint;
+    std::vector<SharedJobMeta> sequence;
     std::strong_ordering operator<=>(const JobLaunch& other) const {
         return timepoint <=> other.timepoint;
     }
@@ -89,6 +90,14 @@ struct JobQueue {
                 std::lock_guard<std::mutex> lock(mMutex);
                 auto it = std::ranges::lower_bound(mLaunches, launch, std::less<JobLaunch>{});
                 mLaunches.emplace(it, launch);
+            }
+            mCv.notify_all();
+        }
+        void push(JobLaunch&& launch) {
+            {
+                std::lock_guard<std::mutex> lock(mMutex);
+                auto it = std::ranges::lower_bound(mLaunches, launch, std::less<JobLaunch>{});
+                mLaunches.emplace(it, std::move(launch));
             }
             mCv.notify_all();
         }
@@ -158,6 +167,7 @@ class Scheduler {
         expected<TprJob, TprResult> createJob(const TprJobCreateInfo& info) noexcept;
         expected<TprJob, TprResult> createJobCapability(TprJob job, TprJobCapabilityFlags mask) noexcept;
         TprResult scheduleJob(TprJob job, uint64_t timepoint) noexcept;
+        TprResult scheduleJobSequence(uint64_t timepoint, uint64_t count, const TprJob* pJobs) noexcept;
         void invalidateJob(TprJob job) noexcept;
         void destroyJob(TprJob job) noexcept;
         uint64_t now() noexcept;

@@ -311,6 +311,26 @@ void Scheduler::processLaunch(JobLaunch launch) {
 
     // Some jobs' usages might have changed
     mShortQueue.notify();
+
+    // calling the next job in the sequence
+    if (!launch.sequence.empty()) {
+        auto timepoint = now();
+        auto meta = launch.sequence.back();
+        launch.sequence.pop_back();
+        if (meta.entry->duration == TPR_JOB_DURATION_SHORT) {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(meta.handle) << marker_no_underline
+                << " is scheduled to queue at " << timepoint << " ns";
+            mShortQueue.push({
+                meta, mTimeBegin + std::chrono::nanoseconds(timepoint),std::move(launch.sequence)
+            });
+        } else {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(meta.handle) << marker_no_underline
+                << " is scheduled to long thread at " << timepoint << " ns";
+            meta.entry->longThread->queue.push({
+                meta, mTimeBegin + std::chrono::nanoseconds(timepoint),std::move(launch.sequence)
+            });
+        }
+    }
 }
 
 
@@ -433,6 +453,54 @@ TprResult Scheduler::scheduleJob(TprJob job, uint64_t timepoint) noexcept {
             mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(job) << marker_no_underline
                 << " is scheduled to long thread at " << timepoint << " ns";
             entry->longThread->queue.push({{entry, job}, mTimeBegin + std::chrono::nanoseconds(timepoint)});
+        }
+        return TPR_SUCCESS;
+
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return TPR_PANIC;
+    }
+}
+
+TprResult Scheduler::scheduleJobSequence(uint64_t timepoint, uint64_t count, const TprJob* pJobs) noexcept {
+    if (!pJobs) return TPR_ERROR_INVALID_VALUE;
+    if (count == 0) return TPR_ERROR_INVALID_VALUE;
+    std::lock_guard<std::mutex> lock(mMutex);
+    assert(mInitialised);
+    try {
+        auto firstJob = *pJobs;
+        auto firstHandleIt = mJobs.find(get_basic_handle_index(firstJob));
+        if (firstHandleIt == mJobs.end()) return TPR_ERROR_INVALID_VALUE;
+        auto firstEntry = firstHandleIt->second.entry;
+        if (!firstEntry->dependencies.empty()) return TPR_ERROR_INVALID_OPERATION;
+        if (firstEntry->invalidated.load()) return TPR_ERROR_INVALID_OPERATION;
+        JobLaunch firstLaunch{{firstEntry, firstJob}, mTimeBegin + std::chrono::nanoseconds(timepoint)};
+        if (count > 1) {
+            firstLaunch.sequence.reserve(count - 1);
+            // adding jobs in reverse order because in processLaunch the next job is taken from the back of the vector
+            for (auto ptr = pJobs + count - 1; ptr != pJobs; ptr++) {
+                auto job = *ptr;
+                auto handleIt = mJobs.find(get_basic_handle_index(job));
+                if (handleIt == mJobs.end()) return TPR_ERROR_INVALID_VALUE;
+                auto entry = handleIt->second.entry;
+                if (!entry->dependencies.empty()) return TPR_ERROR_INVALID_OPERATION;
+                if (entry->invalidated.load()) return TPR_ERROR_INVALID_OPERATION;
+                firstLaunch.sequence.emplace_back(entry, job);
+            }
+        }
+        if (firstEntry->duration == TPR_JOB_DURATION_SHORT) {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(firstJob) << marker_no_underline
+                << " is scheduled to queue at " << timepoint << " ns";
+            mShortQueue.push(std::move(firstLaunch));
+        } else {
+            mSpamLogger.debug() << "Job " << marker_underline << get_basic_handle_index(firstJob) << marker_no_underline
+                << " is scheduled to long thread at " << timepoint << " ns";
+            firstEntry->longThread->queue.push(std::move(firstLaunch));
         }
         return TPR_SUCCESS;
 

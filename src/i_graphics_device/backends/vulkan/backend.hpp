@@ -138,7 +138,7 @@ struct Buffer : private BufferResources {
 class VulkanBackend : public IGraphicsDevice {
     public:
         VulkanBackend(
-            Logger&& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+            const Logger& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
             Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
         );
         ~VulkanBackend() noexcept;

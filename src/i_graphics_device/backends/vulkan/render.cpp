@@ -19,6 +19,11 @@
 #include <cstdint>
 #include <mutex>
 #include <memory>
+#include <cstring>
+#include <algorithm>
+#include <utility>
+#include <cstddef>
+#include <vector>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <vulkan/vulkan_core.h>
@@ -42,10 +47,10 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
     uint64_t indexByteSize = data->header.indexCount * sizeof(uint32_t);
     uint64_t vertexByteSize = data->header.vertexCount * sizeof(Vertex);
 
-    for (auto bufferWeak : mIndexBuffers) {
+    for (const auto& bufferWeak : mIndexBuffers) {
         auto buffer = bufferWeak.lock();
         if (!buffer) continue;  // must not happen
-        for (const auto& mem : buffer->free.data()) {
+        for (const auto& mem : buffer->free) {
             if (mem.length() >= indexByteSize && mem.first_included() && !mem.last_included()) {
                 mesh.indexSpace = {mem.set_begin(), mem.set_begin() + indexByteSize};
                 mesh.indexBuffer = buffer;
@@ -67,10 +72,10 @@ TprResult VulkanBackend::loadMesh(MeshIdentity id) {
         mesh.indexSpace = {0, indexByteSize};
     }
 
-    for (auto bufferWeak : mVertexBuffers) {
+    for (const auto& bufferWeak : mVertexBuffers) {
         auto buffer = bufferWeak.lock();
         if (!buffer) continue;  // must not happen
-        for (const auto& mem : buffer->free.data()) {
+        for (const auto& mem : buffer->free) {
             if (mem.length() >= vertexByteSize && mem.first_included() && !mem.last_included()) {
                 mesh.vertexSpace = {mem.set_begin(), mem.set_begin() + vertexByteSize};
                 mesh.vertexBuffer = buffer;
@@ -141,16 +146,16 @@ TprResult VulkanBackend::unloadMesh(MeshIdentity id) {
     if (it == mMeshes.end()) return TPR_ERROR_INVALID_VALUE;
     {
         auto& mesh = it->second;
-        for (auto imageWeak : mesh.entityImages) {
+        for (const auto& imageWeak : mesh.entityImages) {
             auto image = imageWeak.lock();
             if (image) image->mesh = nullptr;
         }
         mesh.indexBuffer->free |= mesh.indexSpace;
-        if (mesh.indexBuffer->free.data().size() == 1 && mesh.indexBuffer->free.data().back().length() == mesh.indexBuffer->byteSize) {
+        if (mesh.indexBuffer->free.size() == 1 && mesh.indexBuffer->free.back().length() == mesh.indexBuffer->byteSize) {
             mIndexBuffers.erase(mesh.indexBuffer);
         }
         mesh.vertexBuffer->free |= mesh.indexSpace;
-        if (mesh.vertexBuffer->free.data().size() == 1 && mesh.vertexBuffer->free.data().back().length() == mesh.vertexBuffer->byteSize) {
+        if (mesh.vertexBuffer->free.size() == 1 && mesh.vertexBuffer->free.back().length() == mesh.vertexBuffer->byteSize) {
             mVertexBuffers.erase(mesh.vertexBuffer);
         }
     }
@@ -177,12 +182,11 @@ TprResult VulkanBackend::render() noexcept {
     uint32_t totalSize = 0;
     
     if (auto r = mrScGr.getComponentChunkHandles(mComponentRenderable, mFetchRenderableFile); r != TPR_SUCCESS) return r;
-    if (auto r = mrFileSys.seek(mFetchRenderableFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
-    auto chunkCountExp = mrFileSys.tell(mFetchRenderableFile);
+    auto chunkCountExp = mrFileSys.fileSize(mFetchRenderableFile);
     if (!chunkCountExp.has_value()) return chunkCountExp.error();
     for (size_t readPos = 0; readPos < chunkCountExp.value(); readPos += sizeof(TprComponentChunk)) {
         TprComponentChunk renderableChunk;
-        if (auto r = mrFileSys.readAt(
+        if (auto r = mrFileSys.readFile(
             mFetchRenderableFile, readPos, sizeof(TprComponentChunk), reinterpret_cast<std::byte*>(&renderableChunk)
         ); r != TPR_SUCCESS) return r;
         auto sizeExp = mrScGr.getComponentChunkElementCount(renderableChunk);
@@ -304,7 +308,7 @@ TprResult VulkanBackend::render() noexcept {
                 VkDrawIndexedIndirectCommand command{};
                 command.firstIndex = draw.mesh->indexSpace.set_begin() / 4;
                 command.indexCount = draw.mesh->indexSpace.length() / 4;
-                command.vertexOffset = draw.mesh->vertexSpace.set_begin() / Vertex::perfectPackSize;
+                command.vertexOffset = static_cast<int32_t>(draw.mesh->vertexSpace.set_begin() / Vertex::perfectPackSize);
                 command.firstInstance = draw.offset;
                 command.instanceCount = draw.count;
                 memcpy(reinterpret_cast<std::byte*>(map) + i * sizeof(VkDrawIndexedIndirectCommand), &command, sizeof(VkDrawIndexedIndirectCommand));
@@ -406,8 +410,8 @@ TprResult VulkanBackend::render() noexcept {
                     mLoader.vkCmdSetViewport()(frame.renderCommandBuffer, 0, 1, &viewport);
 
                     VkRect2D scissor{};
-                    scissor.offset.x = target->scissor.x;
-                    scissor.offset.y = target->scissor.y;
+                    scissor.offset.x = static_cast<int32_t>(target->scissor.x);
+                    scissor.offset.y = static_cast<int32_t>(target->scissor.y);
                     scissor.extent.width = target->scissor.width;
                     scissor.extent.height = target->scissor.height;
                     mLoader.vkCmdSetScissor()(frame.renderCommandBuffer, 0, 1, &scissor);

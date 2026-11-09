@@ -1,13 +1,22 @@
 
 #include "tempor.h"
 
+#include <algorithm>
 #include <string>
 #include <format>
 #include <thread>  // IWYU pragma: keep
 #include <mutex>
+#include <vector>
+#include <cstdint>
+#include <cmath>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/ext/vector_float3.hpp>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_float4x4.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/geometric.hpp>
 
 
 using namespace std::string_literals;
@@ -329,12 +338,12 @@ extern "C" {
         ROF(plugin->api->win->bindActionWindow(plugin->flyDownwardAction, plugin->window));
 
         TprFile modelFile;
-        ROF(plugin->api->fs->openFile("plugins/test/model.glb", 0, &modelFile));
+        ROF(plugin->api->fs->openPathFile("plugins/test/model.glb", 0, &modelFile));
         TprMeshCreateInfo parseInfo{};
         parseInfo.data = modelFile;
         parseInfo.index = 0;
         ROF(plugin->api->geo->createMesh(&parseInfo, &plugin->mesh));
-        plugin->api->fs->closeFile(modelFile);
+        plugin->api->fs->destroyFile(modelFile);
 
         ROF(plugin->api->geo->requireMeshLoaded(plugin->mesh));
 

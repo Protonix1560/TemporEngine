@@ -49,7 +49,7 @@ struct SettingHandle {
 
 struct JsonData {
     sj::padded_string data;
-    sj::dom::parser parser;
+    sj::dom::parser parser{};
     sj::dom::element root;
 };
 

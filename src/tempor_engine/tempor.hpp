@@ -137,7 +137,7 @@ class TemporEngine {
 
     public:
         TemporEngine(
-            size_t verboseLevel, std::filesystem::path configPath, bool flushConfig,
+            size_t verboseLevel, const std::filesystem::path& configPath, bool flushConfig,
             bool configEnabled, bool colourEnabled
         );
         int runtime();
@@ -182,7 +182,7 @@ class TemporEngine {
             TprResult fs_cloneFileCapability(TprFile file, TprFile* pFile) noexcept;
             TprResult fs_attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
             void fs_destroyFile(TprFile file) noexcept;
-            TprResult fs_cloneFile(TprFile file, TprForkFileFlags flags, TprFile* pFile) noexcept;
+            TprResult fs_cloneFile(TprFile file, TprCloneFileFlags flags, TprFile* pFile) noexcept;
             TprResult fs_snapshotCommitable(TprFile snapshot, TprBool8* pValue) noexcept;
             TprResult fs_commitSnapshot(TprFile snapshot) noexcept;
             TprResult fs_resetSnapshot(TprFile file, uint64_t pos, uint64_t n) noexcept;

@@ -17,7 +17,7 @@ class LogEntry {
         LogEntry() = default;
 
         template <typename F>
-        LogEntry(F&& flusher) : mFlusher(flusher) {}
+        LogEntry(F&& flusher) : mFlusher(std::forward<F>(flusher)) {}
 
         template <typename F>
         LogEntry(F&& flusher, const format_sequence& prefix) : mFlusher(flusher), mBuffer(prefix) {}

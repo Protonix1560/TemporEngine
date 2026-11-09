@@ -59,7 +59,7 @@ expected<VulkanBackend::PartialBuffer, TprResult> VulkanBackend::createPartialBu
     PartialBuffer buffer{};
     if (size == 0) return std::move(buffer);
     buffer.byteSize = size;
-    buffer.free = interval<uint64_t>{0, size};
+    buffer.free = mat::interval<uint64_t>{0, size};
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -85,7 +85,7 @@ expected<VulkanBackend::PartialBuffer, TprResult> VulkanBackend::createExclusive
     PartialBuffer buffer{};
     if (size == 0) return std::move(buffer);
     buffer.byteSize = size;
-    buffer.free = interval<uint64_t>{0, size};
+    buffer.free = mat::interval<uint64_t>{0, size};
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;

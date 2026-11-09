@@ -8,6 +8,7 @@
 #include "filesystem.hpp"
 #include "log_entry.hpp"
 #include "scope_guard.hpp"
+#include "tempor.h"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
@@ -36,19 +37,19 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo& inf
     std::lock_guard<std::mutex> lock(mMutex);
     assert(mInitialised);
     try {
-        if (auto r = mrFileSys.seek(info.data, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return unexpected(r);
-        auto tellExp = mrFileSys.tell(info.data);
-        if (!tellExp.has_value()) return unexpected(tellExp.error());
-        auto size = tellExp.value();
-        if (size == 0) { return unexpected(TPR_ERROR_INVALID_VALUE); }
-        std::vector<std::byte> data(size);
-        if (auto r = mrFileSys.readAt(info.data, 0, data.size(), data.data()); r != TPR_SUCCESS) return unexpected(r);
+        auto snapshotExp = mrFileSys.cloneFile(info.data, TPR_CLONE_FILE_SNAPSHOT_FLAG_BIT);
+        if (!snapshotExp) return unexpected(snapshotExp.error());
+        auto snapshot = snapshotExp.value();
+        auto size = mrFileSys.fileSize(snapshot);
+        if (!size) return unexpected(size.error());
+        if (size.value() == 0) return unexpected(TPR_ERROR_INVALID_VALUE);
+        std::vector<std::byte> data(size.value());
+        if (auto r = mrFileSys.readFile(snapshot, 0, data.size(), data.data()); r) return unexpected(r);
 
         auto gltfDataExp = fastgltf::GltfDataBuffer::FromBytes(data.data(), data.size());
         if (gltfDataExp.error() != fastgltf::Error::None) {
-            mLogger.panic() << "fastgltf::GltfDataBuffer::FromBytes failed: " << fastgltf::getErrorMessage(gltfDataExp.error());
-            mrRunResult.store(TPR_PANIC);
-            return unexpected(TPR_PANIC);
+            mLogger.error() << "fastgltf::GltfDataBuffer::FromBytes failed: " << fastgltf::getErrorMessage(gltfDataExp.error());
+            return unexpected(TPR_UNKNOWN_ERROR);
         }
         auto& gltfData = gltfDataExp.get();
 
@@ -56,9 +57,8 @@ expected<TprMesh, TprResult> AssetStore::createMesh(const TprMeshCreateInfo& inf
         // TODO: add support for in-memory binary chunks
         auto gltfLibraryExp = gltfParser.loadGltfBinary(gltfData, "");
         if (gltfLibraryExp.error() != fastgltf::Error::None) {
-            mLogger.panic() << "fastgltf::Parser::loadGltfBinary failed: " << fastgltf::getErrorMessage(gltfLibraryExp.error());
-            mrRunResult.store(TPR_PANIC);
-            return unexpected(TPR_PANIC);
+            mLogger.error() << "fastgltf::Parser::loadGltfBinary failed: " << fastgltf::getErrorMessage(gltfLibraryExp.error());
+            return unexpected(TPR_UNKNOWN_ERROR);
         }
         auto& gltfLibrary = gltfLibraryExp.get();
 

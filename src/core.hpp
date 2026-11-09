@@ -427,10 +427,10 @@ inline constexpr T construct_basic_handle(uint32_t index, uint32_t generation, h
 template <typename E>
 class unexpected {
     public:
-        explicit unexpected(E error) : m_error(std::move(error)) {}
-        E& error() & { return m_error; }
-        const E& error() const & { return m_error; }
-        E&& error() && { return std::move(m_error); }
+        explicit constexpr unexpected(E error) : m_error(std::move(error)) {}
+        constexpr E& error() & { return m_error; }
+        constexpr const E& error() const & { return m_error; }
+        constexpr E&& error() && { return std::move(m_error); }
     private:
         E m_error;
 };
@@ -444,26 +444,26 @@ class expected {
         using value_type = T;
         using error_type = E;
 
-        expected(T value) : m_has_value(true) {
+        constexpr expected(T value) : m_has_value(true) {
             new (&m_data.value) T(std::move(value));
         }
-        expected(unexpected<E> error) : m_has_value(false) {
+        constexpr expected(unexpected<E> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(error.error()));
         }
         template <typename U>
         requires std::is_constructible_v<U, E>
-        expected(unexpected<U> error) : m_has_value(false) {
+        constexpr expected(unexpected<U> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(static_cast<E>(error.error())));
         }
-        expected(expected<T, E>&& other) noexcept : m_has_value(other.has_value()) {
+        constexpr expected(expected<T, E>&& other) noexcept : m_has_value(other.has_value()) {
             if (m_has_value) new (&m_data.value) T(std::move(other.value()));
             else new (&m_data.error) E(std::move(other.error()));
         }
-        expected(const expected<T, E>& other) : m_has_value(other.has_value()) {
+        constexpr expected(const expected<T, E>& other) : m_has_value(other.has_value()) {
             if (m_has_value) new (&m_data.value) T(other.value());
             else new (&m_data.error) E(other.error());
         }
-        expected& operator=(expected&& other) noexcept {
+        constexpr expected& operator=(expected&& other) noexcept {
             if (&other == this) return *this;
             if (m_has_value && other.m_has_value) {
                 m_data.value = std::move(other.m_data.value);
@@ -478,14 +478,14 @@ class expected {
             }
             return *this;
         }
-        ~expected() {
+        constexpr ~expected() {
             if (m_has_value) m_data.value.~T();
             else m_data.error.~E();
         }
 
-        bool has_value() const noexcept { return m_has_value; }
+        constexpr bool has_value() const noexcept { return m_has_value; }
 
-        T& value() & {
+        constexpr T& value() & {
             if (!m_has_value) {
                 std::string err = "expected: no value";
                 if constexpr (string_converter<E>::is_convertable()) {
@@ -495,11 +495,11 @@ class expected {
             }
             return m_data.value;
         }
-        E& error() & {
+        constexpr E& error() & {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return m_data.error;
         }
-        T&& value() && {
+        constexpr T&& value() && {
             if (!m_has_value) {
                 std::string err = "expected: no value";
                 if constexpr (string_converter<E>::is_convertable()) {
@@ -509,11 +509,11 @@ class expected {
             }
             return std::move(m_data.value);
         }
-        E&& error() && {
+        constexpr E&& error() && {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return std::move(m_data.error);
         }
-        const T& value() const & {
+        constexpr const T& value() const & {
             if (!m_has_value) {
                 std::string err = "expected: no value";
                 if constexpr (string_converter<E>::is_convertable()) {
@@ -523,18 +523,18 @@ class expected {
             }
             return m_data.value;
         }
-        const E& error() const & {
+        constexpr const E& error() const & {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return m_data.error;
         }
-        T& operator*() { return value(); }
-        T* operator->() { return &value(); }
+        constexpr T& operator*() { return value(); }
+        constexpr T* operator->() { return &value(); }
 
-        operator bool() const { return has_value(); }
+        explicit constexpr operator bool() const noexcept { return has_value(); }
         
         template<typename F>
         requires std::same_as<expected<typename std::invoke_result_t<F, T&>::value_type, E>, std::invoke_result_t<F, T&>>
-        auto and_then(F&& f) {
+        constexpr auto and_then(F&& f) {
             if (has_value()) {
                 return std::invoke(std::forward<F>(f), m_data.value);
             } else {
@@ -544,7 +544,7 @@ class expected {
         
         template<typename F>
         requires std::same_as<expected<typename std::invoke_result_t<F, const T&>::value_type, E>, std::invoke_result_t<F, const T&>>
-        auto and_then(F&& f) const {
+        constexpr auto and_then(F&& f) const {
             if (has_value()) {
                 return std::invoke(std::forward<F>(f), m_data.value);
             } else {
@@ -554,7 +554,7 @@ class expected {
         
         template<typename F>
         requires std::same_as<expected<T, typename std::invoke_result_t<F, E&>::error_type>, std::invoke_result_t<F, E&>>
-        auto or_else(F&& f) {
+        constexpr auto or_else(F&& f) {
             if (!has_value()) {
                 return std::invoke(std::forward<F>(f), m_data.error);
             } else {
@@ -564,7 +564,7 @@ class expected {
         
         template<typename F>
         requires std::same_as<expected<T, typename std::invoke_result_t<F, const E&>::error_type>, std::invoke_result_t<F, const E&>>
-        auto or_else(F&& f) const {
+        constexpr auto or_else(F&& f) const {
             if (!has_value()) {
                 return std::invoke(std::forward<F>(f), m_data.error);
             } else {
@@ -574,7 +574,7 @@ class expected {
 
         template <typename U>
         requires std::is_convertible_v<U, T>
-        T value_or(U value) {
+        constexpr T value_or(U value) {
             if (!m_has_value) return value;
             return m_data.value;
         }
@@ -605,22 +605,22 @@ class expected<void, E> {
         using value_type = void;
         using error_type = E;
 
-        expected() : m_has_value(true) {}
-        expected(unexpected<E> error) : m_has_value(false) {
+        constexpr expected() : m_has_value(true) {}
+        constexpr expected(unexpected<E> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(error.error()));
         }
         template <typename U, typename = std::enable_if_t<std::is_convertible_v<U, E>>>
-        expected(unexpected<U> error) : m_has_value(false) {
+        constexpr expected(unexpected<U> error) : m_has_value(false) {
             new (&m_data.error) E(std::move(static_cast<E>(error.error())));
         }
-        expected(expected_void&& v) : m_has_value(true) {}
-        expected(expected<void, E>&& other) noexcept : m_has_value(other.has_value()) {
+        constexpr expected(expected_void&& v) : m_has_value(true) {}
+        constexpr expected(expected<void, E>&& other) noexcept : m_has_value(other.has_value()) {
             if (!m_has_value) new (&m_data.error) E(std::move(other.error()));
         }
-        expected(const expected<void, E>& other) : m_has_value(other.has_value()) {
+        constexpr expected(const expected<void, E>& other) : m_has_value(other.has_value()) {
             if (!m_has_value) new (&m_data.error) E(other.error());
         }
-        expected& operator=(expected&& other) noexcept {
+        constexpr expected& operator=(expected&& other) noexcept {
             if (&other == this) return *this;
             if (m_has_value && other.m_has_value) {
             } else if (!m_has_value && !other.m_has_value) {
@@ -632,13 +632,13 @@ class expected<void, E> {
             }
             return *this;
         }
-        ~expected() {
+        constexpr ~expected() {
             if (!m_has_value) m_data.error.~E();
         }
 
-        bool has_value() const noexcept { return m_has_value; }
+        constexpr bool has_value() const noexcept { return m_has_value; }
 
-        void value() const {
+        constexpr void value() const {
             if (!m_has_value) {
                 std::string err = "expected: no value";
                 if constexpr (string_converter<E>::is_convertable()) {
@@ -647,24 +647,24 @@ class expected<void, E> {
                 throw std::runtime_error(err);
             }
         }
-        E& error() & {
+        constexpr E& error() & {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return m_data.error;
         }
-        E&& error() && {
+        constexpr E&& error() && {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return std::move(m_data.error);
         }
-        const E& error() const & {
+        constexpr const E& error() const & {
             if (m_has_value) throw std::runtime_error("expected: no error");
             return m_data.error;
         }
 
-        operator bool() const { return has_value(); }
+        explicit constexpr operator bool() const noexcept { return has_value(); }
         
         template<typename F>
         requires std::same_as<expected<typename std::invoke_result_t<F>::value_type, E>, std::invoke_result_t<F>>
-        auto and_then(F&& f) {
+        constexpr auto and_then(F&& f) {
             if (has_value()) {
                 return std::invoke(std::forward<F>(f));
             } else {
@@ -674,7 +674,7 @@ class expected<void, E> {
         
         template<typename F>
         requires std::same_as<expected<void, typename std::invoke_result_t<F, E&>::error_type>, std::invoke_result_t<F, E&>>
-        auto or_else(F&& f) {
+        constexpr auto or_else(F&& f) {
             if (!has_value()) {
                 return std::invoke(std::forward<F>(f), m_data.error);
             } else {
@@ -684,7 +684,7 @@ class expected<void, E> {
         
         template<typename F>
         requires std::same_as<expected<void, typename std::invoke_result_t<F, const E&>::error_type>, std::invoke_result_t<F, const E&>>
-        auto or_else(F&& f) const {
+        constexpr auto or_else(F&& f) const {
             if (!has_value()) {
                 return std::invoke(std::forward<F>(f), m_data.error);
             } else {

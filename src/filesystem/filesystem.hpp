@@ -20,7 +20,7 @@
 #include <variant>
 #include <mutex>
 #include <cstdio>
-#include <unordered_set>
+#include <set>
 #include <functional>
 #include <cerrno>
 #include <cstdint>
@@ -139,7 +139,7 @@ class Filesystem {
         expected<TprFile, TprResult> cloneFileCapability(TprFile file) noexcept;
         TprResult attenuateFileCapability(TprFile file, TprFileCapabilityFlags mask) noexcept;
         void destroyFile(TprFile file) noexcept;
-        expected<TprFile, TprResult> cloneFile(TprFile file, TprForkFileFlags flags = 0) noexcept;
+        expected<TprFile, TprResult> cloneFile(TprFile file, TprCloneFileFlags flags = 0) noexcept;
 
         expected<bool, TprResult> snapshotCommitable(TprFile snapshot) noexcept;
         TprResult commitSnapshot(TprFile snapshot) noexcept;
@@ -161,7 +161,7 @@ class Filesystem {
         struct SnapshotSource;
 
         struct FileEntry {
-            std::unordered_set<std::weak_ptr<SnapshotSource>, std::owner_less<std::weak_ptr<SnapshotSource>>> snapshots;
+            std::set<std::weak_ptr<SnapshotSource>, std::owner_less<std::weak_ptr<SnapshotSource>>> snapshots;
         };
 
         struct FileSource : FileEntry {

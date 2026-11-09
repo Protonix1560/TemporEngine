@@ -144,7 +144,7 @@
         if (!mpFileSys) return;
         mpFileSys->destroyFile(file);
     }
-    TprResult TemporEngine::fs_cloneFile(TprFile file, TprForkFileFlags flags, TprFile* pFile) noexcept {
+    TprResult TemporEngine::fs_cloneFile(TprFile file, TprCloneFileFlags flags, TprFile* pFile) noexcept {
         if (!pFile) return TPR_ERROR_INVALID_VALUE;
         if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
         auto exp = mpFileSys->cloneFile(file, flags);
@@ -181,7 +181,11 @@
         return mpFileSys->writeFile(file, pos, n, pData);
     }
     TprResult TemporEngine::fs_fileSize(TprFile file, uint64_t* pSize) noexcept {
-
+        if (!mpFileSys) return TPR_ERROR_NOT_LOADED;
+        auto exp = mpFileSys->fileSize(file);
+         if (!exp.has_value()) return exp.error();
+        *pSize = exp.value();
+        return TPR_SUCCESS;
     }
     TprResult TemporEngine::fs_pathType(const char* path, TprPathType* pType) noexcept {
         if (!pType) return TPR_ERROR_INVALID_VALUE;

@@ -195,7 +195,7 @@ void Filesystem::destroyFile(TprFile file) noexcept {
     }
 }
 
-expected<TprFile, TprResult> Filesystem::cloneFile(TprFile file, TprForkFileFlags flags) noexcept {
+expected<TprFile, TprResult> Filesystem::cloneFile(TprFile file, TprCloneFileFlags flags) noexcept {
     if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
     std::lock_guard<std::mutex> lock(mMutex);
     try {
@@ -203,7 +203,7 @@ expected<TprFile, TprResult> Filesystem::cloneFile(TprFile file, TprForkFileFlag
         if (handleIt == mFiles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
         auto& origin = handleIt->second.entry;
 
-        if (flags & TPR_FORK_FILE_SNAPSHOT_FLAG_BIT) {
+        if (flags & TPR_CLONE_FILE_SNAPSHOT_FLAG_BIT) {
             auto snapshot = std::make_shared<SnapshotSource>();
             snapshot->origin = variant_cast<weakFileVariant>(origin);
             snapshot->size = std::visit(overload{
@@ -415,8 +415,8 @@ TprResult Filesystem::readFile(TprFile file, uint64_t pos, uint64_t n, void* pDa
         }, handle.entry);
         if (pos + n > size) return TPR_ERROR_OUT_OF_RANGE;
         auto readResult = std::visit(overload{
-            [pData, n, pos](const std::shared_ptr<FileSource>& src) {
-                return fio::read(src->file, mat::interval<size_t>{pos, pos + n}, pData);
+            [pData, n, pos, this](const std::shared_ptr<FileSource>& src) {
+                return fio::read(src->file, mat::interval<size_t>{pos, pos + n}, reinterpret_cast<std::byte*>(pData));
             },
             [pData, n, pos](const std::shared_ptr<MemorySource>& src) {
                 std::memcpy(pData, src->data.data() + pos, n);
@@ -557,6 +557,29 @@ TprResult Filesystem::writeFile(TprFile file, uint64_t pos, uint64_t n, const vo
         mLogger.panic() << "Unknown exception";
         mrRunResult.store(TPR_PANIC);
         return TPR_PANIC;
+    }
+}
+
+expected<uint64_t, TprResult> Filesystem::fileSize(TprFile file) noexcept {
+    if (get_basic_handle_type(file) != handle_type::file) return unexpected(TPR_ERROR_INVALID_VALUE);
+    std::lock_guard<std::mutex> lock(mMutex);
+    try {
+        auto handleIt = mFiles.find(get_basic_handle_index(file));
+        if (handleIt == mFiles.end()) return unexpected(TPR_ERROR_INVALID_VALUE);
+        auto& handle = handleIt->second;
+        return std::visit(overload{
+            [](std::shared_ptr<FileSource>& src) { return fio::size_destructive(src->file); },
+            [](std::shared_ptr<MemorySource>& src) { return src->data.size(); },
+            [](std::shared_ptr<SnapshotSource>& src) { return src->size; }
+        }, handle.entry);
+    } catch (const std::exception& e) {
+        mLogger.panic() << "Exception: " << e.what();
+        mrRunResult.store(TPR_PANIC);
+        return unexpected(TPR_PANIC);
+    } catch (...) {
+        mLogger.panic() << "Unknown exception";
+        mrRunResult.store(TPR_PANIC);
+        return unexpected(TPR_PANIC);
     }
 }
 

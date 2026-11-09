@@ -16,9 +16,10 @@
 #include <utility>
 #include <ostream>
 #include <string>
+#include <cstdint>
 
 
-enum class format_marker_id {
+enum class format_marker_id : uint8_t {
     reset,
     foreground0_dark,
     foreground1_dark,
@@ -209,43 +210,43 @@ class basic_format_sequence {
 
         template <typename Q>
         basic_format_sequence(const basic_format_sequence<Q>& other) {
-            m_data.reserve(other.m_data.size());
+            m_data.resize(other.m_data.size());
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast<std::variant<S, format_marker_id>>(value);
                 }
             );
         }
         template <typename Q>
         basic_format_sequence& operator=(const basic_format_sequence<Q>& other) {
-            m_data.reserve(other.m_data.size());
+            m_data.resize(other.m_data.size());
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast<std::variant<S, format_marker_id>>(value);
                 }
             );
         }
 
         template <typename Q>
         basic_format_sequence(basic_format_sequence<Q>&& other) {
-            m_data.reserve(other.m_data.size());
+            m_data.resize(other.m_data.size());
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast<std::variant<S, format_marker_id>>(value);
                 }
             );
             other.clear();
         }
         template <typename Q>
         basic_format_sequence& operator=(basic_format_sequence<Q>&& other) {
-            m_data.reserve(other.m_data.size());
+            m_data.resize(other.m_data.size());
             std::ranges::transform(
                 other.m_data, m_data.begin(),
                 [](const std::variant<Q, format_marker_id>& value) {
-                    return variant_cast_arg_to<std::variant<S, format_marker_id>>(value);
+                    return variant_cast<std::variant<S, format_marker_id>>(value);
                 }
             );
             other.clear();

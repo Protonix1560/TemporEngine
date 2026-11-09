@@ -421,11 +421,11 @@ typedef enum TprCreateDirectoryFlagBits {
 } TprCreateDirectoryFlagBits;
 typedef TprFlag_T TprCreateDirectoryFlags;
 
-typedef enum TprForkFileFlagBits {
-    TPR_FORK_FILE_SNAPSHOT_FLAG_BIT = 0x1,
-    TPR_FORK_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
-} TprForkFileFlagBits;
-typedef TprFlag_T TprForkFileFlags;
+typedef enum TprCloneFileFlagBits {
+    TPR_CLONE_FILE_SNAPSHOT_FLAG_BIT = 0x1,
+    TPR_CLONE_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
+} TprCloneFileFlagBits;
+typedef TprFlag_T TprCloneFileFlags;
 
 typedef enum TprCreateMemoryFileFlagBits {
     TPR_CREATE_MEMORY_FILE_FLAG_BITS_MAX_ENUM = TPR_MAX_ENUM
@@ -626,7 +626,7 @@ typedef struct TprFilesystemAPI {
     TprResult(*cloneFileCapability)(TprFile file, TprFile* pFile) TPR_NOEXCEPT_ATTR;
     TprResult(*attenuateFileCapability)(TprFile file, TprFileCapabilityFlags mask) TPR_NOEXCEPT_ATTR;
     void(*destroyFile)(TprFile file) TPR_NOEXCEPT_ATTR;
-    TprResult(*cloneFile)(TprFile file, TprForkFileFlags flags, TprFile* pFile) TPR_NOEXCEPT_ATTR;
+    TprResult(*cloneFile)(TprFile file, TprCloneFileFlags flags, TprFile* pFile) TPR_NOEXCEPT_ATTR;
 
     TprResult(*snapshotCommitable)(TprFile snapshot, TprBool8* pValue) TPR_NOEXCEPT_ATTR;
     TprResult(*commitSnapshot)(TprFile snapshot) TPR_NOEXCEPT_ATTR;

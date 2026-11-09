@@ -12,6 +12,8 @@
 #include <cerrno>
 #include <vector>
 #include <array>
+#include <concepts>
+#include <cassert>
 
 #include <mio/mmap.hpp>
 
@@ -21,6 +23,8 @@
     #include <unistd.h>
 #endif
 
+
+#include <iostream>
 
 namespace fio {
 
@@ -72,7 +76,7 @@ namespace fio {
         #endif
         #ifdef WINDOWS
             errno = 0;
-            auto pos = _fseeki64(file, static_cast<__int64>(pos), whence);
+            auto pos = _ftelli64(file);
             if (pos < 0) {
                 switch (errno) {
                     case EBADF:
@@ -91,13 +95,13 @@ namespace fio {
         auto oldPos = tell(file);
         seek(file, 0, SEEK_END);
         auto newPos = tell(file);
-        seek(file, oldPos, SEEK_SET);
-        return newPos;
+        seek(file, static_cast<int64_t>(oldPos.value()), SEEK_SET);
+        return newPos.value();
     }
 
     inline uint64_t size_destructive(FILE* file) noexcept {
         seek(file, 0, SEEK_END);
-        return tell(file);
+        return tell(file).value();
     }
 
     inline expected<FILE*, TprResult> open(const std::filesystem::path& path, bool persistent = false, bool text = false) noexcept {
@@ -219,7 +223,7 @@ namespace fio {
         #endif
         #ifdef WINDOWS
             assert(size <= INT64_MAX);
-            int fd = _fileno(src.file);
+            int fd = _fileno(file);
             if (_chsize_s(fd, static_cast<__int64>(size))) {
                 switch (errno) {
                     case EACCES:
@@ -235,31 +239,61 @@ namespace fio {
     }
 
     template <typename ByteT, size_t Chunk = TEMPOR_FIO_RW_CHUNK_SIZE>
+    requires (!std::same_as<ByteT, void>)
     inline expected<std::vector<ByteT>, TprResult> read(FILE* file, const mat::interval<size_t>& inter) {
+        if (inter.length() == 0) return std::vector<ByteT>{};
         std::vector<ByteT> result;
         std::array<ByteT, Chunk> buffer;
-        if (auto r = seek(file, static_cast<int64_t>(inter.set_begin()), SEEK_SET); !r) return unexpected(r);
+        if (auto r = seek(file, static_cast<int64_t>(inter.set_begin()), SEEK_SET); r) return unexpected(r);
+        size_t remain = inter.length();
         while (true) {
-            size_t n = std::fread(buffer.data(), 1, Chunk, file);
+            size_t read_size = remain;
+            if (read_size > Chunk) read_size = Chunk;
+            size_t n = std::fread(buffer.data(), 1, read_size, file);
             if (std::ferror(file) || n == 0) return unexpected(TPR_UNKNOWN_ERROR);
-            auto remain = inter.length() - result.size();
-            if (remain > Chunk) remain = Chunk;
-            result.insert(result.end(), buffer.begin(), buffer.begin() + remain);
-            if (remain < Chunk || std::feof(file)) return result;
+            remain -= n;
+            result.insert(result.end(), buffer.begin(), buffer.begin() + n);
+            if (remain == 0) break;
+            if (std::feof(file)) return unexpected(TPR_ERROR_OUT_OF_RANGE);
         }
         return result;
     }
 
     template <typename ByteT, size_t Chunk = TEMPOR_FIO_RW_CHUNK_SIZE>
+    requires (!std::same_as<ByteT, void>)
     inline TprResult read(FILE* file, const mat::interval<size_t>& inter, ByteT* begin) {
+        if (inter.length() == 0) return TPR_SUCCESS;
         auto it = begin;
-        if (auto r = seek(file, static_cast<int64_t>(inter.set_begin()), SEEK_SET); !r) return r;
+        if (auto r = seek(file, static_cast<int64_t>(inter.set_begin()), SEEK_SET); r) return r;
+        size_t remain = inter.length();
         while (true) {
-            size_t n = std::fread(it, 1, Chunk, file);
+            size_t read_size = remain;
+            if (read_size > Chunk) read_size = Chunk;
+            size_t n = std::fread(it, 1, read_size, file);
             if (std::ferror(file) || n == 0) return TPR_UNKNOWN_ERROR;
-            auto remain = inter.length() - (it - begin);
-            if (remain > Chunk) remain = Chunk;
-            if (remain < Chunk || std::feof(file)) return TPR_SUCCESS;
+            remain -= n;
+            it += n;
+            if (remain == 0) return TPR_SUCCESS;
+            if (std::feof(file)) return TPR_ERROR_OUT_OF_RANGE;
+        }
+        return TPR_SUCCESS;
+    }
+
+    template <typename ByteT, size_t Chunk = TEMPOR_FIO_RW_CHUNK_SIZE>
+    requires (!std::same_as<ByteT, void>)
+    inline TprResult write(FILE* file, const mat::view_interval<const ByteT>& inter) {
+        if (inter.length() == 0) return TPR_SUCCESS;
+        auto it = inter.data();
+        if (auto r = seek(file, static_cast<int64_t>(inter.set_begin()), SEEK_SET); r) return r;
+        size_t remain = inter.length();
+        while (true) {
+            size_t write_size = remain;
+            if (write_size > Chunk) write_size = Chunk;
+            size_t n = std::fwrite(it, 1, write_size, file);
+            if (std::ferror(file) || n == 0) return TPR_UNKNOWN_ERROR;
+            remain -= n;
+            it += n;
+            if (remain == 0) return TPR_SUCCESS;
         }
         return TPR_SUCCESS;
     }
@@ -273,19 +307,6 @@ namespace fio {
         #endif
     }
 
-    template <typename ByteT, size_t Chunk = TEMPOR_FIO_RW_CHUNK_SIZE>
-    inline TprResult write(FILE* file, const mat::view_interval<const ByteT>& inter) {
-        auto it = inter.begin();
-        if (auto r = seek(file, static_cast<int64_t>(inter.set_begin()), SEEK_SET); !r) return r;
-        while (true) {
-            size_t n = std::fwrite(it, 1, Chunk, file);
-            if (std::ferror(file) || n == 0) return TPR_UNKNOWN_ERROR;
-            auto remain = inter.length() - (it - inter.begin());
-            if (remain > Chunk) remain = Chunk;
-            if (remain < Chunk || std::feof(file)) return TPR_SUCCESS;
-        }
-        return TPR_SUCCESS;
-    }
 }
 
 #endif  // FIO_HPP_

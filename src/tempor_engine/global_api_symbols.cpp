@@ -92,7 +92,7 @@ namespace api {
         void destroyFile(TprFile file) noexcept {
             assert(gEngine); return gEngine->fs_destroyFile(file);
         }
-        TprResult cloneFile(TprFile file, TprForkFileFlags flags, TprFile* pFile) noexcept {
+        TprResult cloneFile(TprFile file, TprCloneFileFlags flags, TprFile* pFile) noexcept {
             assert(gEngine); return gEngine->fs_cloneFile(file, flags, pFile);
         }
         TprResult snapshotCommitable(TprFile snapshot, TprBool8* pValue) noexcept {

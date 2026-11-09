@@ -54,7 +54,7 @@ TprResult Settings::init(std::filesystem::path confPath, bool flushConfig, bool 
 }
 
 TprResult Settings::openConfig() {
-    auto openExp = mrFileSys.openFile(mConfPath);
+    auto openExp = mrFileSys.openPathFile(mConfPath);
     if (!openExp.has_value()) {
         mLogger.error() << "Failed to open config file [" << openExp.error() << "]";
         return TPR_SUCCESS;
@@ -62,28 +62,12 @@ TprResult Settings::openConfig() {
     TprFile config = openExp.value();
     scope_exit closeConfig([&]() { mrFileSys.destroyFile(config); });
 
-    TprResult result;
-    result = mrFileSys.seek(config, 0, TPR_SEEK_WHENCE_END);
-    switch (result) {
-        case TPR_SUCCESS:
-            break;
-        case TPR_PANIC:
-            return TPR_PANIC;
-        default:
-            mLogger.error() << "Failed to call seek at config file [" << result << "]";
-            return TPR_SUCCESS;
-    }
-
-    auto posExp = mrFileSys.tell(config);
-    if (!posExp.has_value()) {
-        mLogger.error() << "Failed to call tell at config file [" << posExp.error() << "]";
-        return TPR_SUCCESS;
-    }
-    uint32_t size = posExp.value();
+    auto sizeExp = mrFileSys.fileSize(config);
+    auto size = sizeExp.value();
 
     mJsonData.emplace();
     mJsonData->data = sj::padded_string(size);
-    result = mrFileSys.readAt(config, 0, size, reinterpret_cast<std::byte*>(mJsonData->data.data()));
+    TprResult result = mrFileSys.readFile(config, 0, size, mJsonData->data.data());
     switch (result) {
         case TPR_SUCCESS:
             break;
@@ -96,7 +80,7 @@ TprResult Settings::openConfig() {
 
     auto docExp = mJsonData->parser.parse(mJsonData->data);
     if (!docExp.has_value()) {
-        mLogger.error() << "Failed to parse config file [" << result << "]";
+        mLogger.error() << "Failed to parse config file";
         mJsonData.reset();
     } else {
         mJsonData->root = docExp.value();
@@ -1112,7 +1096,7 @@ TprResult Settings::flush() {
     TprResult result;
     mLogger.debug() << "Writing config file to \"" << mConfPath.string() << "\"\n";
 
-    auto openExp = mrFileSys.openFile(mConfPath, TPR_OPEN_FILE_PERSISTENT_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
+    auto openExp = mrFileSys.openPathFile(mConfPath, TPR_OPEN_FILE_PERSISTENT_FLAG_BIT | TPR_OPEN_FILE_ALWAYS_NEW_FLAG_BIT);
     if (!openExp.has_value()) {
         mLogger.error() << "Failed to open config file [" << openExp.error() << "]\n";
         return TPR_SUCCESS;
@@ -1141,7 +1125,7 @@ TprResult Settings::flush() {
             return TPR_SUCCESS;
     }
 
-    result = mrFileSys.writeFile(config, string.size(), reinterpret_cast<const std::byte*>(string.c_str()));
+    result = mrFileSys.writeFile(config, 0, string.size(), string.c_str());
     switch (result) {
         case TPR_SUCCESS:
             break;

@@ -15,7 +15,6 @@
 #include <functional>
 #include <cstdint>
 #include <atomic>
-#include <utility>
 
 
 // from "window_manager.hpp"
@@ -83,7 +82,7 @@ REGISTER_TYPE_NAME_S(PGraphicsDevice, "GDev");
 
 struct GraphicsDeviceBackendInfo {
     using factoryType = std::function<PGraphicsDevice(
-        Logger&& logger, Filesystem& rFileSys, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
+        const Logger& logger, Filesystem& rFileSys, Windowing& rWin, Settings& rSet, SceneGraph& rScGr,
         Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
     )>;
     factoryType factory;

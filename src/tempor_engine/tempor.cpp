@@ -8,6 +8,8 @@
 #include "scene_graph.hpp"
 #include "scheduler.hpp"
 #include "log_entry.hpp"
+#include "core.hpp"
+#include "graphics_common.hpp"
 
 #include "sleep_clock.hpp"
 #include "thread_info.hpp"
@@ -15,6 +17,9 @@
 #include <chrono>
 #include <cstddef>
 #include <optional>
+#include <filesystem>
+#include <memory>
+#include <ratio>
 
 using namespace std::chrono_literals;
 
@@ -25,7 +30,7 @@ void TemporEngine::signal(int sig) noexcept {
 
 
 TemporEngine::TemporEngine(
-    size_t verboseLevel, std::filesystem::path configPath, bool flushConfig, bool configEnabled, bool allowTermColour
+    size_t verboseLevel, const std::filesystem::path& configPath, bool flushConfig, bool configEnabled, bool allowTermColour
 ) : mConfigPath(configPath), mFlushConfig(flushConfig), mConfigEnabled(configEnabled),
     mAllowTermColour(allowTermColour), mTermLevel(static_cast<TprLogLevel>(verboseLevel)) {
 
@@ -141,10 +146,10 @@ TprResult TemporEngine::runtimeInit() {
             *mpSched, mRunResult
         );
 
-        IGraphicsDevice* localGDev = constructService<PGraphicsDevice>(std::move(info.factory(
+        IGraphicsDevice* localGDev = constructService<PGraphicsDevice>(info.factory(
         Logger(mLogger.value()).setPrefix(format_sequence{} << (type_name_v_s<PGraphicsDevice> + ": "_ces)),
             *mpFileSys, *localWindowing, *mpSettings, *mpSceneGraph, *mpSched, *mpAssetStore, mRunResult, 0
-        ))).get();
+        )).get();
 
         if (auto r = localWindowing->init(localGDev, info.graphics); r != TPR_SUCCESS) {
             mLogger->error() << "Failed to initialize Windowing [" << r << "]";

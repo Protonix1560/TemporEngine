@@ -14,8 +14,6 @@
 #include <cassert>
 #include <functional>
 
-#include <iostream>
-
 
 namespace mat {
 
@@ -240,6 +238,8 @@ namespace mat {
             constexpr auto rend() noexcept { return m_data.rend(); }
             constexpr auto rend() const noexcept { return m_data.rend(); }
             constexpr auto crend() noexcept { return m_data.crend(); }
+
+            constexpr auto size() const noexcept { return m_data.size(); }
 
             constexpr interval<B>& front() noexcept { return m_data.front(); }
             constexpr const interval<B>& front() const noexcept { return m_data.front(); }
@@ -1147,6 +1147,8 @@ namespace mat {
             constexpr auto rend() noexcept { return m_data.rend(); }
             constexpr auto rend() const noexcept { return m_data.crend(); }
             constexpr auto crend() const noexcept { return m_data.crend(); }
+
+            constexpr auto size() const noexcept { return m_data.size(); }
 
             constexpr holder& front() noexcept { return m_data.front(); }
             constexpr const holder& front() const noexcept { return m_data.front(); }

@@ -24,6 +24,7 @@
 #include <memory>
 #include <atomic>
 #include <utility>
+#include <cstddef>
 
 #include <vulkan/vulkan.h>
 
@@ -34,11 +35,11 @@
 // registring graphics device backend
 GraphicsDeviceBackendInfo backendInfo {
     [](
-        Logger&& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+        const Logger& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
         Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
     ) -> PGraphicsDevice {
         return std::make_unique<VulkanBackend>(
-            std::move(logger), rFileSys, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
+            logger, rFileSys, rWinMan, rSettings, rScGr, rSched, rAstr, rRunResult, packedEngineVersion
         );
     },
     "Standard Vulkan Backend", GraphicsAPI::Vulkan
@@ -47,9 +48,9 @@ static_registry<GraphicsDeviceBackendInfo, 0>::registrar registrar(backendInfo);
 
 
 VulkanBackend::VulkanBackend(
-    Logger&& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
+    const Logger& logger, Filesystem& rFileSys, Windowing& rWinMan, Settings& rSettings, SceneGraph& rScGr,
     Scheduler& rSched, AssetStore& rAstr, std::atomic<TprResult>& rRunResult, uint32_t packedEngineVersion
-) : mLogger(std::move(logger)), mrFileSys(rFileSys), mrWin(rWinMan), mrSett(rSettings), mrScGr(rScGr),
+) : mLogger(logger), mrFileSys(rFileSys), mrWin(rWinMan), mrSett(rSettings), mrScGr(rScGr),
     mrSched(rSched), mrAstr(rAstr), mrRunResult(rRunResult), mPackedEngineVersion(packedEngineVersion) {}
 
 TprResult VulkanBackend::init() {
@@ -704,17 +705,17 @@ void VulkanBackend::destroyRenderTarget(TprRenderTarget target) noexcept {
         mRenderTargets.erase(it);
         if (entry.use_count() == 1) {
             if (auto domain = entry->depthDomain.lock(); domain) {
-                auto it = std::ranges::find_if(domain->renderTargets, [&](auto other) { return other.lock() == entry; });
+                auto it = std::ranges::find_if(domain->renderTargets, [&](const auto& other) { return other.lock() == entry; });
                 if (it != domain->renderTargets.end()) domain->renderTargets.erase(it);
             }
             if (entry->windowContext) {
-                auto it = std::ranges::find_if(entry->windowContext->renderTargets, [&](auto other) { return other.lock() == entry; });
+                auto it = std::ranges::find_if(entry->windowContext->renderTargets, [&](const auto& other) { return other.lock() == entry; });
                 if (it != entry->windowContext->renderTargets.end()) entry->windowContext->renderTargets.erase(it);
             }
-            for (auto setWeak : entry->sets) {
+            for (const auto& setWeak : entry->sets) {
                 auto set = setWeak.lock();
                 if (set) {
-                    auto it = std::ranges::find_if(set->renderTargets, [&](auto other) { return other.lock() == entry; });
+                    auto it = std::ranges::find_if(set->renderTargets, [&](const auto& other) { return other.lock() == entry; });
                     if (it != set->renderTargets.end()) set->renderTargets.erase(it);
                 }
             }
@@ -750,7 +751,7 @@ expected<TprRenderTargetSet, TprResult> VulkanBackend::createRenderTargetSet(con
             mRenderTargetSetCounter, RenderTargetSetHandle{.entry = std::make_shared<RenderTargetSetEntry>()}
         ).first->second;
         handle.entry->renderTargets.reserve(renderTargets.size());
-        for (auto target : renderTargets) {
+        for (const auto& target : renderTargets) {
             handle.entry->renderTargets.push_back(target);
             target->sets.push_back(handle.entry);
         }
@@ -804,7 +805,7 @@ void VulkanBackend::destroyRenderTargetSet(TprRenderTargetSet set) noexcept {
         auto entry = it->second.entry;
         mRenderTargetSets.erase(it);
         if (entry.use_count() == 1) {
-            for (auto renderTargetWeak : entry->renderTargets) {
+            for (const auto& renderTargetWeak : entry->renderTargets) {
                 auto target = renderTargetWeak.lock();
                 if (target) {
                     auto it = std::ranges::find_if(target->sets, [&](const auto& set) { return set.lock() == entry; });
@@ -1260,11 +1261,10 @@ TprResult VulkanBackend::ensureSwapchain(WindowEntry& ctx) {
                 auto fragExp = mrFileSys.openPathFile("shaders/vulkan/basic.frag.spv");
                 if (!fragExp.has_value()) return fragExp.error();
                 TprFile fragFile = fragExp.value();
-                if (auto r = mrFileSys.seek(fragFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) return r;
-                auto fragTellExp = mrFileSys.tell(fragFile);
-                if (!fragTellExp.has_value()) return fragTellExp.error();
-                std::vector<uint32_t> fragData(fragTellExp.value() / sizeof(uint32_t));
-                if (auto r = mrFileSys.readAt(fragFile, 0, fragTellExp.value(), reinterpret_cast<std::byte*>(fragData.data())); r != TPR_SUCCESS) return r;
+                auto fragSizeExp = mrFileSys.fileSize(fragFile);
+                if (!fragSizeExp.has_value()) return fragSizeExp.error();
+                std::vector<uint32_t> fragData(fragSizeExp.value() / sizeof(uint32_t));
+                if (auto r = mrFileSys.readFile(fragFile, 0, fragSizeExp.value(), reinterpret_cast<std::byte*>(fragData.data())); r != TPR_SUCCESS) return r;
                 VkShaderModuleCreateInfo fragModuleCreateInfo{};
                 fragModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 fragModuleCreateInfo.codeSize = fragData.size() * sizeof(uint32_t);
@@ -1287,17 +1287,13 @@ TprResult VulkanBackend::ensureSwapchain(WindowEntry& ctx) {
                     return vertExp.error();
                 }
                 TprFile vertFile = vertExp.value();
-                if (auto r = mrFileSys.seek(vertFile, 0, TPR_SEEK_WHENCE_END); r != TPR_SUCCESS) {
+                auto vertSizeExp = mrFileSys.fileSize(vertFile);
+                if (!vertSizeExp.has_value()) {
                     mLoader.vkDestroyShaderModule()(mDevice, fragShader, nullptr);
-                    return r;
+                    return vertSizeExp.error();
                 }
-                auto vertTellExp = mrFileSys.tell(vertFile);
-                if (!vertTellExp.has_value()) {
-                    mLoader.vkDestroyShaderModule()(mDevice, fragShader, nullptr);
-                    return vertTellExp.error();
-                }
-                std::vector<uint32_t> vertData(vertTellExp.value() / sizeof(uint32_t));
-                if (auto r = mrFileSys.readAt(vertFile, 0, vertTellExp.value(), reinterpret_cast<std::byte*>(vertData.data())); r != TPR_SUCCESS) return r;
+                std::vector<uint32_t> vertData(vertSizeExp.value() / sizeof(uint32_t));
+                if (auto r = mrFileSys.readFile(vertFile, 0, vertSizeExp.value(), reinterpret_cast<std::byte*>(vertData.data())); r != TPR_SUCCESS) return r;
                 VkShaderModuleCreateInfo vertModuleCreateInfo{};
                 vertModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 vertModuleCreateInfo.codeSize = vertData.size() * sizeof(uint32_t);
